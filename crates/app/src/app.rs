@@ -1124,6 +1124,14 @@ impl App {
             Mode::Settings => self.on_key_settings(event),
             Mode::Help => self.to_write(),
         }
+
+        // Single choke point: whatever the key changed, draw it now. Forgetting
+        // this in one handler makes that movement feel like it lags a beat
+        // behind the key repeat, because the next frame would otherwise wait
+        // for the cursor blink.
+        if self.dirty {
+            self.next_frame = Instant::now();
+        }
     }
 
     /// Write mode: the document is live, editing keys only.
@@ -1690,7 +1698,7 @@ impl App {
     fn set_status(&mut self, message: impl Into<String>) {
         self.status = message.into();
         self.status_at = Instant::now();
-        self.dirty = true;
+        self.poke();
     }
 
     /// Cheap "something changed, redraw soon" for non-document keys.
@@ -2001,7 +2009,9 @@ impl App {
             }
         }
         self.doc.editor.break_undo_group();
-        self.dirty = true;
+        // Without this the redraw waits for the next cursor blink, which makes
+        // vertical movement feel like it lags a beat behind the key repeat.
+        self.poke();
     }
 
     /// Mark the document edited and restart the autosave timer.
