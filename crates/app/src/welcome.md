@@ -2,39 +2,40 @@
 
 A writing terminal that pretends it is 1987.
 
-There is no sidebar, no ribbon and no cloud icon. There is a blue
+There is no sidebar, no ribbon and no cloud icon. There is a black
 screen, a block cursor, and your text.
 
-## Getting started
+## Two modes
 
-- `Ctrl+S` saves. Everything in `~/Documents/CRead` is plain Markdown.
-- `Ctrl+P` opens the file list, or starts a new document.
-- `Ctrl+Z` and `Ctrl+Shift+Z` undo and redo.
-- `Esc` quits.
+You start in *write* mode. Type. That is the whole job.
 
-## Making it yours
+Press `Esc` and the bottom line becomes a command prompt, like a DOS
+shell. Type a command, press `Enter`, and you are back in the text.
+`Esc` on an empty prompt leaves it again.
 
-- `F1` cycles the palette: DOS blue, amber, green, paper.
-- `F2` `F3` `F4` toggle scanlines, bloom and flicker.
-- `F8` turns on typewriter scrolling: the line you write stays put.
-- `F11` toggles fullscreen.
+> The prompt is not a menu. It takes names: `open`, `save`, `sync`.
+> `Tab` completes, the arrow keys walk the history.
 
-## Markdown, inline
+## The commands you will actually use
+
+- `save` writes the document (aliases `w`, `safe`).
+- `saveas <name>` puts it in the vault under a new name.
+- `open` shows the file list, `open <name>` opens it directly.
+- `rename <name>` and `delete` tidy up the vault.
+- `sync` pushes everything to WebDAV.
+- `help` lists the rest, including the screen effects.
+
+## Mostly invisible
+
+Your documents are plain Markdown in `~/Documents/CRead`. Autosave
+runs 1.5 seconds after you stop typing, and writes are atomic, so a
+crash cannot leave half a page behind.
 
 Headings are bright, `code` sits on an inverse cell, **strong** text
 gets a double strike and *emphasis* is sheared a little to the right.
-The markers themselves stay visible, only dimmed, so the text never
-reflows while you type.
-
-> Every effect here is drawn on the emulated pixel grid. Scanlines are
-> always exactly one virtual pixel tall, on every display.
-
-### A short list, for the look of it
-
-1. Write something.
-2. Keep writing.
-3. Save, and let the sync catch up later.
+The markers stay visible, only dimmed, so the text never reflows
+while you type.
 
 ---
 
-Documents sync over WebDAV. Nothing to configure yet; that comes next.
+Press `Esc`, type `help`, and press `Enter`.

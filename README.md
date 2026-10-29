@@ -40,19 +40,43 @@ cargo install --path crates/app
 cread
 ```
 
-## Keys
+## Two modes
 
-| Key | Action |
-| --- | --- |
-| `Ctrl+S` | Save (autosaves 1.5 s after you stop typing) |
-| `Ctrl+P` | Open the file palette / start a new document |
-| `Ctrl+Z`, `Ctrl+Shift+Z` | Undo, redo |
-| `Ctrl+Q`, `Esc` | Quit |
-| `F1` | Cycle theme: DOS blue, amber, green, paper |
-| `F2` `F3` `F4` | Toggle scanlines, bloom, flicker |
-| `F8` | Typewriter scrolling (the current line stays put) |
-| `F9` | WebDAV settings |
-| `F11` | Toggle fullscreen |
+You start in **write mode**: the document is live, the block cursor sits in the
+text, and nothing else competes for your attention. `Esc` switches to **action
+mode**, where the bottom line turns into a command prompt, like a DOS shell.
+`Enter` runs the command, `Esc` on an empty prompt goes back to writing.
+
+```
+> save▌                                          save, saveas, sync, open …
+```
+
+`Tab` completes the command, the arrow keys walk history, and a dimmed hint on
+the right tells you what the command does before you commit to it.
+
+| Command | Aliases | What it does |
+| --- | --- | --- |
+| `save` | `w`, `safe` | write the document to disk |
+| `saveas <name>` | `sa` | save under a new name in the vault |
+| `open [name]` | `o`, `e` | file list, or open a name directly |
+| `new` | `n` | start an empty document |
+| `rename <name>` | `mv`, `rn` | rename the current document |
+| `delete` | `rm`, `del` | delete it, after a `y/n` |
+| `sync` | | push the vault to WebDAV now |
+| `theme [name]` | | black, dos-blue, amber, green, paper |
+| `scanlines [on\|off]` | `scan`, `sl` | scanline strength |
+| `bloom [on\|off]` | | phosphor glow |
+| `flicker [on\|off]` | `fl` | luminance drift |
+| `typewriter [on\|off]` | `tw` | keep the current line in place |
+| `fullscreen` / `windowed` | `fs` | |
+| `undo` / `redo` | `u` | also on `Ctrl+Z` / `Ctrl+Shift+Z` |
+| `settings` | `set`, `cfg` | WebDAV setup |
+| `help` | `?`, `h` | the list above, on screen |
+| `about` | | version and credits |
+| `quit` | `q`, `x` | save and exit |
+
+Autosave runs 1.5 seconds after you stop typing, so a forgotten `save` costs at
+most a sentence.
 
 ## How the picture is built
 
@@ -84,7 +108,7 @@ Documents are plain Markdown files in `~/Documents/CRead` (override with
 `--vault DIR` or `CREAD_VAULT`). Writes are atomic: temp file, fsync, rename. A
 crash leaves either the old file or the new one, never half a page.
 
-WebDAV sync mirrors that folder. Press `F9` and fill in:
+WebDAV sync mirrors that folder. Run `settings` in action mode and fill in:
 
 | Field | Example |
 | --- | --- |
@@ -114,7 +138,7 @@ and prints the result, which is handy for cron or for debugging.
 
 ```
 --scale N         force the integer upscale factor
---theme NAME      dos-blue | amber | green | paper
+--theme NAME      black | dos-blue | amber | green | paper
 --no-crt          disable all effects
 --backend NAME    vulkan | gl
 --size WxH        window size (also drives --screenshot)

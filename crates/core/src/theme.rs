@@ -17,11 +17,14 @@ pub struct Theme {
     pub dim: u8,
     /// Headings, links.
     pub accent: u8,
+    /// Error text in the command prompt.
+    pub error: u8,
     /// Inline code background.
     pub code_bg: u8,
-    /// Status line.
+    /// Status line, and the dimmed text on it.
     pub status_fg: u8,
     pub status_bg: u8,
+    pub status_dim: u8,
     /// Single-line top bar (used for notices / sync state).
     pub notice_fg: u8,
     pub notice_bg: u8,
@@ -65,6 +68,24 @@ impl Theme {
         [0xff, 0xff, 0xff],
     ];
 
+    /// Black background, white text: the look of a plain text terminal.
+    /// This is the default.
+    pub const BLACK: Theme = Theme {
+        name: "black",
+        palette: Theme::CGA,
+        fg: 7,
+        bg: 0,
+        dim: 8,
+        accent: 15,
+        error: 12,
+        code_bg: 8,
+        status_fg: 15,
+        status_bg: 8,
+        status_dim: 7,
+        notice_fg: 15,
+        notice_bg: 8,
+    };
+
     pub const DOS_BLUE: Theme = Theme {
         name: "dos-blue",
         palette: Theme::CGA,
@@ -72,9 +93,11 @@ impl Theme {
         bg: 1,
         dim: 8,
         accent: 15,
+        error: 12,
         code_bg: 0,
         status_fg: 1,
         status_bg: 7,
+        status_dim: 8,
         notice_fg: 15,
         notice_bg: 1,
     };
@@ -86,9 +109,11 @@ impl Theme {
         bg: 0,
         dim: 7,
         accent: 15,
+        error: 15,
         code_bg: 1,
         status_fg: 0,
         status_bg: 13,
+        status_dim: 8,
         notice_fg: 15,
         notice_bg: 1,
     };
@@ -100,9 +125,11 @@ impl Theme {
         bg: 0,
         dim: 7,
         accent: 15,
+        error: 15,
         code_bg: 1,
         status_fg: 0,
         status_bg: 13,
+        status_dim: 8,
         notice_fg: 15,
         notice_bg: 1,
     };
@@ -115,14 +142,22 @@ impl Theme {
         bg: 15,
         dim: 7,
         accent: 1,
+        error: 4,
         code_bg: 8,
         status_fg: 15,
         status_bg: 0,
+        status_dim: 7,
         notice_fg: 15,
         notice_bg: 1,
     };
 
-    pub const ALL: [Theme; 4] = [Theme::DOS_BLUE, Theme::AMBER, Theme::GREEN, Theme::PAPER];
+    pub const ALL: [Theme; 5] = [
+        Theme::BLACK,
+        Theme::DOS_BLUE,
+        Theme::AMBER,
+        Theme::GREEN,
+        Theme::PAPER,
+    ];
 
     pub fn by_name(name: &str) -> Option<Theme> {
         Theme::ALL
@@ -186,6 +221,8 @@ mod tests {
                 theme.code_bg,
                 theme.status_fg,
                 theme.status_bg,
+                theme.status_dim,
+                theme.error,
             ] {
                 assert!(slot < 16, "{} has out-of-range slot {slot}", theme.name);
             }
@@ -206,6 +243,8 @@ mod tests {
     #[test]
     fn lookup_by_name() {
         assert_eq!(Theme::by_name("dos"), Some(Theme::DOS_BLUE));
+        assert_eq!(Theme::by_name("black"), Some(Theme::BLACK));
+        assert_eq!(Theme::ALL[0], Theme::BLACK, "black is the default");
         assert_eq!(Theme::by_name("amber"), Some(Theme::AMBER));
         assert!(Theme::by_name("nope").is_none());
     }

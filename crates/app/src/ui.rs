@@ -26,6 +26,18 @@ pub fn text_height(rows: u32) -> usize {
     rows.saturating_sub(CHROME_ROWS).max(1) as usize
 }
 
+/// What occupies the bottom line.
+pub enum Bottom<'a> {
+    /// Write mode: statistics and a hint.
+    Status { message: &'a str },
+    /// Action mode: the command prompt.
+    Prompt {
+        input: &'a str,
+        hint: &'a str,
+        error: &'a str,
+    },
+}
+
 pub struct DocumentView<'a> {
     pub title: &'a str,
     pub modified: bool,
@@ -38,7 +50,7 @@ pub struct DocumentView<'a> {
     pub stats: Stats,
     pub cursor_pos: (usize, usize),
     pub sync: &'a str,
-    pub status: &'a str,
+    pub bottom: Bottom<'a>,
     pub theme_name: &'a str,
     /// Fenced-code state at the first visible line.
     pub in_fence: bool,
@@ -52,7 +64,10 @@ pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>
 
     draw_top_bar(screen, theme, view);
     draw_text(screen, theme, view);
-    draw_status_bar(screen, theme, view);
+    match &view.bottom {
+        Bottom::Status { message } => draw_status_bar(screen, theme, view, message),
+        Bottom::Prompt { input, hint, error } => draw_prompt(screen, theme, input, hint, error),
+    }
 
     debug_assert!(cols > 0 && rows > 0);
 }
@@ -145,7 +160,12 @@ fn style_for(kind: Kind, theme: &Theme) -> (u8, u8, Style) {
     }
 }
 
-fn draw_status_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
+fn draw_status_bar(
+    screen: &mut Screen,
+    theme: &Theme,
+    view: &DocumentView<'_>,
+    message: &str,
+) {
     let cols = screen.cols();
     let bar = screen.rows().saturating_sub(1);
     let (fg, bg) = (theme.status_fg, theme.status_bg);
@@ -157,14 +177,135 @@ fn draw_status_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) 
     );
     screen.put_str(0, bar, &left, fg, bg, Style::Bold);
 
-    let hint = if view.status.is_empty() {
-        "Ctrl+P open  Ctrl+S save  F1 theme".to_string()
+    let right = if message.is_empty() {
+        "Esc  commands".to_string()
     } else {
-        view.status.to_string()
+        message.to_string()
     };
-    let x = cols.saturating_sub(hint.chars().count() as u32 + 1);
+    let x = cols.saturating_sub(right.chars().count() as u32 + 1);
     if x > left.chars().count() as u32 + 1 {
-        screen.put_str(x, bar, &hint, fg, bg, Style::Normal);
+        screen.put_str(x, bar, &right, fg, bg, Style::Normal);
+    }
+}
+
+/// The action-mode command line: `> input▌` plus a dimmed hint on the right.
+fn draw_prompt(screen: &mut Screen, theme: &Theme, input: &str, hint: &str, error: &str) {
+    let cols = screen.cols();
+    let bar = screen.rows().saturating_sub(1);
+    let (fg, bg) = (theme.status_fg, theme.status_bg);
+    screen.fill_row(bar, Cell::blank(fg, bg));
+
+    screen.put_str(0, bar, ">", theme.accent, bg, Style::Bold);
+    screen.put(1, bar, Cell::blank(fg, bg));
+
+    // Long command lines scroll, keeping the tail (and the cursor) visible.
+    let avail = cols.saturating_sub(3) as usize;
+    let count = input.chars().count();
+    let shown: String = if count > avail {
+        input.chars().skip(count - avail).collect()
+    } else {
+        input.to_string()
+    };
+
+    let end = screen.put_str(3, bar, &shown, fg, bg, Style::Normal);
+    screen.put(end.min(cols.saturating_sub(1)), bar, Cell::blank(bg, fg));
+
+    let text = if error.is_empty() { hint } else { error };
+    let color = if error.is_empty() {
+        theme.status_dim
+    } else {
+        theme.error
+    };
+    let used = 3 + shown.chars().count() as u32 + 2;
+    let room = cols.saturating_sub(used);
+    if (text.chars().count() as u32) < room {
+        let x = cols.saturating_sub(text.chars().count() as u32 + 1);
+        screen.put_str(x, bar, text, color, bg, Style::Normal);
+    }
+}
+
+// ── help / about ────────────────────────────────────────────────────────────
+
+/// Full-screen reference. Without hotkeys this is the only way to discover what
+/// the program can do, so it is a first-class screen rather than a popup.
+pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    let (fg, bg) = (theme.fg, theme.bg);
+    screen.fill(Cell::blank(fg, bg));
+
+    // title bar
+    screen.fill_row(0, Cell::blank(theme.status_fg, theme.status_bg));
+    let title = if about {
+        " CRead 0.1.0 ".to_string()
+    } else {
+        " CRead \u{00b7} commands ".to_string()
+    };
+    screen.put_str(0, 0, &title, theme.status_fg, theme.status_bg, Style::Bold);
+
+    let mut y = 2;
+    let last = rows.saturating_sub(2);
+
+    if about {
+        for line in [
+            "A writing terminal that pretends it is 1987.",
+            "",
+            "Built with Rust, winit and wgpu. The text is drawn into an",
+            "emulated raster and scaled by an integer factor, so scanlines",
+            "stay exactly one emulated pixel tall on any display.",
+            "",
+            "Font: IBM VGA 8x16 from VileR's Ultimate Oldschool PC Font",
+            "Pack, CC BY-SA 4.0 (https://int10h.org/oldschool-pc-fonts/).",
+            "Nine glyphs CP437 never had are hand-drawn in the source.",
+            "",
+            "Documents are plain Markdown in ~/Documents/CRead.",
+        ] {
+            if y >= last {
+                break;
+            }
+            screen.put_str_ellipsis(2, y, line, cols.saturating_sub(4), fg, bg, Style::Normal);
+            y += 1;
+        }
+    } else {
+        for spec in cread_core::command::SPECS {
+            if y >= last {
+                break;
+            }
+            let name = if spec.argument.is_empty() {
+                spec.name.to_string()
+            } else {
+                format!("{} {}", spec.name, spec.argument)
+            };
+            screen.put_str(2, y, &format!("{name:<22}"), theme.accent, bg, Style::Normal);
+            let aliases = spec.aliases.join(", ");
+            screen.put_str(25, y, &format!("{aliases:<15}"), theme.dim, bg, Style::Normal);
+            screen.put_str_ellipsis(
+                41,
+                y,
+                spec.summary,
+                cols.saturating_sub(42),
+                fg,
+                bg,
+                Style::Normal,
+            );
+            y += 1;
+        }
+    }
+
+    let bar = rows.saturating_sub(1);
+    screen.fill_row(bar, Cell::blank(theme.status_fg, theme.status_bg));
+    screen.put_str(
+        0,
+        bar,
+        " Esc  back to write mode ",
+        theme.status_fg,
+        theme.status_bg,
+        Style::Normal,
+    );
+    let right = "type any command name to run it ";
+    let x = cols.saturating_sub(right.chars().count() as u32 + 1);
+    if x > 30 {
+        screen.put_str(x, bar, right, theme.status_fg, theme.status_bg, Style::Normal);
     }
 }
 
@@ -413,7 +554,7 @@ mod tests {
             stats: Stats { words: 3, chars: 20, lines: 2 },
             cursor_pos: (0, 3),
             sync: "sync: idle",
-            status: input.0,
+            bottom: Bottom::Status { message: input.0 },
             theme_name: input.1,
             in_fence: false,
             cursor_on: true,

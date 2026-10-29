@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cread_core::{
-    resolution::target_line_px_for_scale_factor, storage, Editor, ScaleMode, Screen, Stats, Theme,
-    Viewport,
+    command::{self, Command, CommandError},
+    resolution::target_line_px_for_scale_factor,
+    storage, Editor, ScaleMode, Screen, Stats, Theme, Viewport,
 };
 use cread_render::{raster, CrtSettings, Font, FrameStatus, Framebuffer, Renderer};
 use winit::application::ApplicationHandler;
@@ -107,11 +108,18 @@ impl Palette {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
-    Editor,
+    /// Typing into the document.
+    Write,
+    /// A command line at the bottom, like a shell.
+    Action,
+    /// File picker.
     Palette,
+    /// WebDAV settings.
     Settings,
+    /// Full-screen help or about.
+    Help,
 }
 
 struct App {
@@ -145,6 +153,15 @@ struct App {
     form: FormState,
     status: String,
     screenshot_done: bool,
+
+    /// Action-mode command line.
+    command: String,
+    command_error: String,
+    history: Vec<String>,
+    history_pos: Option<usize>,
+    /// Pending yes/no question, e.g. before deleting a file.
+    confirm: Option<String>,
+    help_about: bool,
 
     sync_cfg: SyncConfig,
     sync: Option<Worker>,
@@ -242,11 +259,17 @@ impl App {
             mods: ModifiersState::empty(),
             typewriter: false,
             doc,
-            mode: Mode::Editor,
+            mode: Mode::Write,
             palette: Palette::empty(),
             form: FormState::from_config(&sync_cfg),
             status: String::new(),
             screenshot_done: false,
+            command: String::new(),
+            command_error: String::new(),
+            history: Vec::new(),
+            history_pos: None,
+            confirm: None,
+            help_about: false,
             sync_label: initial_sync_label(&sync_cfg),
             sync_cfg,
             sync: None,
@@ -427,8 +450,15 @@ impl App {
 
     /// Build the cell grid for the current state.
     fn compose(&mut self) {
-        let cols = self.screen.cols();
-        let rows = self.screen.rows();
+        let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
+        if self.mode == Mode::Help {
+            ui::draw_help(&mut screen, &self.theme, self.help_about);
+            self.screen = screen;
+            return;
+        }
+
+        let cols = screen.cols();
+        let rows = screen.rows();
         let (text_width, margin) = ui::layout(cols);
         let height = ui::text_height(rows);
 
@@ -469,7 +499,33 @@ impl App {
             sync
         };
 
-        let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
+        // A pending yes/no question takes over the prompt line.
+        let question = self.confirm.clone().unwrap_or_default();
+        let hint = if self.command.is_empty() {
+            "type help for all commands".to_string()
+        } else {
+            command::complete(&self.command)
+                .map(|c| c.hint)
+                .unwrap_or_default()
+        };
+        let error = if question.is_empty() {
+            self.command_error.clone()
+        } else {
+            question
+        };
+        let bottom = if self.mode == Mode::Action {
+            ui::Bottom::Prompt {
+                input: &self.command,
+                hint: &hint,
+                error: &error,
+            }
+        } else {
+            ui::Bottom::Status {
+                message: &self.status,
+            }
+        };
+        // The document cursor belongs to write mode; the prompt has its own.
+        let cursor_cell = if self.mode == Mode::Write { cursor_cell } else { None };
 
         // The document is always there; overlays are painted on top of it, like
         // a TSR popping up over a DOS application.
@@ -485,7 +541,7 @@ impl App {
                 stats,
                 cursor_pos: (cursor.line, cursor.col),
                 sync: &sync,
-                status: &self.status,
+                bottom,
                 theme_name: self.theme.name,
                 in_fence,
                 cursor_on: self.blink,
@@ -516,7 +572,7 @@ impl App {
                 };
                 ui::draw_form(&mut screen, &self.theme, &view);
             }
-            Mode::Editor => {}
+            Mode::Write | Mode::Action | Mode::Help => {}
         }
 
         self.screen = screen;
@@ -525,7 +581,7 @@ impl App {
     // ── persistence ─────────────────────────────────────────────────────────
 
     fn autosave_if_due(&mut self) {
-        if self.mode != Mode::Editor {
+        if self.mode != Mode::Write {
             return;
         }
         if !self.doc.editor.modified() {
@@ -537,8 +593,8 @@ impl App {
         let Some(path) = self.doc.path.clone() else {
             return;
         };
-        if self.save_to(&path) {
-            self.status = "autosaved".into();
+        if let Err(e) = self.save_to(&path) {
+            self.status = e;
         }
     }
 
@@ -633,7 +689,7 @@ impl App {
                 if let Some(worker) = self.sync.as_ref() {
                     worker.configure(cfg);
                 }
-                self.mode = Mode::Editor;
+                self.to_write();
                 self.status = if self.sync_cfg.enabled {
                     "sync on".into()
                 } else {
@@ -645,46 +701,119 @@ impl App {
         self.dirty = true;
     }
 
-    fn save_to(&mut self, path: &Path) -> bool {
+    fn save_to(&mut self, path: &Path) -> Result<(), String> {
         let text = self.doc.editor.text();
-        match storage::save_atomic(path, &text) {
-            Ok(()) => {
-                self.doc.editor.mark_saved();
-                self.doc.path = Some(path.to_path_buf());
-                remember_last_file(path);
-                if self.sync_cfg.enabled {
-                    self.request_sync();
-                }
-                self.dirty = true;
-                true
-            }
-            Err(e) => {
-                self.status = format!("save failed: {e}");
-                self.dirty = true;
-                false
-            }
+        storage::save_atomic(path, &text).map_err(|e| format!("save failed: {e}"))?;
+        self.doc.editor.mark_saved();
+        self.doc.path = Some(path.to_path_buf());
+        remember_last_file(path);
+        if self.sync_cfg.enabled {
+            self.request_sync();
         }
+        self.dirty = true;
+        Ok(())
     }
 
-    fn save(&mut self) {
-        if let Some(path) = self.doc.path.clone() {
-            if self.save_to(&path) {
-                self.status = format!("saved {}", self.doc.title());
-            }
-            return;
-        }
+    fn save(&mut self) -> Result<String, String> {
+        let path = match self.doc.path.clone() {
+            Some(path) => path,
+            None => self.free_untitled_path(),
+        };
+        self.save_to(&path)?;
+        Ok(if self.doc.path.as_deref() == Some(path.as_path()) {
+            format!("saved {}", self.doc.title())
+        } else {
+            format!("saved as {}", path.display())
+        })
+    }
 
-        // First save of the welcome buffer: pick a free name in the vault.
-        let dir = self.opts.vault.clone().unwrap_or_else(storage::vault_dir);
+    fn save_as(&mut self, name: &str) -> Result<String, String> {
+        let path = self.document_path(name);
+        self.save_to(&path)?;
+        Ok(format!("saved as {}", path.display()))
+    }
+
+    fn vault(&self) -> PathBuf {
+        self.opts.vault.clone().unwrap_or_else(storage::vault_dir)
+    }
+
+    /// First free `untitled[-n].md` in the vault.
+    fn free_untitled_path(&self) -> PathBuf {
+        let dir = self.vault();
         let mut path = dir.join("untitled.md");
         let mut n = 2;
         while path.exists() {
             path = dir.join(format!("untitled-{n}.md"));
             n += 1;
         }
-        if self.save_to(&path) {
-            self.status = format!("saved as {}", path.display());
+        path
+    }
+
+    /// Resolve a user-supplied name inside the vault, adding `.md` when needed.
+    fn document_path(&self, name: &str) -> PathBuf {
+        let raw = PathBuf::from(name);
+        let path = if raw.is_absolute() {
+            raw
+        } else {
+            self.vault().join(raw)
+        };
+        if path.extension().is_some() {
+            path
+        } else {
+            path.with_extension("md")
         }
+    }
+
+    /// Find an existing document by name, with or without the extension.
+    fn find_document(&self, name: &str) -> Option<PathBuf> {
+        let with_ext = self.document_path(name);
+        if with_ext.is_file() {
+            return Some(with_ext);
+        }
+        let bare = self.vault().join(name);
+        bare.is_file().then_some(bare)
+    }
+
+    fn open_document(&mut self, path: PathBuf) -> Result<(), String> {
+        let text =
+            storage::load(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+        self.doc = Document {
+            path: Some(path.clone()),
+            editor: Editor::from_text(&text),
+            last_edit: Instant::now(),
+        };
+        remember_last_file(&path);
+        self.dirty = true;
+        Ok(())
+    }
+
+    fn rename_current(&mut self, name: &str) -> Result<String, String> {
+        let target = self.document_path(name);
+        match self.doc.path.clone().filter(|p| p.is_file()) {
+            Some(old) => {
+                std::fs::rename(&old, &target).map_err(|e| format!("rename failed: {e}"))?;
+                self.doc.path = Some(target.clone());
+                remember_last_file(&target);
+                self.dirty = true;
+                Ok(format!("renamed to {}", target.display()))
+            }
+            // Not on disk yet: fall back to a plain save under the new name.
+            None => self.save_as(name),
+        }
+    }
+
+    fn delete_current(&mut self) -> Result<String, String> {
+        let Some(path) = self.doc.path.clone().filter(|p| p.is_file()) else {
+            return Err("nothing to delete".into());
+        };
+        std::fs::remove_file(&path).map_err(|e| format!("delete failed: {e}"))?;
+        self.doc = Document {
+            path: None,
+            editor: Editor::from_text(WELCOME),
+            last_edit: Instant::now(),
+        };
+        self.dirty = true;
+        Ok(format!("deleted {}", path.display()))
     }
 
     // ── palette ─────────────────────────────────────────────────────────────
@@ -722,40 +851,24 @@ impl App {
             return;
         };
         match action {
-            Action::Open(path) => {
-                match storage::load(&path) {
-                    Ok(text) => {
-                        self.doc = Document {
-                            path: Some(path.clone()),
-                            editor: Editor::from_text(&text),
-                            last_edit: Instant::now(),
-                        };
-                        remember_last_file(&path);
-                        self.status = format!("opened {}", path.display());
-                    }
-                    Err(e) => self.status = format!("cannot open: {e}"),
-                }
-            }
+            Action::Open(path) => match self.open_document(path.clone()) {
+                Ok(()) => self.status = format!("opened {}", path.display()),
+                Err(e) => self.status = e,
+            },
             Action::NewFile => {
-                let dir = self.opts.vault.clone().unwrap_or_else(storage::vault_dir);
-                let mut path = dir.join("untitled.md");
-                let mut n = 2;
-                while path.exists() {
-                    path = dir.join(format!("untitled-{n}.md"));
-                    n += 1;
-                }
+                let path = self.free_untitled_path();
                 self.doc = Document {
                     path: None,
                     editor: Editor::new(),
                     last_edit: Instant::now(),
                 };
-                if self.save_to(&path) {
-                    self.status = format!("created {}", path.display());
+                match self.save_to(&path) {
+                    Ok(()) => self.status = format!("created {}", path.display()),
+                    Err(e) => self.status = e,
                 }
             }
         }
-        self.mode = Mode::Editor;
-        self.dirty = true;
+        self.to_write();
     }
 
     // ── input ───────────────────────────────────────────────────────────────
@@ -764,70 +877,81 @@ impl App {
         if event.state != ElementState::Pressed {
             return;
         }
-        if self.mode == Mode::Palette {
-            self.on_key_palette(event);
-            return;
+        self.last_input = Instant::now();
+        match self.mode {
+            Mode::Write => self.on_key_write(el, event),
+            Mode::Action => self.on_key_action(el, event),
+            Mode::Palette => self.on_key_palette(event),
+            Mode::Settings => self.on_key_settings(event),
+            Mode::Help => self.to_write(),
         }
-        if self.mode == Mode::Settings {
-            self.on_key_settings(event);
-            return;
-        }
+    }
 
+    /// Write mode: the document is live, editing keys only.
+    fn on_key_write(&mut self, _el: &ActiveEventLoop, event: KeyEvent) {
         let ctrl = self.mods.control_key() || self.mods.super_key();
+        let code = match event.physical_key {
+            PhysicalKey::Code(code) => Some(code),
+            PhysicalKey::Unidentified(_) => None,
+        };
+
+        if ctrl {
+            // Undo is an editing gesture, not a command, so it keeps its key.
+            match code {
+                Some(KeyCode::KeyZ) => {
+                    if self.mods.shift_key() {
+                        self.doc.editor.redo();
+                    } else {
+                        self.doc.editor.undo();
+                    }
+                    self.touch();
+                }
+                Some(KeyCode::KeyY) => {
+                    self.doc.editor.redo();
+                    self.touch();
+                }
+                Some(KeyCode::ArrowLeft) => {
+                    self.doc.editor.move_word_left();
+                    self.poke();
+                }
+                Some(KeyCode::ArrowRight) => {
+                    self.doc.editor.move_word_right();
+                    self.poke();
+                }
+                Some(KeyCode::Home) => {
+                    self.doc.editor.move_doc_start();
+                    self.poke();
+                }
+                Some(KeyCode::End) => {
+                    self.doc.editor.move_doc_end();
+                    self.poke();
+                }
+                _ => {}
+            }
+            return;
+        }
 
         match &event.logical_key {
-            Key::Named(NamedKey::Escape) => {
-                // One stray Escape should not end a writing session.
-                if self.doc.editor.modified() {
-                    self.status = "unsaved - Ctrl+Q to quit anyway".into();
-                    self.dirty = true;
-                } else {
-                    el.exit();
-                }
-            }
-            Key::Named(NamedKey::F1) => {
-                let idx = Theme::ALL.iter().position(|t| *t == self.theme).unwrap_or(0);
-                self.theme = Theme::ALL[(idx + 1) % Theme::ALL.len()];
-                self.status = format!("theme: {}", self.theme.name);
-                self.dirty = true;
-            }
-            Key::Named(NamedKey::F2) => self.toggle_effect(Effect::Scanline),
-            Key::Named(NamedKey::F3) => self.toggle_effect(Effect::Bloom),
-            Key::Named(NamedKey::F4) => self.toggle_effect(Effect::Flicker),
-            Key::Named(NamedKey::F8) => {
-                self.typewriter = !self.typewriter;
-                self.status = format!(
-                    "typewriter scrolling: {}",
-                    if self.typewriter { "on" } else { "off" }
-                );
-                self.dirty = true;
-            }
-            Key::Named(NamedKey::F9) => self.open_settings(),
-            Key::Named(NamedKey::F11) => self.toggle_fullscreen(),
-            _ if ctrl => self.on_key_ctrl(el, &event),
+            Key::Named(NamedKey::Escape) => self.to_action(),
             Key::Named(NamedKey::ArrowLeft) => {
                 self.doc.editor.move_left();
                 self.doc.editor.break_undo_group();
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::ArrowRight) => {
                 self.doc.editor.move_right();
                 self.doc.editor.break_undo_group();
-                self.dirty = true;
+                self.poke();
             }
-            Key::Named(NamedKey::ArrowUp) => {
-                self.move_vertical(-1);
-            }
-            Key::Named(NamedKey::ArrowDown) => {
-                self.move_vertical(1);
-            }
+            Key::Named(NamedKey::ArrowUp) => self.move_vertical(-1),
+            Key::Named(NamedKey::ArrowDown) => self.move_vertical(1),
             Key::Named(NamedKey::Home) => {
                 self.doc.editor.move_home();
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::End) => {
                 self.doc.editor.move_end();
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::PageUp) => {
                 let h = ui::text_height(self.screen.rows()) as isize;
@@ -870,83 +994,328 @@ impl App {
         }
     }
 
-    fn on_key_ctrl(&mut self, el: &ActiveEventLoop, event: &KeyEvent) {
-        // Shortcuts are matched on the physical key: with Ctrl held, some
-        // backends report `logical_key` as a control character, not "s".
-        let shift = self.mods.shift_key();
-        let code = match event.physical_key {
-            PhysicalKey::Code(code) => code,
-            PhysicalKey::Unidentified(_) => return,
-        };
-        match code {
-            KeyCode::KeyS => self.save(),
-            KeyCode::KeyP => self.open_palette(),
-            KeyCode::KeyQ => el.exit(),
-            KeyCode::KeyZ => {
-                if shift {
-                    self.doc.editor.redo();
-                } else {
-                    self.doc.editor.undo();
+    /// Action mode: the document is frozen, keys go to the command line.
+    fn on_key_action(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
+        if let Some(question) = self.confirm.clone() {
+            let _ = question;
+            if matches!(&event.logical_key, Key::Character(c) if c.eq_ignore_ascii_case("y")) {
+                self.confirm = None;
+                match self.delete_current() {
+                    Ok(msg) => {
+                        self.status = msg;
+                        self.to_write();
+                    }
+                    Err(e) => self.command_error = e,
                 }
-                self.dirty = true;
+            } else {
+                self.confirm = None;
+                self.status = "cancelled".into();
+                self.to_write();
             }
-            KeyCode::KeyY => {
-                self.doc.editor.redo();
-                self.dirty = true;
+            self.poke();
+            return;
+        }
+
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                if self.command.is_empty() {
+                    self.to_write();
+                } else {
+                    self.command.clear();
+                    self.command_error.clear();
+                }
+                self.poke();
             }
-            KeyCode::ArrowLeft => {
-                self.doc.editor.move_word_left();
-                self.dirty = true;
+            Key::Named(NamedKey::Enter) => self.submit_command(el),
+            Key::Named(NamedKey::Tab) => {
+                if let Some(completion) = command::complete(&self.command) {
+                    self.command = completion.completed;
+                }
+                self.poke();
             }
-            KeyCode::ArrowRight => {
-                self.doc.editor.move_word_right();
-                self.dirty = true;
+            Key::Named(NamedKey::ArrowUp) => {
+                self.history_step(-1);
+                self.poke();
             }
-            KeyCode::Home => {
-                self.doc.editor.move_doc_start();
-                self.dirty = true;
+            Key::Named(NamedKey::ArrowDown) => {
+                self.history_step(1);
+                self.poke();
             }
-            KeyCode::End => {
-                self.doc.editor.move_doc_end();
-                self.dirty = true;
+            Key::Named(NamedKey::Backspace) => {
+                self.command.pop();
+                self.command_error.clear();
+                self.poke();
+            }
+            Key::Named(NamedKey::Space) => {
+                self.command.push(' ');
+                self.command_error.clear();
+                self.poke();
+            }
+            Key::Character(text) => {
+                if self.mods.alt_key() {
+                    return;
+                }
+                for ch in text.chars().filter(|c| !c.is_control()) {
+                    self.command.push(ch);
+                }
+                self.command_error.clear();
+                self.poke();
             }
             _ => {}
         }
     }
 
+    fn submit_command(&mut self, el: &ActiveEventLoop) {
+        let line = self.command.trim().to_string();
+        let command = match command::parse(&line) {
+            Ok(command) => command,
+            Err(CommandError::Empty) => {
+                self.to_write();
+                return;
+            }
+            Err(e) => {
+                self.command_error = e.message();
+                self.poke();
+                return;
+            }
+        };
+
+        if self.history.last() != Some(&line) {
+            self.history.push(line);
+            if self.history.len() > 200 {
+                self.history.remove(0);
+            }
+        }
+        self.history_pos = None;
+
+        match self.run_command(el, command) {
+            Ok(message) => {
+                if !message.is_empty() {
+                    self.status = message;
+                }
+                self.command.clear();
+                self.command_error.clear();
+                // Commands that opened another screen keep it.
+                if self.mode == Mode::Action && self.confirm.is_none() {
+                    self.to_write();
+                }
+            }
+            Err(e) => {
+                // Keep the typed line so it can be corrected.
+                self.command_error = e;
+            }
+        }
+        self.poke();
+    }
+
+    fn run_command(
+        &mut self,
+        el: &ActiveEventLoop,
+        command: Command,
+    ) -> Result<String, String> {
+        match command {
+            Command::Save => self.save(),
+            Command::SaveAs(name) => self.save_as(&name),
+            Command::Open(None) => {
+                self.open_palette();
+                Ok(String::new())
+            }
+            Command::Open(Some(name)) => {
+                let path = self
+                    .find_document(&name)
+                    .ok_or_else(|| format!("no such document: {name}"))?;
+                self.open_document(path)?;
+                Ok(format!("opened {}", self.doc.title()))
+            }
+            Command::New => {
+                self.doc = Document {
+                    path: None,
+                    editor: Editor::new(),
+                    last_edit: Instant::now(),
+                };
+                self.dirty = true;
+                Ok("new document".into())
+            }
+            Command::Rename(name) => self.rename_current(&name),
+            Command::Delete => {
+                if self.doc.path.is_none() {
+                    return Err("nothing to delete".into());
+                }
+                self.confirm = Some(format!("delete {}? y/n", self.doc.title()));
+                Ok(String::new())
+            }
+            Command::Sync => {
+                if !self.sync_cfg.enabled || self.sync.is_none() {
+                    return Err("webdav is off - try 'settings'".into());
+                }
+                self.request_sync();
+                Ok("sync requested".into())
+            }
+            Command::Theme(None) => {
+                let idx = Theme::ALL.iter().position(|t| *t == self.theme).unwrap_or(0);
+                self.theme = Theme::ALL[(idx + 1) % Theme::ALL.len()];
+                self.dirty = true;
+                Ok(format!("theme: {}", self.theme.name))
+            }
+            Command::Theme(Some(name)) => {
+                let theme = Theme::by_name(&name).ok_or_else(|| {
+                    let names: Vec<&str> = Theme::ALL.iter().map(|t| t.name).collect();
+                    format!("unknown theme: {name} ({})", names.join(", "))
+                })?;
+                self.theme = theme;
+                self.dirty = true;
+                Ok(format!("theme: {}", theme.name))
+            }
+            Command::Scanlines(want) => {
+                let on = apply_switch(&mut self.crt.scanline, self.crt_base.scanline, want);
+                self.dirty = true;
+                Ok(format!("scanlines: {}", on_off(on)))
+            }
+            Command::Bloom(want) => {
+                let on = apply_switch(&mut self.crt.bloom, self.crt_base.bloom, want);
+                self.dirty = true;
+                Ok(format!("bloom: {}", on_off(on)))
+            }
+            Command::Flicker(want) => {
+                let on = apply_switch(&mut self.crt.flicker, self.crt_base.flicker, want);
+                self.dirty = true;
+                Ok(format!("flicker: {}", on_off(on)))
+            }
+            Command::Typewriter(want) => {
+                self.typewriter = want.unwrap_or(!self.typewriter);
+                self.dirty = true;
+                Ok(format!("typewriter: {}", on_off(self.typewriter)))
+            }
+            Command::Fullscreen(on) => {
+                self.set_fullscreen(on);
+                Ok(if on { "fullscreen" } else { "windowed" }.to_string())
+            }
+            Command::Undo => {
+                if self.doc.editor.undo() {
+                    self.dirty = true;
+                    Ok("undone".into())
+                } else {
+                    Err("nothing to undo".into())
+                }
+            }
+            Command::Redo => {
+                if self.doc.editor.redo() {
+                    self.dirty = true;
+                    Ok("redone".into())
+                } else {
+                    Err("nothing to redo".into())
+                }
+            }
+            Command::Settings => {
+                self.open_settings();
+                Ok(String::new())
+            }
+            Command::Help => {
+                self.help_about = false;
+                self.mode = Mode::Help;
+                self.dirty = true;
+                Ok(String::new())
+            }
+            Command::About => {
+                self.help_about = true;
+                self.mode = Mode::Help;
+                self.dirty = true;
+                Ok(String::new())
+            }
+            Command::Quit => {
+                self.save()?;
+                el.exit();
+                Ok(String::new())
+            }
+        }
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn to_action(&mut self) {
+        self.mode = Mode::Action;
+        self.command.clear();
+        self.command_error.clear();
+        self.history_pos = None;
+        self.confirm = None;
+        self.dirty = true;
+    }
+
+    #[allow(clippy::wrong_self_convention)]
+    fn to_write(&mut self) {
+        self.mode = Mode::Write;
+        self.command.clear();
+        self.command_error.clear();
+        self.history_pos = None;
+        self.confirm = None;
+        self.dirty = true;
+    }
+
+    fn history_step(&mut self, delta: isize) {
+        if self.history.is_empty() {
+            return;
+        }
+        let last = self.history.len() as isize - 1;
+        let next = match self.history_pos {
+            None => {
+                if delta < 0 {
+                    last
+                } else {
+                    return;
+                }
+            }
+            Some(pos) => pos as isize + delta,
+        };
+        if next < 0 {
+            self.history_pos = Some(0);
+        } else if next > last {
+            self.history_pos = None;
+            self.command.clear();
+            return;
+        } else {
+            self.history_pos = Some(next as usize);
+        }
+        if let Some(pos) = self.history_pos {
+            self.command = self.history[pos].clone();
+        }
+    }
+
+    /// Cheap "something changed, redraw soon" for non-document keys.
+    fn poke(&mut self) {
+        self.last_input = Instant::now();
+        self.next_frame = self.last_input;
+        self.dirty = true;
+    }
+
     fn on_key_palette(&mut self, event: KeyEvent) {
         match &event.logical_key {
-            Key::Named(NamedKey::Escape) => {
-                self.mode = Mode::Editor;
-                self.dirty = true;
-            }
+            Key::Named(NamedKey::Escape) => self.to_write(),
             Key::Named(NamedKey::Enter) => self.palette_accept(),
             Key::Named(NamedKey::ArrowUp) => {
                 self.palette.selected = self.palette.selected.saturating_sub(1);
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::ArrowDown) => {
                 if self.palette.selected + 1 < self.palette.filtered.len() {
                     self.palette.selected += 1;
                 }
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::Backspace) => {
                 self.palette.input.pop();
                 self.palette.refilter();
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::Space) => {
                 self.palette.input.push(' ');
                 self.palette.refilter();
-                self.dirty = true;
+                self.poke();
             }
             Key::Character(text) => {
                 for ch in text.chars().filter(|c| !c.is_control()) {
                     self.palette.input.push(ch);
                 }
                 self.palette.refilter();
-                self.dirty = true;
+                self.poke();
             }
             _ => {}
         }
@@ -955,41 +1324,40 @@ impl App {
     fn on_key_settings(&mut self, event: KeyEvent) {
         let ctrl = self.mods.control_key() || self.mods.super_key();
         match &event.logical_key {
-            _ if ctrl && matches!(&event.logical_key, Key::Character(c) if c.eq_ignore_ascii_case("s")) => {
+            _ if ctrl
+                && matches!(&event.logical_key, Key::Character(c) if c.eq_ignore_ascii_case("s")) =>
+            {
                 self.save_settings()
             }
-            Key::Named(NamedKey::Escape) => {
-                self.mode = Mode::Editor;
-                self.dirty = true;
-            }
+            Key::Named(NamedKey::Escape) => self.to_write(),
             Key::Named(NamedKey::Enter) => {
                 if self.form.focus == 4 {
                     self.form.enabled = !self.form.enabled;
-                    self.dirty = true;
+                    self.poke();
                 } else {
                     self.save_settings();
                 }
             }
             Key::Named(NamedKey::Tab) | Key::Named(NamedKey::ArrowDown) => {
                 self.form.focus = (self.form.focus + 1) % FormState::field_count();
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::ArrowUp) => {
                 self.form.focus =
                     (self.form.focus + FormState::field_count() - 1) % FormState::field_count();
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::Backspace) => {
                 if let Some(field) = self.form.text_field_mut() {
                     field.pop();
                 }
-                self.dirty = true;
+                self.poke();
             }
             Key::Named(NamedKey::Space) => {
                 if let Some(field) = self.form.text_field_mut() {
                     field.push(' ');
                 }
-                self.dirty = true;
+                self.poke();
             }
             Key::Character(text) => {
                 if let Some(field) = self.form.text_field_mut() {
@@ -997,7 +1365,7 @@ impl App {
                         field.push(ch);
                     }
                 }
-                self.dirty = true;
+                self.poke();
             }
             _ => {}
         }
@@ -1018,45 +1386,28 @@ impl App {
 
     /// Mark the document edited and restart the autosave timer.
     fn touch(&mut self) {
-        let now = Instant::now();
-        self.doc.last_edit = now;
-        self.last_input = now;
-        // Do not wait for the frame budget after a keystroke.
-        self.next_frame = now;
+        self.doc.last_edit = Instant::now();
+        self.poke();
+    }
+
+    fn set_fullscreen(&mut self, on: bool) {
+        if let Some(window) = self.window.as_ref() {
+            window.set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
+        }
         self.dirty = true;
     }
 
-    fn toggle_fullscreen(&mut self) {
-        let Some(window) = self.window.as_ref() else {
-            return;
-        };
-        let go_fullscreen = window.fullscreen().is_none();
-        window.set_fullscreen(go_fullscreen.then_some(Fullscreen::Borderless(None)));
-        self.status = if go_fullscreen {
-            "fullscreen".into()
-        } else {
-            "windowed".into()
-        };
-        self.dirty = true;
-    }
-
-    fn toggle_effect(&mut self, effect: Effect) {
-        let (slot, base, name) = match effect {
-            Effect::Scanline => (&mut self.crt.scanline, self.crt_base.scanline, "scanlines"),
-            Effect::Bloom => (&mut self.crt.bloom, self.crt_base.bloom, "bloom"),
-            Effect::Flicker => (&mut self.crt.flicker, self.crt_base.flicker, "flicker"),
-        };
-        *slot = if *slot > 0.0 { 0.0 } else { base.max(0.05) };
-        self.status = format!("{name}: {}", if *slot > 0.0 { "on" } else { "off" });
-        self.dirty = true;
-    }
 }
 
-#[derive(Clone, Copy)]
-enum Effect {
-    Scanline,
-    Bloom,
-    Flicker,
+/// Effect switches: `None` toggles, `Some` sets. Returns the resulting state.
+fn apply_switch(slot: &mut f32, base: f32, want: Option<bool>) -> bool {
+    let on = want.unwrap_or(*slot <= 0.0);
+    *slot = if on { base.max(0.05) } else { 0.0 };
+    on
+}
+
+fn on_off(value: bool) -> &'static str {
+    if value { "on" } else { "off" }
 }
 
 impl ApplicationHandler for App {
@@ -1120,6 +1471,13 @@ impl ApplicationHandler for App {
         match self.opts.show.as_str() {
             "palette" => self.open_palette(),
             "settings" => self.open_settings(),
+            "help" => {
+                self.mode = Mode::Help;
+            }
+            "action" => {
+                self.to_action();
+                self.command = self.opts.command.clone();
+            }
             _ => {}
         }
     }
@@ -1160,7 +1518,7 @@ impl ApplicationHandler for App {
     fn exiting(&mut self, _el: &ActiveEventLoop) {
         // Never lose the last keystrokes on quit.
         if self.doc.editor.modified() {
-            self.save();
+            let _ = self.save();
         }
     }
 }

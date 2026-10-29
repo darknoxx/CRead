@@ -15,7 +15,7 @@ USAGE:
 OPTIONS:
     -w, --windowed          Start in a window instead of fullscreen
         --scale N           Force an integer upscale factor (default: auto)
-        --theme NAME        dos-blue | amber | green | paper
+        --theme NAME        black | dos-blue | amber | green | paper
         --size WxH          Window size, e.g. 1920x1080 (handy for testing)
         --backend NAME      vulkan | gl
         --no-crt            Disable scanlines, bloom and flicker
@@ -25,7 +25,8 @@ OPTIONS:
         --vault DIR         Document folder (default: ~/Documents/CRead)
         --demo              Open the built-in welcome document
         --sync-once         Run one WebDAV sync round, print the result, exit
-        --show VIEW         Start with an overlay open: editor | palette | settings
+        --show VIEW         Start in a view: editor | action | palette | settings | help
+        --command TEXT      Prefill the action prompt (handy for demos)
         --screenshot-delay MS  Wait before capturing (lets background work finish)
         --screenshot PATH   Render one frame to PATH (PNG) and exit
     -h, --help              Show this help
@@ -46,6 +47,7 @@ pub struct Options {
     pub sync_once: bool,
     pub show: String,
     pub screenshot_delay: u64,
+    pub command: String,
 }
 
 impl Default for Options {
@@ -53,7 +55,7 @@ impl Default for Options {
         Self {
             fullscreen: true,
             scale: None,
-            theme: Theme::DOS_BLUE,
+            theme: Theme::BLACK,
             crt: CrtSettings::default(),
             size: None,
             backend: None,
@@ -64,6 +66,7 @@ impl Default for Options {
             sync_once: false,
             show: String::from("editor"),
             screenshot_delay: 0,
+            command: String::new(),
         }
     }
 }
@@ -123,9 +126,13 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                 let v = args.next().ok_or("--screenshot-delay needs a value")?;
                 opts.screenshot_delay = v.parse().map_err(|_| format!("bad delay: {v}"))?;
             }
+            "--command" => {
+                let v = args.next().ok_or("--command needs a value")?;
+                opts.command = v;
+            }
             "--show" => {
                 let v = args.next().ok_or("--show needs a value")?;
-                if !["editor", "palette", "settings"].contains(&v.as_str()) {
+                if !["editor", "action", "palette", "settings", "help"].contains(&v.as_str()) {
                     return Err(format!("unknown view: {v}"));
                 }
                 opts.show = v;
@@ -172,7 +179,7 @@ mod tests {
     fn defaults_are_fullscreen_dos_blue() {
         let o = run(&[]);
         assert!(o.fullscreen);
-        assert_eq!(o.theme, Theme::DOS_BLUE);
+        assert_eq!(o.theme, Theme::BLACK);
         assert!(o.crt.scanline > 0.0);
         assert!(o.file.is_none());
     }
