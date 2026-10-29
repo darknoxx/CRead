@@ -17,6 +17,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::cli::Options;
 use crate::ui;
+use cread_sync::{Config as SyncConfig, Event as SyncEvent, Report as SyncReport, Worker};
 
 const WELCOME: &str = include_str!("welcome.md");
 
@@ -110,6 +111,7 @@ impl Palette {
 enum Mode {
     Editor,
     Palette,
+    Settings,
 }
 
 struct App {
@@ -140,8 +142,76 @@ struct App {
     doc: Document,
     mode: Mode,
     palette: Palette,
+    form: FormState,
     status: String,
     screenshot_done: bool,
+
+    sync_cfg: SyncConfig,
+    sync: Option<Worker>,
+    sync_label: String,
+}
+
+/// Editable copy of the WebDAV settings, shown as a form.
+struct FormState {
+    url: String,
+    username: String,
+    password: String,
+    remote_dir: String,
+    enabled: bool,
+    focus: usize,
+    note: String,
+}
+
+impl FormState {
+    fn from_config(cfg: &SyncConfig) -> Self {
+        Self {
+            url: cfg.url.clone(),
+            username: cfg.username.clone(),
+            password: cfg.password.clone(),
+            remote_dir: cfg.remote_dir.clone(),
+            enabled: cfg.enabled,
+            focus: 0,
+            note: String::new(),
+        }
+    }
+
+    fn to_config(&self) -> SyncConfig {
+        SyncConfig {
+            url: self.url.trim().to_string(),
+            username: self.username.trim().to_string(),
+            password: self.password.clone(),
+            remote_dir: self.remote_dir.trim().trim_matches('/').to_string(),
+            enabled: self.enabled,
+        }
+    }
+
+    fn field_count() -> usize {
+        5
+    }
+
+    fn fields(&self) -> Vec<ui::FormField> {
+        vec![
+            ui::FormField { label: "server".into(), value: self.url.clone(), secret: false },
+            ui::FormField { label: "user".into(), value: self.username.clone(), secret: false },
+            ui::FormField { label: "password".into(), value: self.password.clone(), secret: true },
+            ui::FormField { label: "folder".into(), value: self.remote_dir.clone(), secret: false },
+            ui::FormField {
+                label: "sync".into(),
+                value: if self.enabled { "on".into() } else { "off".into() },
+                secret: false,
+            },
+        ]
+    }
+
+    fn text_field_mut(&mut self) -> Option<&mut String> {
+        match self.focus {
+            0 => Some(&mut self.url),
+            1 => Some(&mut self.username),
+            2 => Some(&mut self.password),
+            3 => Some(&mut self.remote_dir),
+            _ => None,
+        }
+    }
 }
 
 impl App {
@@ -149,6 +219,7 @@ impl App {
         let crt = opts.crt;
         let theme = opts.theme;
         let doc = Self::initial_document(&opts);
+        let sync_cfg = SyncConfig::load();
         Self {
             opts,
             window: None,
@@ -173,8 +244,12 @@ impl App {
             doc,
             mode: Mode::Editor,
             palette: Palette::empty(),
+            form: FormState::from_config(&sync_cfg),
             status: String::new(),
             screenshot_done: false,
+            sync_label: initial_sync_label(&sync_cfg),
+            sync_cfg,
+            sync: None,
         }
     }
 
@@ -250,6 +325,7 @@ impl App {
     // ── frame ───────────────────────────────────────────────────────────────
 
     fn frame(&mut self, el: &ActiveEventLoop) {
+        self.pump_sync();
         self.autosave_if_due();
 
         let Some(vp) = self.vp else {
@@ -293,7 +369,8 @@ impl App {
         };
 
         if let Some(path) = self.opts.screenshot.clone() {
-            if !self.screenshot_done {
+            let ready = self.start.elapsed() >= Duration::from_millis(self.opts.screenshot_delay);
+            if !self.screenshot_done && ready {
                 let (w, h) = (vp.phys_w, vp.phys_h);
                 match renderer.render_offscreen(&vp, time, &crt, w, h) {
                     Ok((data, w, h)) => {
@@ -313,6 +390,9 @@ impl App {
                 }
                 self.screenshot_done = true;
                 el.exit();
+            } else if !ready {
+                // Keep the loop alive so background work can finish first.
+                self.next_frame = Instant::now() + Duration::from_millis(100);
             }
             return;
         }
@@ -383,19 +463,17 @@ impl App {
         } else {
             "saved".to_string()
         };
+        let sync = if self.sync_cfg.enabled && !self.sync_label.is_empty() {
+            format!("{sync} \u{00b7} {}", self.sync_label)
+        } else {
+            sync
+        };
 
         let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
-        if self.mode == Mode::Palette {
-            let items = self.palette.items();
-            let view = ui::PaletteView {
-                title: &self.palette.title,
-                input: &self.palette.input,
-                items: &items,
-                selected: self.palette.selected,
-                hint: "Enter select   Esc close",
-            };
-            ui::draw_palette(&mut screen, &self.theme, &view);
-        } else {
+
+        // The document is always there; overlays are painted on top of it, like
+        // a TSR popping up over a DOS application.
+        {
             let title = self.doc.title();
             let view = ui::DocumentView {
                 title: &title,
@@ -414,6 +492,33 @@ impl App {
             };
             ui::draw_document(&mut screen, &self.theme, &view);
         }
+
+        match self.mode {
+            Mode::Palette => {
+                let items = self.palette.items();
+                let view = ui::PaletteView {
+                    title: &self.palette.title,
+                    input: &self.palette.input,
+                    items: &items,
+                    selected: self.palette.selected,
+                    hint: "Enter select   Esc close",
+                };
+                ui::draw_palette(&mut screen, &self.theme, &view);
+            }
+            Mode::Settings => {
+                let fields = self.form.fields();
+                let view = ui::FormView {
+                    title: "WEBDAV",
+                    fields: &fields,
+                    focus: self.form.focus,
+                    note: &self.form.note,
+                    hint: "Tab next   Enter toggle/save   Esc cancel",
+                };
+                ui::draw_form(&mut screen, &self.theme, &view);
+            }
+            Mode::Editor => {}
+        }
+
         self.screen = screen;
     }
 
@@ -437,6 +542,84 @@ impl App {
         }
     }
 
+    fn pump_sync(&mut self) {
+        let Some(worker) = self.sync.as_ref() else {
+            return;
+        };
+        let mut events = Vec::new();
+        while let Some(event) = worker.try_recv() {
+            events.push(event);
+        }
+        for event in events {
+            match event {
+                SyncEvent::Started => self.sync_label = "sync ...".into(),
+                SyncEvent::Done(report) => {
+                    self.sync_label = format!("sync {}", report_word(&report));
+                    if report.conflicts > 0 {
+                        self.status = format!("sync: {} - conflict copy kept", report_word(&report));
+                    }
+                }
+                SyncEvent::Failed(e) => {
+                    self.sync_label = "sync failed".into();
+                    self.status = format!("sync: {e}");
+                }
+            }
+            self.dirty = true;
+        }
+    }
+
+    fn start_worker(&mut self) {
+        if self.sync.is_some() {
+            return;
+        }
+        let vault = self.opts.vault.clone().unwrap_or_else(storage::vault_dir);
+        self.sync = Some(Worker::spawn(
+            vault,
+            self.sync_cfg.clone(),
+            Duration::from_secs(60),
+        ));
+    }
+
+    fn request_sync(&mut self) {
+        if let Some(worker) = self.sync.as_ref() {
+            worker.request_sync();
+        }
+    }
+
+    fn open_settings(&mut self) {
+        self.form = FormState::from_config(&self.sync_cfg);
+        self.form.note = format!("config: {}", SyncConfig::path().display());
+        self.mode = Mode::Settings;
+        self.dirty = true;
+    }
+
+    fn save_settings(&mut self) {
+        let cfg = self.form.to_config();
+        if cfg.enabled && !cfg.is_configured() {
+            self.form.note = "a server URL is required".into();
+            self.dirty = true;
+            return;
+        }
+        match cfg.save() {
+            Ok(()) => {
+                self.sync_cfg = cfg.clone();
+                self.sync_label = initial_sync_label(&cfg);
+                self.start_worker();
+                if let Some(worker) = self.sync.as_ref() {
+                    worker.configure(cfg);
+                }
+                self.mode = Mode::Editor;
+                self.status = if self.sync_cfg.enabled {
+                    "sync on".into()
+                } else {
+                    "sync off".into()
+                };
+            }
+            Err(e) => self.form.note = format!("cannot write config: {e}"),
+        }
+        self.dirty = true;
+    }
+
     fn save_to(&mut self, path: &Path) -> bool {
         let text = self.doc.editor.text();
         match storage::save_atomic(path, &text) {
@@ -444,6 +627,9 @@ impl App {
                 self.doc.editor.mark_saved();
                 self.doc.path = Some(path.to_path_buf());
                 remember_last_file(path);
+                if self.sync_cfg.enabled {
+                    self.request_sync();
+                }
                 self.dirty = true;
                 true
             }
@@ -557,6 +743,10 @@ impl App {
             self.on_key_palette(event);
             return;
         }
+        if self.mode == Mode::Settings {
+            self.on_key_settings(event);
+            return;
+        }
 
         let ctrl = self.mods.control_key() || self.mods.super_key();
 
@@ -579,6 +769,7 @@ impl App {
                 );
                 self.dirty = true;
             }
+            Key::Named(NamedKey::F9) => self.open_settings(),
             Key::Named(NamedKey::F11) => self.toggle_fullscreen(),
             _ if ctrl => self.on_key_ctrl(el, &event),
             Key::Named(NamedKey::ArrowLeft) => {
@@ -725,6 +916,57 @@ impl App {
         }
     }
 
+    fn on_key_settings(&mut self, event: KeyEvent) {
+        let ctrl = self.mods.control_key() || self.mods.super_key();
+        match &event.logical_key {
+            _ if ctrl && matches!(&event.logical_key, Key::Character(c) if c.eq_ignore_ascii_case("s")) => {
+                self.save_settings()
+            }
+            Key::Named(NamedKey::Escape) => {
+                self.mode = Mode::Editor;
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::Enter) => {
+                if self.form.focus == 4 {
+                    self.form.enabled = !self.form.enabled;
+                    self.dirty = true;
+                } else {
+                    self.save_settings();
+                }
+            }
+            Key::Named(NamedKey::Tab) | Key::Named(NamedKey::ArrowDown) => {
+                self.form.focus = (self.form.focus + 1) % FormState::field_count();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::ArrowUp) => {
+                self.form.focus =
+                    (self.form.focus + FormState::field_count() - 1) % FormState::field_count();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::Backspace) => {
+                if let Some(field) = self.form.text_field_mut() {
+                    field.pop();
+                }
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::Space) => {
+                if let Some(field) = self.form.text_field_mut() {
+                    field.push(' ');
+                }
+                self.dirty = true;
+            }
+            Key::Character(text) => {
+                if let Some(field) = self.form.text_field_mut() {
+                    for ch in text.chars().filter(|c| !c.is_control()) {
+                        field.push(ch);
+                    }
+                }
+                self.dirty = true;
+            }
+            _ => {}
+        }
+    }
+
     fn move_vertical(&mut self, delta: isize) {
         let (text_width, _) = ui::layout(self.screen.cols());
         for _ in 0..delta.unsigned_abs() {
@@ -833,6 +1075,17 @@ impl ApplicationHandler for App {
         self.window = Some(window);
         self.recompute_viewport();
         self.dirty = true;
+
+        if self.sync_cfg.enabled {
+            self.start_worker();
+            self.request_sync();
+        }
+
+        match self.opts.show.as_str() {
+            "palette" => self.open_palette(),
+            "settings" => self.open_settings(),
+            _ => {}
+        }
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -852,14 +1105,19 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
-        // Render on our own clock instead of as fast as the compositor asks:
-        // a writing app should be close to idle when you are just reading.
-        if Instant::now() < self.next_frame {
-            return;
-        }
-        if let Some(window) = self.window.as_ref() {
-            window.request_redraw();
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        // Render on our own clock instead of as fast as the compositor asks: a
+        // writing app should be close to idle when you are just reading. The
+        // deadline matters - with a bare `Wait` the loop would sleep until the
+        // next input event and the cursor would stop blinking.
+        let now = Instant::now();
+        if now >= self.next_frame {
+            el.set_control_flow(ControlFlow::Wait);
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        } else {
+            el.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
         }
     }
 
@@ -869,6 +1127,20 @@ impl ApplicationHandler for App {
             self.save();
         }
     }
+}
+
+fn initial_sync_label(cfg: &SyncConfig) -> String {
+    if !cfg.is_configured() {
+        "webdav off".into()
+    } else if cfg.enabled {
+        "sync idle".into()
+    } else {
+        "sync off".into()
+    }
+}
+
+fn report_word(report: &SyncReport) -> String {
+    report.summary()
 }
 
 fn remember_last_file(path: &Path) {

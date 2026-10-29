@@ -168,6 +168,110 @@ fn draw_status_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) 
     }
 }
 
+// ── settings form ───────────────────────────────────────────────────────────
+
+pub struct FormField {
+    pub label: String,
+    pub value: String,
+    /// Render as asterisks (passwords).
+    pub secret: bool,
+}
+
+pub struct FormView<'a> {
+    pub title: &'a str,
+    pub fields: &'a [FormField],
+    pub focus: usize,
+    pub note: &'a str,
+    pub hint: &'a str,
+}
+
+pub fn draw_form(screen: &mut Screen, theme: &Theme, view: &FormView<'_>) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    let width = (cols.saturating_sub(6)).clamp(30, 68);
+    let height = (view.fields.len() as u32 + 5).clamp(7, rows.saturating_sub(2));
+    let x0 = (cols - width) / 2;
+    let y0 = (rows - height) / 2;
+
+    for y in y0..y0 + height {
+        for x in x0..x0 + width {
+            screen.put(x, y, Cell::blank(theme.fg, theme.bg));
+        }
+    }
+
+    let (b, d) = (theme.accent, theme.dim);
+    for x in x0 + 1..x0 + width - 1 {
+        screen.put(x, y0, Cell::new('\u{2550}', b, theme.bg, Style::Normal));
+        screen.put(x, y0 + height - 1, Cell::new('\u{2550}', b, theme.bg, Style::Normal));
+    }
+    for y in y0 + 1..y0 + height - 1 {
+        screen.put(x0, y, Cell::new('\u{2551}', b, theme.bg, Style::Normal));
+        screen.put(x0 + width - 1, y, Cell::new('\u{2551}', b, theme.bg, Style::Normal));
+    }
+    screen.put(x0, y0, Cell::new('\u{2554}', b, theme.bg, Style::Normal));
+    screen.put(x0 + width - 1, y0, Cell::new('\u{2557}', b, theme.bg, Style::Normal));
+    screen.put(x0, y0 + height - 1, Cell::new('\u{255a}', b, theme.bg, Style::Normal));
+    screen.put(x0 + width - 1, y0 + height - 1, Cell::new('\u{255d}', b, theme.bg, Style::Normal));
+    screen.put_str(x0 + 2, y0, &format!(" {} ", view.title), b, theme.bg, Style::Bold);
+
+    for (i, field) in view.fields.iter().enumerate() {
+        let y = y0 + 2 + i as u32;
+        if y >= y0 + height - 2 {
+            break;
+        }
+        let focused = i == view.focus;
+        let label_fg = if focused { theme.accent } else { d };
+        screen.put_str_ellipsis(
+            x0 + 2,
+            y,
+            &format!("{:<10}", field.label),
+            10,
+            label_fg,
+            theme.bg,
+            if focused { Style::Bold } else { Style::Normal },
+        );
+        let shown = if field.secret {
+            "*".repeat(field.value.chars().count())
+        } else {
+            field.value.clone()
+        };
+        let vx = x0 + 13;
+        screen.put_str_ellipsis(
+            vx,
+            y,
+            &shown,
+            width.saturating_sub(15),
+            if focused { theme.fg } else { d },
+            theme.bg,
+            Style::Normal,
+        );
+        if focused {
+            let cx = vx + shown.chars().count() as u32;
+            if cx < x0 + width - 2 {
+                screen.put(cx, y, Cell::blank(theme.bg, theme.fg));
+            }
+        }
+    }
+
+    if !view.note.is_empty() {
+        screen.put_str_ellipsis(
+            x0 + 2,
+            y0 + height - 2,
+            view.note,
+            width.saturating_sub(4),
+            d,
+            theme.bg,
+            Style::Italic,
+        );
+    }
+
+    let hint = format!(" {} ", view.hint);
+    let hx = (x0 + width).saturating_sub(hint.chars().count() as u32 + 2);
+    if hx > x0 {
+        screen.put_str(hx, y0 + height - 1, &hint, d, theme.bg, Style::Normal);
+    }
+}
+
 // ── command palette ─────────────────────────────────────────────────────────
 
 pub struct PaletteView<'a> {

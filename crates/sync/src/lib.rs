@@ -198,12 +198,13 @@ pub fn decode_segment(s: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(byte);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            out.push(byte);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;
@@ -325,7 +326,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     // Files that only exist on the server, from another device or an earlier
     // session. Unknown names are pulled down; names we knew about are left alone
     // because a missing local file means the user deleted it here.
-    for (name, _version) in &remote {
+    for name in remote.keys() {
         if index.files.contains_key(name) || local_exists(&local_files, name) {
             continue;
         }
@@ -346,12 +347,12 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
 
     // One extra PROPFIND so the stored versions match the server, whether or not
     // we pushed anything. Cheap, and it keeps the next round quiet.
-    if touched_remote || report.downloaded > 0 {
-        if let Ok(fresh) = list_remote(&client, &remote_dir).await {
-            for (name, version) in fresh {
-                if let Some(entry) = index.files.get_mut(&name) {
-                    entry.version = version;
-                }
+    if (touched_remote || report.downloaded > 0)
+        && let Ok(fresh) = list_remote(&client, &remote_dir).await
+    {
+        for (name, version) in fresh {
+            if let Some(entry) = index.files.get_mut(&name) {
+                entry.version = version;
             }
         }
     }
@@ -489,12 +490,8 @@ mod tests {
 
     #[test]
     fn remote_paths_are_encoded_per_segment() {
-        assert_eq!(J(&"dav/cread", "a b.md"), "dav/cread/a%20b.md");
-        assert_eq!(J(&"", "x.md"), "x.md");
-    }
-
-    fn J(dir: &&str, name: &str) -> String {
-        join_remote(dir, name)
+        assert_eq!(join_remote("dav/cread", "a b.md"), "dav/cread/a%20b.md");
+        assert_eq!(join_remote("", "x.md"), "x.md");
     }
 
     #[test]

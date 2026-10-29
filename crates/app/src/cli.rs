@@ -25,6 +25,8 @@ OPTIONS:
         --vault DIR         Document folder (default: ~/Documents/CRead)
         --demo              Open the built-in welcome document
         --sync-once         Run one WebDAV sync round, print the result, exit
+        --show VIEW         Start with an overlay open: editor | palette | settings
+        --screenshot-delay MS  Wait before capturing (lets background work finish)
         --screenshot PATH   Render one frame to PATH (PNG) and exit
     -h, --help              Show this help
 ";
@@ -42,6 +44,8 @@ pub struct Options {
     pub vault: Option<PathBuf>,
     pub demo: bool,
     pub sync_once: bool,
+    pub show: String,
+    pub screenshot_delay: u64,
 }
 
 impl Default for Options {
@@ -58,6 +62,8 @@ impl Default for Options {
             vault: None,
             demo: false,
             sync_once: false,
+            show: String::from("editor"),
+            screenshot_delay: 0,
         }
     }
 }
@@ -113,6 +119,17 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             }
             "--demo" => opts.demo = true,
             "--sync-once" => opts.sync_once = true,
+            "--screenshot-delay" => {
+                let v = args.next().ok_or("--screenshot-delay needs a value")?;
+                opts.screenshot_delay = v.parse().map_err(|_| format!("bad delay: {v}"))?;
+            }
+            "--show" => {
+                let v = args.next().ok_or("--show needs a value")?;
+                if !["editor", "palette", "settings"].contains(&v.as_str()) {
+                    return Err(format!("unknown view: {v}"));
+                }
+                opts.show = v;
+            }
             "--screenshot" => {
                 let v = args.next().ok_or("--screenshot needs a path")?;
                 opts.screenshot = Some(PathBuf::from(v));
