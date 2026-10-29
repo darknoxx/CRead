@@ -91,7 +91,6 @@ the right tells you what the command does before you commit to it.
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
 | `scanlines [on\|off]` | `scan`, `sl` | scanline strength |
 | `bloom [on\|off]` | | phosphor glow |
-| `flicker [on\|off]` | `fl` | luminance drift |
 | `typewriter [on\|off]` | `tw` | keep the current line in place |
 | `fullscreen` / `windowed` | `fs` | |
 | `undo` / `redo` | `u` | also on `Ctrl+Z` / `Ctrl+Shift+Z` |
@@ -102,6 +101,12 @@ the right tells you what the command does before you commit to it.
 
 Autosave runs 1.5 seconds after you stop typing, so a forgotten `save` costs at
 most a sentence.
+
+## Selection
+
+`Shift` plus any movement key marks text, `Ctrl+A` takes everything, and the
+usual `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work with the system clipboard. Marked text
+is drawn inverted, and typing or `Backspace` replaces it.
 
 ## How the picture is built
 
@@ -117,17 +122,17 @@ The frame is rendered at `virtW x virtH`, upscaled by exactly `n` and centred;
 the leftover border (always fewer than `n` pixels) stays black. Text is drawn
 into that small raster with the original IBM VGA 8x16 bitmap face, then the GPU
 adds the CRT layer: scanlines keyed off the *emulated* row, a local phosphor
-bleed, a slow luminance drift and a gentle vignette.
+bleed and a gentle vignette. Nothing animates: the picture is static until the
+text or the cursor changes.
 
 On a 1280x800 panel that gives 640x400 at 2x — the real VGA text mode. On a
 2560x1080 ultrawide it is 1280x540. Automatic scaling targets a comfortable line
 height and follows the monitor's scale factor, so 4K at 200% gets 4x rather than
 2x. Override it with `--scale N`.
 
-The app renders at 60 fps while the screen is alive and drops to 2 fps when
-idle, so it is nearly free to leave open. On a software rasteriser it settles
-for 30 fps; `--fps N` overrides either way. The cursor blink is timed
-independently, so raising the frame rate does not turn it into a strobe.
+There is no frame clock: a frame is drawn when the text changes and otherwise
+only when the cursor is due to blink, so the app sits at a fraction of a percent
+of a core while you read. Typing redraws immediately.
 
 ## Documents and sync
 

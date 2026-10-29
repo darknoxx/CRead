@@ -18,11 +18,9 @@ OPTIONS:
         --theme NAME        black | dos-blue | amber | green | paper
         --size WxH          Window size, e.g. 1920x1080 (handy for testing)
         --backend NAME      vulkan | gl
-        --fps N             Frame budget while typing (default 60, 30 on software)
         --no-crt            Disable scanlines, bloom and flicker
         --no-scanlines      Disable scanlines only
         --no-bloom          Disable bloom only
-        --no-flicker        Disable flicker only
         --vault DIR         Document folder (default: ~/Documents/CRead)
         --demo              Open the built-in welcome document
         --sync-once         Run one WebDAV sync round, print the result, exit
@@ -51,7 +49,6 @@ pub struct Options {
     pub show: String,
     pub screenshot_delay: u64,
     pub command: String,
-    pub fps: Option<u32>,
 }
 
 impl Default for Options {
@@ -71,7 +68,6 @@ impl Default for Options {
             show: String::from("editor"),
             screenshot_delay: 0,
             command: String::new(),
-            fps: None,
         }
     }
 }
@@ -95,11 +91,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             "--no-crt" => {
                 opts.crt.scanline = 0.0;
                 opts.crt.bloom = 0.0;
-                opts.crt.flicker = 0.0;
             }
             "--no-scanlines" => opts.crt.scanline = 0.0,
             "--no-bloom" => opts.crt.bloom = 0.0,
-            "--no-flicker" => opts.crt.flicker = 0.0,
             "--scale" => {
                 let v = args.next().ok_or("--scale needs a value")?;
                 let n: u32 = v.parse().map_err(|_| format!("bad scale: {v}"))?;
@@ -115,14 +109,6 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             "--size" => {
                 let v = args.next().ok_or("--size needs a value")?;
                 opts.size = Some(parse_size(&v)?);
-            }
-            "--fps" => {
-                let v = args.next().ok_or("--fps needs a value")?;
-                let n: u32 = v.parse().map_err(|_| format!("bad fps: {v}"))?;
-                if !(1..=240).contains(&n) {
-                    return Err(format!("fps must be 1..240, got {n}"));
-                }
-                opts.fps = Some(n);
             }
             "--backend" => {
                 let v = args.next().ok_or("--backend needs a value")?;
@@ -217,7 +203,6 @@ mod tests {
         let o = run(&["--no-crt"]);
         assert_eq!(o.crt.scanline, 0.0);
         assert_eq!(o.crt.bloom, 0.0);
-        assert_eq!(o.crt.flicker, 0.0);
     }
 
     fn err(args: &[&str]) -> String {

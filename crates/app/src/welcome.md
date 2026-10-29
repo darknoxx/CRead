@@ -25,6 +25,12 @@ shell. Type a command, press `Enter`, and you are back in the text.
 - `sync` pushes everything to WebDAV.
 - `help` lists the rest, including the screen effects.
 
+## Marking text
+
+- `Shift` and the arrows mark text, `Ctrl+A` marks everything.
+- `Ctrl+C`, `Ctrl+X`, `Ctrl+V` copy, cut and paste.
+- Typing or `Backspace` replaces whatever is marked.
+
 ## Mostly invisible
 
 Your documents are plain Markdown in `~/Documents/CRead`. Autosave

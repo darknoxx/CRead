@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Selection and clipboard.** Shift plus any movement key marks text, `Ctrl+A`
+  selects everything, `Ctrl+C`/`Ctrl+X`/`Ctrl+V` talk to the system clipboard,
+  and typing replaces the selection.
+- **Flicker removed.** It annoyed more than it charmed. With nothing left to
+  animate, the frame clock is gone too: frames are drawn on change and when the
+  cursor blinks, which drops idle CPU from ~12% to ~3% on a software rasteriser.
+
 ## 0.2.0
 
 The release that makes it usable as a daily writer.

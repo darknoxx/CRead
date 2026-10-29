@@ -26,19 +26,8 @@ const WELCOME: &str = include_str!("welcome.md");
 /// How long the editor waits after the last keystroke before writing to disk.
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
 
-/// Frame budget while the screen is alive, on a real GPU. Matching the usual
-/// display refresh keeps the phosphor drift smooth instead of stepping.
-const ACTIVE_FPS: u32 = 60;
-/// Software rasterisers cannot hit 60 fps at a sharp resolution, so we do not
-/// ask them to and burn a core for nothing.
-const SOFTWARE_FPS: u32 = 30;
-/// While idle the screen is static; we only redraw for the cursor blink.
-const IDLE_FPS: u32 = 2;
-/// Cursor blink, in toggles per second. Deliberately independent of the frame
-/// rate so raising the frame budget does not turn the cursor into a strobe.
+/// Cursor blink, in toggles per second.
 const CURSOR_BLINK_HZ: f32 = 1.6;
-/// How long after the last keystroke we stay on the fast path.
-const ACTIVE_WINDOW: Duration = Duration::from_millis(1200);
 /// How long a status message stays on the line before the mode hint returns.
 const STATUS_TTL: Duration = Duration::from_secs(4);
 
@@ -141,7 +130,6 @@ struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     adapter: String,
-    active_fps: u32,
 
     font: Font,
     screen: Screen,
@@ -155,14 +143,15 @@ struct App {
     start: Instant,
     last_frame: Instant,
     next_frame: Instant,
-    last_input: Instant,
-    fps: f32,
     dirty: bool,
     blink: bool,
     mods: ModifiersState,
     typewriter: bool,
 
     doc: Document,
+    /// Kept alive for the whole run: on Wayland the clipboard is served by the
+    /// owning process, so dropping the handle would lose the copied text.
+    clipboard: Option<arboard::Clipboard>,
     /// False on the start screen: no file is open yet.
     has_document: bool,
     mode: Mode,
@@ -273,7 +262,6 @@ impl App {
     fn new(opts: Options) -> Self {
         let crt = opts.crt;
         let theme = opts.theme;
-        let active_fps = opts.fps.unwrap_or(ACTIVE_FPS);
         let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
         Self {
@@ -281,7 +269,6 @@ impl App {
             window: None,
             renderer: None,
             adapter: String::from("unknown"),
-            active_fps,
             font: Font::new(),
             screen: Screen::new(80, 25),
             fb: Framebuffer::new(640, 400),
@@ -292,13 +279,12 @@ impl App {
             start: Instant::now(),
             last_frame: Instant::now(),
             next_frame: Instant::now(),
-            last_input: Instant::now(),
-            fps: 60.0,
             dirty: true,
             blink: true,
             mods: ModifiersState::empty(),
             typewriter: false,
             doc,
+            clipboard: None,
             has_document,
             mode: if has_document {
                 Mode::Write
@@ -437,7 +423,6 @@ impl App {
         if self.theme.is_light() {
             crt.bloom = 0.0;
             crt.scanline *= 0.4;
-            crt.flicker *= 0.4;
         }
 
         if self.dirty {
@@ -463,7 +448,7 @@ impl App {
             let ready = self.start.elapsed() >= Duration::from_millis(self.opts.screenshot_delay);
             if !self.screenshot_done && ready {
                 let (w, h) = (vp.phys_w, vp.phys_h);
-                match renderer.render_offscreen(&vp, time, &crt, w, h) {
+                match renderer.render_offscreen(&vp, &crt, w, h) {
                     Ok((data, w, h)) => {
                         if let Err(e) = raster::write_png(&path, w, h, &data) {
                             eprintln!("cread: cannot write {}: {e}", path.display());
@@ -491,7 +476,7 @@ impl App {
         if let Some(window) = self.window.as_ref() {
             window.pre_present_notify();
         }
-        match renderer.render(&vp, time, &crt) {
+        match renderer.render(&vp, &crt) {
             Ok(FrameStatus::Presented) => {}
             Ok(FrameStatus::Reconfigure) => renderer.resize(vp.phys_w, vp.phys_h),
             Ok(FrameStatus::Skipped) => {}
@@ -501,21 +486,14 @@ impl App {
             }
         }
 
-        let now = Instant::now();
-        let dt = now.duration_since(self.last_frame).as_secs_f32();
-        self.last_frame = now;
-        if dt > 0.0 && dt < 1.0 {
-            self.fps = self.fps * 0.9 + (1.0 / dt) * 0.1;
-        }
+        self.last_frame = Instant::now();
 
-        // Schedule from the *start* of the frame: presenting already blocks on
-        // vsync, so adding a full interval afterwards would halve the real rate.
-        let fps = if now.duration_since(self.last_input) < ACTIVE_WINDOW {
-            self.active_fps
-        } else {
-            IDLE_FPS
-        };
-        self.next_frame = frame_start + Duration::from_millis(1000 / fps as u64);
+        // Nothing animates any more except the cursor, so we do not run a
+        // frame clock at all: sleep until the blink is due and redraw then.
+        let phase = (time * CURSOR_BLINK_HZ) as u32;
+        let next_toggle = (phase as f32 + 1.0) / CURSOR_BLINK_HZ;
+        let wait = (next_toggle - time).clamp(0.005, 1.0);
+        self.next_frame = frame_start + Duration::from_secs_f32(wait);
     }
 
     /// Build the cell grid for the current state.
@@ -588,6 +566,7 @@ impl App {
                 ""
             };
             let location = self.location();
+            let selection = self.doc.editor.selection();
             let message = if self.status_at.elapsed() < STATUS_TTL {
                 self.status.as_str()
             } else {
@@ -617,6 +596,7 @@ impl App {
                 location: &location,
                 lines: self.doc.editor.lines(),
                 rows: &visible,
+                selection,
                 cursor: cursor_cell,
                 margin,
                 stats,
@@ -957,7 +937,6 @@ impl App {
         if event.state != ElementState::Pressed {
             return;
         }
-        self.last_input = Instant::now();
         match self.mode {
             Mode::Write => self.on_key_write(el, event),
             Mode::Action => self.on_key_action(el, event),
@@ -970,6 +949,7 @@ impl App {
     /// Write mode: the document is live, editing keys only.
     fn on_key_write(&mut self, _el: &ActiveEventLoop, event: KeyEvent) {
         let ctrl = self.mods.control_key() || self.mods.super_key();
+        let shift = self.mods.shift_key();
         let code = match event.physical_key {
             PhysicalKey::Code(code) => Some(code),
             PhysicalKey::Unidentified(_) => None,
@@ -978,6 +958,22 @@ impl App {
         if ctrl {
             // Undo is an editing gesture, not a command, so it keeps its key.
             match code {
+                Some(KeyCode::KeyA) => {
+                    self.doc.editor.select_all();
+                    self.poke();
+                }
+                Some(KeyCode::KeyC) => {
+                    let result = self.copy_selection();
+                    self.report(result);
+                }
+                Some(KeyCode::KeyX) => {
+                    let result = self.cut_selection();
+                    self.report(result);
+                }
+                Some(KeyCode::KeyV) => {
+                    let result = self.paste();
+                    self.report(result);
+                }
                 Some(KeyCode::KeyZ) => {
                     if self.mods.shift_key() {
                         self.doc.editor.redo();
@@ -991,19 +987,19 @@ impl App {
                     self.touch();
                 }
                 Some(KeyCode::ArrowLeft) => {
-                    self.doc.editor.move_word_left();
+                    self.doc.editor.move_word_left(shift);
                     self.poke();
                 }
                 Some(KeyCode::ArrowRight) => {
-                    self.doc.editor.move_word_right();
+                    self.doc.editor.move_word_right(shift);
                     self.poke();
                 }
                 Some(KeyCode::Home) => {
-                    self.doc.editor.move_doc_start();
+                    self.doc.editor.move_doc_start(shift);
                     self.poke();
                 }
                 Some(KeyCode::End) => {
-                    self.doc.editor.move_doc_end();
+                    self.doc.editor.move_doc_end(shift);
                     self.poke();
                 }
                 _ => {}
@@ -1014,32 +1010,32 @@ impl App {
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => self.to_action(),
             Key::Named(NamedKey::ArrowLeft) => {
-                self.doc.editor.move_left();
+                self.doc.editor.move_left(shift);
                 self.doc.editor.break_undo_group();
                 self.poke();
             }
             Key::Named(NamedKey::ArrowRight) => {
-                self.doc.editor.move_right();
+                self.doc.editor.move_right(shift);
                 self.doc.editor.break_undo_group();
                 self.poke();
             }
-            Key::Named(NamedKey::ArrowUp) => self.move_vertical(-1),
-            Key::Named(NamedKey::ArrowDown) => self.move_vertical(1),
+            Key::Named(NamedKey::ArrowUp) => self.move_vertical(-1, shift),
+            Key::Named(NamedKey::ArrowDown) => self.move_vertical(1, shift),
             Key::Named(NamedKey::Home) => {
-                self.doc.editor.move_home();
+                self.doc.editor.move_home(shift);
                 self.poke();
             }
             Key::Named(NamedKey::End) => {
-                self.doc.editor.move_end();
+                self.doc.editor.move_end(shift);
                 self.poke();
             }
             Key::Named(NamedKey::PageUp) => {
                 let h = ui::text_height(self.screen.rows()) as isize;
-                self.move_vertical(-h);
+                self.move_vertical(-h, shift);
             }
             Key::Named(NamedKey::PageDown) => {
                 let h = ui::text_height(self.screen.rows()) as isize;
-                self.move_vertical(h);
+                self.move_vertical(h, shift);
             }
             Key::Named(NamedKey::Backspace) => {
                 self.doc.editor.backspace();
@@ -1241,11 +1237,6 @@ impl App {
                 self.dirty = true;
                 Ok(format!("bloom: {}", on_off(on)))
             }
-            Command::Flicker(want) => {
-                let on = apply_switch(&mut self.crt.flicker, self.crt_base.flicker, want);
-                self.dirty = true;
-                Ok(format!("flicker: {}", on_off(on)))
-            }
             Command::Typewriter(want) => {
                 self.typewriter = want.unwrap_or(!self.typewriter);
                 self.dirty = true;
@@ -1350,6 +1341,71 @@ impl App {
         }
     }
 
+    // ── clipboard ───────────────────────────────────────────────────────────
+
+    fn clipboard(&mut self) -> Result<&mut arboard::Clipboard, String> {
+        if self.clipboard.is_none() {
+            self.clipboard =
+                Some(arboard::Clipboard::new().map_err(|e| format!("clipboard: {e}"))?);
+        }
+        Ok(self.clipboard.as_mut().expect("just created"))
+    }
+
+    fn copy_selection(&mut self) -> Result<String, String> {
+        let text = self.doc.editor.selected_text();
+        if text.is_empty() {
+            return Err("nothing selected".into());
+        }
+        self.clipboard()?
+            .set_text(text.clone())
+            .map_err(|e| format!("clipboard: {e}"))?;
+        Ok(format!("{} chars copied", text.chars().count()))
+    }
+
+    fn cut_selection(&mut self) -> Result<String, String> {
+        let text = self.doc.editor.selected_text();
+        if text.is_empty() {
+            return Err("nothing selected".into());
+        }
+        self.clipboard()?
+            .set_text(text.clone())
+            .map_err(|e| format!("clipboard: {e}"))?;
+        if let Some((start, end)) = self.doc.editor.selection() {
+            self.doc.editor.delete_range(start, end);
+        }
+        self.touch();
+        Ok(format!("{} chars cut", text.chars().count()))
+    }
+
+    fn paste(&mut self) -> Result<String, String> {
+        let text = {
+            let clipboard = self.clipboard()?;
+            clipboard
+                .get_text()
+                .map_err(|e| format!("clipboard: {e}"))?
+        };
+        if text.is_empty() {
+            return Err("clipboard is empty".into());
+        }
+        self.doc.editor.insert_text(&text);
+        self.touch();
+        Ok(format!("{} chars pasted", text.chars().count()))
+    }
+
+    /// Show a command result, or its error, on the status line.
+    fn report(&mut self, result: Result<String, String>) {
+        match result {
+            Ok(message) => {
+                self.set_status(message);
+                self.dirty = true;
+            }
+            Err(e) => {
+                self.set_status(e);
+                self.dirty = true;
+            }
+        }
+    }
+
     /// Show a short message on the status line for a few seconds.
     fn set_status(&mut self, message: impl Into<String>) {
         self.status = message.into();
@@ -1359,8 +1415,8 @@ impl App {
 
     /// Cheap "something changed, redraw soon" for non-document keys.
     fn poke(&mut self) {
-        self.last_input = Instant::now();
-        self.next_frame = self.last_input;
+        // Render as soon as the event loop comes back around.
+        self.next_frame = Instant::now();
         self.dirty = true;
     }
 
@@ -1449,13 +1505,13 @@ impl App {
         }
     }
 
-    fn move_vertical(&mut self, delta: isize) {
+    fn move_vertical(&mut self, delta: isize, extend: bool) {
         let (text_width, _) = ui::layout(self.screen.cols());
         for _ in 0..delta.unsigned_abs() {
             if delta < 0 {
-                self.doc.editor.move_up(text_width);
+                self.doc.editor.move_up(text_width, extend);
             } else {
-                self.doc.editor.move_down(text_width);
+                self.doc.editor.move_down(text_width, extend);
             }
         }
         self.doc.editor.break_undo_group();
@@ -1558,18 +1614,11 @@ impl ApplicationHandler for App {
         renderer.resize(size.width.max(1), size.height.max(1));
 
         self.adapter = renderer.adapter_info().to_string();
-        if self.opts.fps.is_none() {
-            self.active_fps = match renderer.device_type() {
-                wgpu::DeviceType::Cpu => SOFTWARE_FPS,
-                _ => ACTIVE_FPS,
-            };
-        }
         println!("cread: vault {}", self.vault().display());
         println!(
-            "cread: {} · surface {:?} · {} fps",
+            "cread: {} · surface {:?}",
             self.adapter,
-            renderer.surface_format(),
-            self.active_fps
+            renderer.surface_format()
         );
 
         self.renderer = Some(renderer);

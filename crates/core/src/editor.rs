@@ -122,6 +122,8 @@ pub struct Editor {
     top: Position,
     /// Column the user aimed for with Up/Down, in visual cells.
     preferred_x: Option<usize>,
+    /// Other end of the selection. `None` means no selection.
+    anchor: Option<Position>,
     history: History,
     modified: bool,
 }
@@ -139,6 +141,7 @@ impl Editor {
             cursor: Position::default(),
             top: Position::default(),
             preferred_x: None,
+            anchor: None,
             history: History::new(),
             modified: false,
         }
@@ -190,7 +193,87 @@ impl Editor {
     pub fn set_cursor(&mut self, pos: Position) {
         self.cursor = self.clamp(pos);
         self.preferred_x = None;
+        self.anchor = None;
         self.history.break_group();
+    }
+
+    // ── selection ───────────────────────────────────────────────────────────
+
+    /// Selected range, ordered, or `None` when nothing is selected.
+    pub fn selection(&self) -> Option<(Position, Position)> {
+        let anchor = self.anchor?;
+        if anchor == self.cursor {
+            return None;
+        }
+        Some(if anchor < self.cursor {
+            (anchor, self.cursor)
+        } else {
+            (self.cursor, anchor)
+        })
+    }
+
+    pub fn has_selection(&self) -> bool {
+        self.selection().is_some()
+    }
+
+    pub fn select_all(&mut self) {
+        self.anchor = Some(Position::default());
+        self.cursor = Position {
+            line: self.lines.len() - 1,
+            col: self.lines[self.lines.len() - 1].chars().count(),
+        };
+        self.preferred_x = None;
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.anchor = None;
+    }
+
+    /// The selected text, with real newlines between lines.
+    pub fn selected_text(&self) -> String {
+        let Some((start, end)) = self.selection() else {
+            return String::new();
+        };
+        if start.line == end.line {
+            return self.lines[start.line]
+                .chars()
+                .skip(start.col)
+                .take(end.col - start.col)
+                .collect();
+        }
+        let mut out: String = self.lines[start.line].chars().skip(start.col).collect();
+        for line in start.line + 1..end.line {
+            out.push('\n');
+            out.push_str(&self.lines[line]);
+        }
+        out.push('\n');
+        out.extend(self.lines[end.line].chars().take(end.col));
+        out
+    }
+
+    /// Start (or continue) a selection for a movement, or drop it.
+    fn begin_move(&mut self, extend: bool) {
+        if extend {
+            self.anchor.get_or_insert(self.cursor);
+        } else {
+            self.anchor = None;
+        }
+    }
+
+    /// Remove the selected range without recording undo, returning whether
+    /// anything was deleted.
+    fn delete_selection_raw(&mut self) -> bool {
+        let Some((start, end)) = self.selection() else {
+            return false;
+        };
+        let tail: String = self.lines[end.line].chars().skip(end.col).collect();
+        let head: String = self.lines[start.line].chars().take(start.col).collect();
+        self.lines[start.line] = head + &tail;
+        self.lines.drain(start.line + 1..=end.line);
+        self.cursor = start;
+        self.anchor = None;
+        self.preferred_x = None;
+        true
     }
 
     /// Tell the undo stack that the next edit starts a new step.
@@ -233,6 +316,7 @@ impl Editor {
             return;
         }
         self.before_edit(EditKind::Typing);
+        self.delete_selection_raw();
         let byte = byte_of_char(&self.lines[self.cursor.line], self.cursor.col);
         self.lines[self.cursor.line].insert(byte, ch);
         self.cursor.col += 1;
@@ -246,6 +330,7 @@ impl Editor {
             EditKind::Typing
         };
         self.before_edit(kind);
+        self.delete_selection_raw();
         for ch in text.chars() {
             if ch == '\r' {
                 continue;
@@ -263,6 +348,7 @@ impl Editor {
 
     pub fn insert_newline(&mut self) {
         self.before_edit(EditKind::Structural);
+        self.delete_selection_raw();
         self.split_line();
         self.preferred_x = None;
     }
@@ -283,6 +369,11 @@ impl Editor {
     }
 
     pub fn backspace(&mut self) {
+        if self.has_selection() {
+            self.before_edit(EditKind::Deleting);
+            self.delete_selection_raw();
+            return;
+        }
         if self.cursor.col == 0 {
             if self.cursor.line == 0 {
                 return;
@@ -312,6 +403,11 @@ impl Editor {
     }
 
     pub fn delete_forward(&mut self) {
+        if self.has_selection() {
+            self.before_edit(EditKind::Deleting);
+            self.delete_selection_raw();
+            return;
+        }
         let line_len = self.lines[self.cursor.line].chars().count();
         if self.cursor.col >= line_len {
             if self.cursor.line + 1 >= self.lines.len() {
@@ -354,7 +450,8 @@ impl Editor {
 
     // ── navigation ──────────────────────────────────────────────────────────
 
-    pub fn move_left(&mut self) {
+    pub fn move_left(&mut self, extend: bool) {
+        self.begin_move(extend);
         self.preferred_x = None;
         if self.cursor.col > 0 {
             self.cursor.col =
@@ -365,7 +462,8 @@ impl Editor {
         }
     }
 
-    pub fn move_right(&mut self) {
+    pub fn move_right(&mut self, extend: bool) {
+        self.begin_move(extend);
         self.preferred_x = None;
         let line = &self.lines[self.cursor.line];
         if self.cursor.col < line.chars().count() {
@@ -376,22 +474,26 @@ impl Editor {
         }
     }
 
-    pub fn move_home(&mut self) {
+    pub fn move_home(&mut self, extend: bool) {
+        self.begin_move(extend);
         self.preferred_x = None;
         self.cursor.col = 0;
     }
 
-    pub fn move_end(&mut self) {
+    pub fn move_end(&mut self, extend: bool) {
+        self.begin_move(extend);
         self.preferred_x = None;
         self.cursor.col = self.lines[self.cursor.line].chars().count();
     }
 
-    pub fn move_doc_start(&mut self) {
+    pub fn move_doc_start(&mut self, extend: bool) {
+        self.begin_move(extend);
         self.preferred_x = None;
         self.cursor = Position::default();
     }
 
-    pub fn move_doc_end(&mut self) {
+    pub fn move_doc_end(&mut self, extend: bool) {
+        self.begin_move(extend);
         self.preferred_x = None;
         self.cursor = Position {
             line: self.lines.len() - 1,
@@ -399,7 +501,8 @@ impl Editor {
         };
     }
 
-    pub fn move_word_left(&mut self) {
+    pub fn move_word_left(&mut self, extend: bool) {
+        self.begin_move(extend);
         self.preferred_x = None;
         let line = &self.lines[self.cursor.line];
         let before: String = line.chars().take(self.cursor.col).collect();
@@ -410,7 +513,8 @@ impl Editor {
         }
     }
 
-    pub fn move_word_right(&mut self) {
+    pub fn move_word_right(&mut self, extend: bool) {
+        self.begin_move(extend);
         self.preferred_x = None;
         let line = &self.lines[self.cursor.line];
         let after: String = line.chars().skip(self.cursor.col).collect();
@@ -422,15 +526,17 @@ impl Editor {
         }
     }
 
-    pub fn move_up(&mut self, width: usize) {
-        self.move_vertical(-1, width);
+    pub fn move_up(&mut self, width: usize, extend: bool) {
+        self.begin_move(extend);
+        self.move_vertical(-1, width, extend);
     }
 
-    pub fn move_down(&mut self, width: usize) {
-        self.move_vertical(1, width);
+    pub fn move_down(&mut self, width: usize, extend: bool) {
+        self.begin_move(extend);
+        self.move_vertical(1, width, extend);
     }
 
-    fn move_vertical(&mut self, delta: isize, width: usize) {
+    fn move_vertical(&mut self, delta: isize, width: usize, _extend: bool) {
         let width = width.max(1);
         let segs = wrap(&self.lines[self.cursor.line], width);
         let idx = segment_of(&segs, self.cursor.col);
@@ -477,6 +583,7 @@ impl Editor {
         });
         self.lines = snap.lines;
         self.cursor = self.clamp(snap.cursor);
+        self.anchor = None;
         self.history.break_group();
         self.modified = true;
         true
@@ -492,6 +599,7 @@ impl Editor {
         });
         self.lines = snap.lines;
         self.cursor = self.clamp(snap.cursor);
+        self.anchor = None;
         self.history.break_group();
         self.modified = true;
         true
@@ -683,7 +791,7 @@ mod tests {
     #[test]
     fn enter_splits_and_backspace_joins() {
         let mut e = ed("ab");
-        e.move_end();
+        e.move_end(false);
         e.insert_newline();
         e.insert_char('c');
         assert_eq!(e.text(), "ab\nc");
@@ -750,11 +858,11 @@ mod tests {
         let mut e = ed(&"x".repeat(30));
         // Three visual rows of 10.
         e.set_cursor(Position { line: 0, col: 25 });
-        e.move_up(10);
+        e.move_up(10, false);
         assert_eq!(e.cursor().col, 15);
-        e.move_up(10);
+        e.move_up(10, false);
         assert_eq!(e.cursor().col, 5);
-        e.move_down(10);
+        e.move_down(10, false);
         assert_eq!(e.cursor().col, 15);
     }
 
@@ -762,13 +870,13 @@ mod tests {
     fn up_down_crosses_lines() {
         let mut e = ed("abc\ndefgh");
         e.set_cursor(Position { line: 1, col: 3 });
-        e.move_up(80);
+        e.move_up(80, false);
         assert_eq!(e.cursor(), Position { line: 0, col: 3 });
-        e.move_down(80);
+        e.move_down(80, false);
         assert_eq!(e.cursor(), Position { line: 1, col: 3 });
         // Down from the last line stays put instead of running off the end.
         e.set_cursor(Position { line: 1, col: 3 });
-        e.move_down(80);
+        e.move_down(80, false);
         assert_eq!(e.cursor(), Position { line: 1, col: 5 });
     }
 
@@ -779,7 +887,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let mut e = ed(&text);
-        e.move_doc_end();
+        e.move_doc_end(false);
         e.scroll_to_cursor(80, 10, None);
         let rows = e.visible_rows(80, 10);
         assert!(rows.iter().any(|r| r.contains(e.cursor())));
@@ -794,7 +902,7 @@ mod tests {
             .join("\n");
         let mut e = ed(&text);
         for _ in 0..60 {
-            e.move_down(80);
+            e.move_down(80, false);
             e.scroll_to_cursor(80, 20, Some(9));
         }
         let rows = e.visible_rows(80, 20);
@@ -809,9 +917,9 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let mut e = ed(&text);
-        e.move_doc_end();
+        e.move_doc_end(false);
         e.scroll_to_cursor(80, 10, None);
-        e.move_doc_start();
+        e.move_doc_start(false);
         e.scroll_to_cursor(80, 10, None);
         let rows = e.visible_rows(80, 10);
         assert_eq!(rows[0].line, 0);
@@ -825,6 +933,74 @@ mod tests {
         e.backspace();
         assert_eq!(e.text(), "ab");
         assert_eq!(e.cursor().col, 1);
+    }
+
+    #[test]
+    fn shift_movement_builds_a_selection() {
+        let mut e = ed("hello world");
+        e.move_right(false);
+        e.move_right(true);
+        e.move_right(true);
+        assert_eq!(
+            e.selection(),
+            Some((Position { line: 0, col: 1 }, Position { line: 0, col: 3 }))
+        );
+        assert_eq!(e.selected_text(), "el");
+    }
+
+    #[test]
+    fn plain_movement_drops_the_selection() {
+        let mut e = ed("hello");
+        e.move_right(true);
+        e.move_right(true);
+        assert!(e.has_selection());
+        e.move_left(false);
+        assert!(!e.has_selection());
+    }
+
+    #[test]
+    fn select_all_and_selected_text_across_lines() {
+        let mut e = ed("one
+two
+three");
+        e.select_all();
+        assert_eq!(e.selected_text(), "one\ntwo\nthree");
+
+        let mut e = ed("one\ntwo");
+        e.set_cursor(Position { line: 0, col: 1 });
+        e.move_doc_end(true);
+        assert_eq!(e.selected_text(), "ne\ntwo");
+    }
+
+    #[test]
+    fn typing_replaces_the_selection() {
+        let mut e = ed("hello world");
+        e.select_all();
+        e.insert_char('x');
+        assert_eq!(e.text(), "x");
+        assert!(!e.has_selection());
+    }
+
+    #[test]
+    fn backspace_deletes_the_selection_instead_of_one_char() {
+        let mut e = ed("hello world");
+        e.set_cursor(Position { line: 0, col: 0 });
+        for _ in 0..5 {
+            e.move_right(true);
+        }
+        e.backspace();
+        assert_eq!(e.text(), " world");
+        assert!(!e.has_selection());
+    }
+
+    #[test]
+    fn undo_restores_replaced_selection() {
+        let mut e = ed("abc");
+        e.select_all();
+        e.insert_text("xy");
+        assert_eq!(e.text(), "xy");
+        assert!(e.undo());
+        assert_eq!(e.text(), "abc");
     }
 
     #[test]

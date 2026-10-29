@@ -8,6 +8,7 @@ name = "cread"
 path = "src/main.rs"
 
 [dependencies]
+arboard = "3.7.0"
 cread-core.workspace = true
 cread-render.workspace = true
 cread-sync.workspace = true

@@ -48,6 +48,8 @@ pub struct DocumentView<'a> {
     /// All logical lines of the document; rows index into this.
     pub lines: &'a [String],
     pub rows: &'a [VisualRow],
+    /// Highlighted range, in document positions.
+    pub selection: Option<(cread_core::Position, cread_core::Position)>,
     /// Cursor as (row index into `rows`, column offset inside that row).
     pub cursor: Option<(usize, usize)>,
     pub margin: usize,
@@ -132,7 +134,19 @@ fn draw_text(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
                 .map(|s| s.kind)
                 .unwrap_or(Kind::Normal);
             let (fg, bg, style) = style_for(kind, theme);
-            screen.put(margin + offset as u32, y, Cell::new(ch, fg, bg, style));
+            let selected = view.selection.is_some_and(|(start, end)| {
+                let pos = cread_core::Position {
+                    line: row.line,
+                    col: doc_col,
+                };
+                pos >= start && pos < end
+            });
+            let cell = if selected {
+                Cell::new(ch, bg, fg, style)
+            } else {
+                Cell::new(ch, fg, bg, style)
+            };
+            screen.put(margin + offset as u32, y, cell);
         }
     }
 
@@ -663,6 +677,7 @@ mod tests {
             location: "~/Dokumente/CRead",
             lines,
             rows,
+            selection: None,
             cursor,
             margin: 1,
             stats: Stats {
@@ -681,7 +696,7 @@ mod tests {
     fn renders_a_document_with_chrome_inside_the_grid() {
         let vp = vp(1280, 800);
         let mut ed = Editor::from_text("# Title\n\nSome **bold** prose.");
-        ed.move_doc_end();
+        ed.move_doc_end(false);
         let (w, _m) = layout(vp.cols());
         let rows = ed.visible_rows(w, text_height(vp.rows()));
         let cursor = rows
@@ -709,7 +724,7 @@ mod tests {
     fn headings_and_markers_get_different_roles() {
         let vp = vp(1280, 800);
         let mut ed = Editor::from_text("# Title");
-        ed.move_doc_end();
+        ed.move_doc_end(false);
         let (w, m) = layout(vp.cols());
         let rows = ed.visible_rows(w, text_height(vp.rows()));
         let mut screen = Screen::new(vp.cols(), vp.rows());
@@ -728,7 +743,7 @@ mod tests {
     fn cursor_inverts_the_cell_under_it() {
         let vp = vp(1280, 800);
         let mut ed = Editor::from_text("abc");
-        ed.move_end();
+        ed.move_end(false);
         let (w, m) = layout(vp.cols());
         let rows = ed.visible_rows(w, text_height(vp.rows()));
         let mut screen = Screen::new(vp.cols(), vp.rows());
@@ -740,6 +755,28 @@ mod tests {
         let cell = screen.get(m as u32 + 3, 2).unwrap();
         assert_eq!(cell.fg, Theme::DOS_BLUE.bg);
         assert_eq!(cell.bg, Theme::DOS_BLUE.fg);
+    }
+
+    #[test]
+    fn selection_inverts_the_cells_it_covers() {
+        let vp = vp(1280, 800);
+        let mut ed = Editor::from_text("abcdef");
+        let (w, m) = layout(vp.cols());
+        let rows = ed.visible_rows(w, text_height(vp.rows()));
+        ed.set_cursor(cread_core::Position { line: 0, col: 1 });
+        ed.move_right(true);
+        ed.move_right(true);
+
+        let mut screen = Screen::new(vp.cols(), vp.rows());
+        let mut view = view_from(ed.lines(), &rows, None, ("", "black"));
+        view.selection = ed.selection();
+        draw_document(&mut screen, &Theme::BLACK, &view);
+
+        let sel = screen.get(m as u32 + 1, 2).unwrap();
+        let plain = screen.get(m as u32 + 4, 2).unwrap();
+        assert_eq!(sel.fg, Theme::BLACK.bg, "selected cell is inverted");
+        assert_eq!(sel.bg, Theme::BLACK.fg);
+        assert_eq!(plain.fg, Theme::BLACK.fg, "unselected cell is not");
     }
 
     #[test]

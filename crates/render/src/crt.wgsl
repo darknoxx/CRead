@@ -1,15 +1,17 @@
 // CRT post-processing. Everything here works on the *emulated* pixel grid, so
 // scanlines and glow stay crisp no matter what the display resolution is.
 
+// Layout must match `CrtUniforms` in gpu.rs byte for byte; there is a
+// compile-time size check on the Rust side.
 struct Crt {
     // Emulated raster size in pixels.
     vres: vec2<f32>,
-    time: f32,
     scanline: f32,
     bloom: f32,
-    flicker: f32,
     brightness: f32,
-    _pad: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -35,12 +37,6 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VsOut {
     // Clip space is y-up, our framebuffer is y-down.
     out.uv = vec2<f32>((p.x + 1.0) * 0.5, (1.0 - p.y) * 0.5);
     return out;
-}
-
-fn hash21(p: vec2<f32>) -> f32 {
-    var q = fract(p * vec2<f32>(123.34, 456.21));
-    q += dot(q, q + 45.32);
-    return fract(q.x * q.y);
 }
 
 fn luma(c: vec3<f32>) -> f32 {
@@ -78,12 +74,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // emulated pixel means each bar is exactly `scale` pixels tall.
     let odd = fract(vp.y * 0.5) * 2.0;
     color *= 1.0 - crt.scanline * 0.55 * odd;
-
-    // Flicker: low-amplitude luminance noise plus a slow phosphor drift.
-    let coarse = floor(crt.time * 24.0);
-    let noise = hash21(vec2<f32>(coarse, 7.0)) - 0.5;
-    let drift = sin(crt.time * 1.7) * 0.35;
-    color *= 1.0 + crt.flicker * (noise * 1.2 + drift * 0.4);
 
     // Gentle vignette.
     let d = in.uv - vec2<f32>(0.5);

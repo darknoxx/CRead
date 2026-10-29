@@ -17,7 +17,6 @@ pub enum Command {
     /// `Some(true/false)` sets, `None` toggles.
     Scanlines(Option<bool>),
     Bloom(Option<bool>),
-    Flicker(Option<bool>),
     Typewriter(Option<bool>),
     /// `true` = go fullscreen.
     Fullscreen(bool),
@@ -130,12 +129,6 @@ pub const SPECS: &[Spec] = &[
         summary: "toggle or set the phosphor glow",
     },
     Spec {
-        name: "flicker",
-        aliases: &["fl"],
-        argument: "[on|off]",
-        summary: "toggle or set the flicker",
-    },
-    Spec {
         name: "typewriter",
         aliases: &["tw"],
         argument: "[on|off]",
@@ -240,7 +233,6 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "theme" => Command::Theme(optional(rest)),
         "scanlines" => Command::Scanlines(switch(rest)?),
         "bloom" => Command::Bloom(switch(rest)?),
-        "flicker" => Command::Flicker(switch(rest)?),
         "typewriter" => Command::Typewriter(switch(rest)?),
         "fullscreen" => Command::Fullscreen(true),
         "windowed" => Command::Fullscreen(false),

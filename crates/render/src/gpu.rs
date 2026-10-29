@@ -17,8 +17,6 @@ pub struct CrtSettings {
     pub scanline: f32,
     /// Local phosphor bloom strength.
     pub bloom: f32,
-    /// Low-amplitude brightness noise. Keep this subtle.
-    pub flicker: f32,
     /// Overall brightness.
     pub brightness: f32,
 }
@@ -28,7 +26,6 @@ impl Default for CrtSettings {
         Self {
             scanline: 0.42,
             bloom: 0.55,
-            flicker: 0.035,
             brightness: 1.0,
         }
     }
@@ -38,13 +35,17 @@ impl Default for CrtSettings {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct CrtUniforms {
     vres: [f32; 2],
-    time: f32,
     scanline: f32,
     bloom: f32,
-    flicker: f32,
     brightness: f32,
-    _pad: f32,
+    /// Keep the buffer at 32 bytes; see the matching WGSL struct.
+    _pad: [f32; 3],
 }
+
+const _: () = assert!(
+    std::mem::size_of::<CrtUniforms>() == 32,
+    "CrtUniforms must stay in sync with the WGSL struct"
+);
 
 /// What happened when we tried to get a frame.
 #[derive(Debug, PartialEq, Eq)]
@@ -71,7 +72,6 @@ pub struct Renderer {
     bind_group: wgpu::BindGroup,
     tex_size: (u32, u32),
     adapter_info: String,
-    device_type: wgpu::DeviceType,
 }
 
 impl Renderer {
@@ -238,17 +238,11 @@ impl Renderer {
             bind_group,
             tex_size: (640, 400),
             adapter_info,
-            device_type: info.device_type,
         })
     }
 
     pub fn adapter_info(&self) -> &str {
         &self.adapter_info
-    }
-
-    /// Whether we are on a real GPU or a software rasteriser.
-    pub fn device_type(&self) -> wgpu::DeviceType {
-        self.device_type
     }
 
     pub fn surface_format(&self) -> wgpu::TextureFormat {
@@ -305,15 +299,13 @@ impl Renderer {
         );
     }
 
-    fn write_uniforms(&mut self, time: f32, settings: &CrtSettings) {
+    fn write_uniforms(&mut self, settings: &CrtSettings) {
         let uniforms = CrtUniforms {
             vres: [self.tex_size.0 as f32, self.tex_size.1 as f32],
-            time,
             scanline: settings.scanline,
             bloom: settings.bloom,
-            flicker: settings.flicker,
             brightness: settings.brightness,
-            _pad: 0.0,
+            _pad: [0.0; 3],
         };
         self.queue
             .write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
@@ -362,13 +354,8 @@ impl Renderer {
     }
 
     /// Draw and present one frame.
-    pub fn render(
-        &mut self,
-        vp: &Viewport,
-        time: f32,
-        settings: &CrtSettings,
-    ) -> Result<FrameStatus, String> {
-        self.write_uniforms(time, settings);
+    pub fn render(&mut self, vp: &Viewport, settings: &CrtSettings) -> Result<FrameStatus, String> {
+        self.write_uniforms(settings);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
@@ -401,12 +388,11 @@ impl Renderer {
     pub fn render_offscreen(
         &mut self,
         vp: &Viewport,
-        time: f32,
         settings: &CrtSettings,
         width: u32,
         height: u32,
     ) -> Result<(Vec<u8>, u32, u32), String> {
-        self.write_uniforms(time, settings);
+        self.write_uniforms(settings);
 
         let format = self.config.format;
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
