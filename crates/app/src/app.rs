@@ -12,7 +12,7 @@ use cread_render::{raster, CrtSettings, Font, FrameStatus, Framebuffer, Renderer
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::cli::Options;
@@ -558,6 +558,9 @@ impl App {
                     if report.conflicts > 0 {
                         self.status = format!("sync: {} - conflict copy kept", report_word(&report));
                     }
+                    if report.downloaded > 0 {
+                        self.reload_after_sync();
+                    }
                 }
                 SyncEvent::Failed(e) => {
                     self.sync_label = "sync failed".into();
@@ -566,6 +569,28 @@ impl App {
             }
             self.dirty = true;
         }
+    }
+
+    /// A sync round may have replaced the file on disk. Pull it in, unless the
+    /// buffer holds edits that have not been written yet.
+    fn reload_after_sync(&mut self) {
+        let Some(path) = self.doc.path.clone() else {
+            return;
+        };
+        if self.doc.editor.modified() {
+            return;
+        }
+        let Ok(text) = storage::load(&path) else {
+            return;
+        };
+        if text == self.doc.editor.text() {
+            return;
+        }
+        let cursor = self.doc.editor.cursor();
+        self.doc.editor = Editor::from_text(&text);
+        self.doc.editor.set_cursor(cursor);
+        self.status = "updated from server".into();
+        self.dirty = true;
     }
 
     fn start_worker(&mut self) {
@@ -751,7 +776,15 @@ impl App {
         let ctrl = self.mods.control_key() || self.mods.super_key();
 
         match &event.logical_key {
-            Key::Named(NamedKey::Escape) => el.exit(),
+            Key::Named(NamedKey::Escape) => {
+                // One stray Escape should not end a writing session.
+                if self.doc.editor.modified() {
+                    self.status = "unsaved - Ctrl+Q to quit anyway".into();
+                    self.dirty = true;
+                } else {
+                    el.exit();
+                }
+            }
             Key::Named(NamedKey::F1) => {
                 let idx = Theme::ALL.iter().position(|t| *t == self.theme).unwrap_or(0);
                 self.theme = Theme::ALL[(idx + 1) % Theme::ALL.len()];
@@ -838,39 +871,42 @@ impl App {
     }
 
     fn on_key_ctrl(&mut self, el: &ActiveEventLoop, event: &KeyEvent) {
+        // Shortcuts are matched on the physical key: with Ctrl held, some
+        // backends report `logical_key` as a control character, not "s".
         let shift = self.mods.shift_key();
-        match &event.logical_key {
-            Key::Character(c) => match c.to_lowercase().as_str() {
-                "s" => self.save(),
-                "p" => self.open_palette(),
-                "q" => el.exit(),
-                "z" if shift => {
+        let code = match event.physical_key {
+            PhysicalKey::Code(code) => code,
+            PhysicalKey::Unidentified(_) => return,
+        };
+        match code {
+            KeyCode::KeyS => self.save(),
+            KeyCode::KeyP => self.open_palette(),
+            KeyCode::KeyQ => el.exit(),
+            KeyCode::KeyZ => {
+                if shift {
                     self.doc.editor.redo();
-                    self.dirty = true;
-                }
-                "z" => {
+                } else {
                     self.doc.editor.undo();
-                    self.dirty = true;
                 }
-                "y" => {
-                    self.doc.editor.redo();
-                    self.dirty = true;
-                }
-                _ => {}
-            },
-            Key::Named(NamedKey::ArrowLeft) => {
+                self.dirty = true;
+            }
+            KeyCode::KeyY => {
+                self.doc.editor.redo();
+                self.dirty = true;
+            }
+            KeyCode::ArrowLeft => {
                 self.doc.editor.move_word_left();
                 self.dirty = true;
             }
-            Key::Named(NamedKey::ArrowRight) => {
+            KeyCode::ArrowRight => {
                 self.doc.editor.move_word_right();
                 self.dirty = true;
             }
-            Key::Named(NamedKey::Home) => {
+            KeyCode::Home => {
                 self.doc.editor.move_doc_start();
                 self.dirty = true;
             }
-            Key::Named(NamedKey::End) => {
+            KeyCode::End => {
                 self.doc.editor.move_doc_end();
                 self.dirty = true;
             }

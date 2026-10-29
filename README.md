@@ -33,10 +33,10 @@ cargo build --release
 ./target/release/cread notes.md     # or a specific file
 ```
 
-To have it on `$PATH`:
+To have it on `$PATH` (this is a workspace, so point at the binary crate):
 
 ```bash
-cargo install --path .
+cargo install --path crates/app
 cread
 ```
 
@@ -124,8 +124,8 @@ and prints the result, which is handy for cron or for debugging.
 ## Platform notes
 
 Linux is the target (Wayland and X11 both work). macOS should build with
-`cargo install --path .` and can be started from a shell alias; no app bundle
-needed. GPU-wise, anything Vulkan, Metal or OpenGL works — the app also runs on
+`cargo install --path crates/app` and can be started from a shell alias; no app
+bundle needed. GPU-wise, anything Vulkan, Metal or OpenGL works — the app also runs on
 a software rasteriser (llvmpipe) without complaint, which is how it is developed.
 
 ## Layout
