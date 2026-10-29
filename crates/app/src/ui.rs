@@ -280,7 +280,14 @@ fn draw_prompt(
 // ── welcome ─────────────────────────────────────────────────────────────────
 
 /// The start screen: a centred greeting with a command prompt at the bottom.
-pub fn draw_welcome(screen: &mut Screen, theme: &Theme, input: &str, hint: &str, error: &str) {
+pub fn draw_welcome(
+    screen: &mut Screen,
+    theme: &Theme,
+    show_prompt: bool,
+    input: &str,
+    hint: &str,
+    error: &str,
+) {
     screen.fill(Cell::blank(theme.fg, theme.bg));
 
     let rows = screen.rows() as i32;
@@ -302,7 +309,9 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, input: &str, hint: &str,
         Style::Normal,
     );
 
-    draw_prompt(screen, theme, ">", input, hint, error);
+    if show_prompt {
+        draw_prompt(screen, theme, ">", input, hint, error);
+    }
 }
 
 fn put_centered(screen: &mut Screen, y: u32, text: &str, fg: u8, bg: u8, style: Style) {
@@ -555,6 +564,8 @@ pub fn draw_form(screen: &mut Screen, theme: &Theme, view: &FormView<'_>) {
 
 pub struct PaletteView<'a> {
     pub title: &'a str,
+    /// Prompt sigil or label in front of the input.
+    pub prompt: &'a str,
     pub input: &'a str,
     pub items: &'a [String],
     pub selected: usize,
@@ -617,13 +628,14 @@ pub fn draw_palette(screen: &mut Screen, theme: &Theme, view: &PaletteView<'_>) 
 
     // Query line.
     let qy = y0 + 1;
-    screen.put_str(x0 + 2, qy, ">", theme.accent, theme.bg, Style::Bold);
+    screen.put_str(x0 + 2, qy, view.prompt, theme.accent, theme.bg, Style::Bold);
+    let prompt_len = view.prompt.chars().count() as u32;
     let shown = format!("{}_", view.input);
     screen.put_str_ellipsis(
-        x0 + 4,
+        x0 + 3 + prompt_len,
         qy,
         &shown,
-        width.saturating_sub(5),
+        width.saturating_sub(4 + prompt_len),
         theme.fg,
         theme.bg,
         Style::Normal,
@@ -849,6 +861,7 @@ mod tests {
             &Theme::DOS_BLUE,
             &PaletteView {
                 title: "OPEN",
+                prompt: ">",
                 input: "be",
                 items: &items,
                 selected: 1,
@@ -866,7 +879,14 @@ mod tests {
     fn welcome_is_centred_and_has_a_prompt() {
         let vp = vp(1280, 800);
         let mut screen = Screen::new(vp.cols(), vp.rows());
-        draw_welcome(&mut screen, &Theme::BLACK, "ne", "new  start a file", "");
+        draw_welcome(
+            &mut screen,
+            &Theme::BLACK,
+            true,
+            "ne",
+            "new  start a file",
+            "",
+        );
         let text = rows_as_text(&screen);
         assert!(text.contains("Welcome to CRead"));
         assert!(text.contains("type new or open to start"));

@@ -30,6 +30,19 @@ shell. Type a command, press `Enter`, and you are back in the text.
 - `Shift` and the arrows mark text, `Ctrl+A` marks everything.
 - `Ctrl+C`, `Ctrl+X`, `Ctrl+V` copy, cut and paste.
 - Typing or `Backspace` replaces whatever is marked.
+- The mouse works too: click to place the cursor, drag to mark, wheel to
+  scroll.
+
+## Finding things
+
+`Ctrl+F` opens a search prompt. Type, and every hit is marked while the
+cursor jumps to the first one; `F3` walks forward, `Shift+F3` back.
+`Enter` keeps the cursor where it landed, `Esc` puts it back.
+
+## Files
+
+`open` lists the vault. Inside the list, `Ctrl+R` renames the highlighted
+file and `Ctrl+D` deletes it.
 
 ## Mostly invisible
 

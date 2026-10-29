@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Preferences.** Theme, typewriter scrolling and the CRT switches survive a
+  restart (`~/.config/cread/prefs.json`); command-line flags still win.
+- **Incremental search.** `Ctrl+F` or the `find` command, hits highlighted as
+  you type, `F3`/`Shift+F3` to walk them.
+- **Mouse.** Click places the cursor, dragging selects, the wheel scrolls.
+- **Palette.** `Ctrl+R` renames and `Ctrl+D` deletes the highlighted file, and
+  there is a `+ sync now` entry.
+
 - **Selection and clipboard.** Shift plus any movement key marks text, `Ctrl+A`
   selects everything, `Ctrl+C`/`Ctrl+X`/`Ctrl+V` talk to the system clipboard,
   and typing replaces the selection.

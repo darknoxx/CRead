@@ -87,6 +87,7 @@ the right tells you what the command does before you commit to it.
 | `new` | `n` | start an empty document |
 | `rename <name>` | `mv`, `rn` | rename the current document |
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
+| `find [text]` | `search` | search the document (`Ctrl+F`) |
 | `sync` | | push the vault to WebDAV now |
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
 | `scanlines [on\|off]` | `scan`, `sl` | scanline strength |
@@ -106,7 +107,15 @@ most a sentence.
 
 `Shift` plus any movement key marks text, `Ctrl+A` takes everything, and the
 usual `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work with the system clipboard. Marked text
-is drawn inverted, and typing or `Backspace` replaces it.
+is drawn inverted, and typing or `Backspace` replaces it. The mouse does the
+obvious thing: click places the cursor, dragging marks, the wheel scrolls.
+
+## Search
+
+`Ctrl+F` (or `find`) opens a `/` prompt. Matches are marked as you type and the
+cursor jumps to the first hit at or after where you were. `F3` and `Shift+F3`
+walk the hits, also after the prompt is closed; `Enter` keeps the cursor where
+it landed, `Esc` puts it back.
 
 ## How the picture is built
 

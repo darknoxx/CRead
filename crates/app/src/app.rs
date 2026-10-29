@@ -64,6 +64,20 @@ impl Document {
 enum Action {
     Open(PathBuf),
     NewFile,
+    SyncNow,
+}
+
+/// What the file palette is currently doing.
+#[derive(Clone, PartialEq, Eq)]
+enum PaletteMode {
+    Browse,
+    /// `delete x.md?` waiting for y/n.
+    ConfirmDelete(PathBuf),
+    /// Renaming `old` as it is typed.
+    Rename {
+        old: PathBuf,
+        new: String,
+    },
 }
 
 struct Palette {
@@ -72,6 +86,7 @@ struct Palette {
     filtered: Vec<usize>,
     selected: usize,
     title: String,
+    mode: PaletteMode,
 }
 
 impl Palette {
@@ -82,6 +97,7 @@ impl Palette {
             filtered: Vec::new(),
             selected: 0,
             title: "OPEN".into(),
+            mode: PaletteMode::Browse,
         }
     }
 
@@ -577,7 +593,15 @@ impl App {
         };
 
         if !self.has_document {
-            ui::draw_welcome(&mut screen, &self.theme, &self.command, &hint, &error);
+            let show_prompt = matches!(self.mode, Mode::Action | Mode::Search);
+            ui::draw_welcome(
+                &mut screen,
+                &self.theme,
+                show_prompt,
+                &self.command,
+                &hint,
+                &error,
+            );
         } else {
             let (text_width, margin) = ui::layout(cols);
             let height = ui::text_height(rows);
@@ -687,12 +711,28 @@ impl App {
         match self.mode {
             Mode::Palette => {
                 let items = self.palette.items();
+                let question;
+                let (prompt, input, hint) = match &self.palette.mode {
+                    PaletteMode::Browse => (
+                        ">",
+                        self.palette.input.as_str(),
+                        "Enter open   Ctrl+R rename   Ctrl+D delete",
+                    ),
+                    PaletteMode::ConfirmDelete(path) => {
+                        question = format!("delete {}? y/n", self.doc_title_of(path));
+                        ("?", "", question.as_str())
+                    }
+                    PaletteMode::Rename { new, .. } => {
+                        ("name>", new.as_str(), "Enter rename   Esc cancel")
+                    }
+                };
                 let view = ui::PaletteView {
                     title: &self.palette.title,
-                    input: &self.palette.input,
+                    prompt,
+                    input,
                     items: &items,
                     selected: self.palette.selected,
-                    hint: "Enter select   Esc close",
+                    hint,
                 };
                 ui::draw_palette(&mut screen, &self.theme, &view);
             }
@@ -963,8 +1003,18 @@ impl App {
     // ── palette ─────────────────────────────────────────────────────────────
 
     fn open_palette(&mut self) {
-        let dir = self.opts.vault.clone().unwrap_or_else(storage::vault_dir);
-        let mut entries = vec![("+ new document".to_string(), Action::NewFile)];
+        self.palette = Palette::empty();
+        self.refresh_palette();
+        self.mode = Mode::Palette;
+        self.dirty = true;
+    }
+
+    fn refresh_palette(&mut self) {
+        let dir = self.vault();
+        let mut entries = vec![
+            ("+ new document".to_string(), Action::NewFile),
+            ("+ sync now".to_string(), Action::SyncNow),
+        ];
         match storage::list_documents(&dir) {
             Ok(files) => {
                 for path in files {
@@ -977,17 +1027,62 @@ impl App {
             }
             Err(e) => self.set_status(format!("cannot list {}: {e}", dir.display())),
         }
-
-        self.palette = Palette {
-            input: String::new(),
-            entries,
-            filtered: Vec::new(),
-            selected: 0,
-            title: "OPEN".into(),
-        };
+        self.palette.entries = entries;
         self.palette.refilter();
-        self.mode = Mode::Palette;
-        self.dirty = true;
+    }
+
+    fn palette_target(&self) -> Option<PathBuf> {
+        match self.palette.current()? {
+            Action::Open(path) => Some(path.clone()),
+            _ => None,
+        }
+    }
+
+    fn doc_title_of(&self, path: &Path) -> String {
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
+    fn palette_delete(&mut self, path: PathBuf) {
+        let name = self.doc_title_of(&path);
+        if let Err(e) = std::fs::remove_file(&path) {
+            self.set_status(format!("delete failed: {e}"));
+            return;
+        }
+        if self.doc.path.as_deref() == Some(path.as_path()) {
+            self.doc = Document {
+                path: None,
+                title_hint: None,
+                editor: Editor::new(),
+                last_edit: Instant::now(),
+            };
+            self.has_document = false;
+        }
+        self.set_status(format!("deleted {name}"));
+        self.refresh_palette();
+    }
+
+    fn palette_rename(&mut self, old: PathBuf, new: &str) {
+        let new = new.trim();
+        if new.is_empty() {
+            self.set_status("name cannot be empty");
+            return;
+        }
+        let target = self.document_path(new);
+        if target.exists() {
+            self.set_status(format!("{} already exists", self.doc_title_of(&target)));
+            return;
+        }
+        if let Err(e) = std::fs::rename(&old, &target) {
+            self.set_status(format!("rename failed: {e}"));
+            return;
+        }
+        if self.doc.path.as_deref() == Some(old.as_path()) {
+            self.doc.path = Some(target.clone());
+        }
+        self.set_status(format!("renamed to {}", self.doc_title_of(&target)));
+        self.refresh_palette();
     }
 
     fn palette_accept(&mut self) {
@@ -1003,6 +1098,14 @@ impl App {
                 Ok(msg) => self.set_status(msg),
                 Err(e) => self.set_status(e),
             },
+            Action::SyncNow => {
+                if self.sync_cfg.enabled && self.sync.is_some() {
+                    self.request_sync();
+                    self.set_status("sync requested");
+                } else {
+                    self.set_status("webdav is off - try 'settings'");
+                }
+            }
         }
         self.to_write();
     }
@@ -1735,6 +1838,75 @@ impl App {
     }
 
     fn on_key_palette(&mut self, event: KeyEvent) {
+        // Modal sub-states first: they swallow everything.
+        match self.palette.mode.clone() {
+            PaletteMode::ConfirmDelete(path) => {
+                if matches!(&event.logical_key, Key::Character(c) if c.eq_ignore_ascii_case("y")) {
+                    self.palette.mode = PaletteMode::Browse;
+                    self.palette_delete(path);
+                } else {
+                    self.palette.mode = PaletteMode::Browse;
+                    self.set_status("cancelled");
+                }
+                self.poke();
+                return;
+            }
+            PaletteMode::Rename { old, mut new } => {
+                match &event.logical_key {
+                    Key::Named(NamedKey::Escape) => {
+                        self.palette.mode = PaletteMode::Browse;
+                        self.set_status("cancelled");
+                    }
+                    Key::Named(NamedKey::Enter) => {
+                        self.palette.mode = PaletteMode::Browse;
+                        self.palette_rename(old, &new);
+                    }
+                    Key::Named(NamedKey::Backspace) => {
+                        new.pop();
+                        self.palette.mode = PaletteMode::Rename { old, new };
+                    }
+                    Key::Named(NamedKey::Space) => {
+                        new.push(' ');
+                        self.palette.mode = PaletteMode::Rename { old, new };
+                    }
+                    Key::Character(text) => {
+                        for ch in text.chars().filter(|c| !c.is_control()) {
+                            new.push(ch);
+                        }
+                        self.palette.mode = PaletteMode::Rename { old, new };
+                    }
+                    _ => {}
+                }
+                self.poke();
+                return;
+            }
+            PaletteMode::Browse => {}
+        }
+
+        let ctrl = self.mods.control_key() || self.mods.super_key();
+        if ctrl && let PhysicalKey::Code(code) = event.physical_key {
+            {
+                match code {
+                    KeyCode::KeyD => {
+                        if let Some(path) = self.palette_target() {
+                            self.palette.mode = PaletteMode::ConfirmDelete(path);
+                            self.poke();
+                        }
+                        return;
+                    }
+                    KeyCode::KeyR => {
+                        if let Some(old) = self.palette_target() {
+                            let new = self.doc_title_of(&old).trim_end_matches(".md").to_string();
+                            self.palette.mode = PaletteMode::Rename { old, new };
+                            self.poke();
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => self.to_write(),
             Key::Named(NamedKey::Enter) => self.palette_accept(),
