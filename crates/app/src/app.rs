@@ -32,6 +32,8 @@ const ACTIVE_FPS: u32 = 30;
 const IDLE_FPS: u32 = 2;
 /// How long after the last keystroke we stay on the fast path.
 const ACTIVE_WINDOW: Duration = Duration::from_millis(1200);
+/// How long a status message stays on the line before the mode hint returns.
+const STATUS_TTL: Duration = Duration::from_secs(4);
 
 pub fn run(opts: Options) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| format!("event loop: {e}"))?;
@@ -159,6 +161,8 @@ struct App {
     palette: Palette,
     form: FormState,
     status: String,
+    /// When the current status message was set; it fades back to the hint.
+    status_at: Instant,
     screenshot_done: bool,
 
     /// Action-mode command line.
@@ -172,7 +176,6 @@ struct App {
 
     sync_cfg: SyncConfig,
     sync: Option<Worker>,
-    sync_label: String,
 }
 
 /// Editable copy of the WebDAV settings, shown as a form.
@@ -295,6 +298,7 @@ impl App {
             palette: Palette::empty(),
             form: FormState::from_config(&sync_cfg),
             status: String::new(),
+            status_at: Instant::now(),
             screenshot_done: false,
             command: String::new(),
             command_error: String::new(),
@@ -302,7 +306,6 @@ impl App {
             history_pos: None,
             confirm: None,
             help_about: false,
-            sync_label: initial_sync_label(&sync_cfg),
             sync_cfg,
             sync: None,
         }
@@ -397,6 +400,12 @@ impl App {
 
     fn frame(&mut self, el: &ActiveEventLoop) {
         self.pump_sync();
+        // Status messages are transient: after a moment the line goes back to
+        // telling you how to change modes.
+        if !self.status.is_empty() && self.status_at.elapsed() >= STATUS_TTL {
+            self.status.clear();
+            self.dirty = true;
+        }
         self.autosave_if_due();
 
         let Some(vp) = self.vp else {
@@ -558,17 +567,18 @@ impl App {
                 == 1;
 
             let stats: Stats = self.doc.editor.stats();
-            let sync = if self.doc.path.is_none() {
-                String::new()
-            } else if self.doc.editor.modified() {
-                "unsaved".to_string()
+            let state = if self.doc.editor.modified() {
+                "modified"
+            } else if self.doc.path.is_some() {
+                "saved"
             } else {
-                "saved".to_string()
+                ""
             };
-            let sync = if self.sync_cfg.enabled && !self.sync_label.is_empty() {
-                format!("{sync} \u{00b7} {}", self.sync_label)
+            let location = self.location();
+            let message = if self.status_at.elapsed() < STATUS_TTL {
+                self.status.as_str()
             } else {
-                sync
+                ""
             };
 
             let bottom = if self.mode == Mode::Action {
@@ -578,9 +588,7 @@ impl App {
                     error: &error,
                 }
             } else {
-                ui::Bottom::Status {
-                    message: &self.status,
-                }
+                ui::Bottom::Status { message }
             };
             // The document cursor belongs to write mode; the prompt has its own.
             let cursor_cell = if self.mode == Mode::Write {
@@ -592,16 +600,15 @@ impl App {
             let title = self.doc.title();
             let view = ui::DocumentView {
                 title: &title,
-                modified: self.doc.editor.modified(),
+                state,
+                location: &location,
                 lines: self.doc.editor.lines(),
                 rows: &visible,
                 cursor: cursor_cell,
                 margin,
                 stats,
                 cursor_pos: (cursor.line, cursor.col),
-                sync: &sync,
                 bottom,
-                theme_name: self.theme.name,
                 in_fence,
                 cursor_on: self.blink,
             };
@@ -667,21 +674,21 @@ impl App {
         }
         for event in events {
             match event {
-                SyncEvent::Started => self.sync_label = "sync ...".into(),
+                SyncEvent::Started => self.set_status("sync ..."),
                 SyncEvent::Done(report) => {
-                    self.sync_label = format!("sync {}", report_word(&report));
                     if report.conflicts > 0 {
-                        self.status =
-                            format!("sync: {} - conflict copy kept", report_word(&report));
+                        self.set_status(format!(
+                            "sync: {} - conflict copy kept",
+                            report_word(&report)
+                        ));
+                    } else {
+                        self.set_status(format!("sync: {}", report_word(&report)));
                     }
                     if report.downloaded > 0 {
                         self.reload_after_sync();
                     }
                 }
-                SyncEvent::Failed(e) => {
-                    self.sync_label = "sync failed".into();
-                    self.status = format!("sync: {e}");
-                }
+                SyncEvent::Failed(e) => self.set_status(format!("sync failed: {e}")),
             }
             self.dirty = true;
         }
@@ -705,7 +712,7 @@ impl App {
         let cursor = self.doc.editor.cursor();
         self.doc.editor = Editor::from_text(&text);
         self.doc.editor.set_cursor(cursor);
-        self.status = "updated from server".into();
+        self.set_status("updated from server");
         self.dirty = true;
     }
 
@@ -744,17 +751,16 @@ impl App {
         match cfg.save() {
             Ok(()) => {
                 self.sync_cfg = cfg.clone();
-                self.sync_label = initial_sync_label(&cfg);
                 self.start_worker();
                 if let Some(worker) = self.sync.as_ref() {
                     worker.configure(cfg);
                 }
                 self.to_write();
-                self.status = if self.sync_cfg.enabled {
-                    "sync on".into()
+                self.set_status(if self.sync_cfg.enabled {
+                    "sync on"
                 } else {
-                    "sync off".into()
-                };
+                    "sync off"
+                });
             }
             Err(e) => self.form.note = format!("cannot write config: {e}"),
         }
@@ -779,11 +785,7 @@ impl App {
             None => self.free_untitled_path(),
         };
         self.save_to(&path)?;
-        Ok(if self.doc.path.as_deref() == Some(path.as_path()) {
-            format!("saved {}", self.doc.title())
-        } else {
-            format!("saved as {}", path.display())
-        })
+        Ok(String::new())
     }
 
     /// Start a fresh file in the vault, named `untitled.md`, `untitled-2.md`, …
@@ -797,13 +799,13 @@ impl App {
         };
         self.has_document = true;
         self.save_to(&path)?;
-        Ok(format!("created {}", path.display()))
+        Ok(format!("created {}", self.doc.title()))
     }
 
     fn save_as(&mut self, name: &str) -> Result<String, String> {
         let path = self.document_path(name);
         self.save_to(&path)?;
-        Ok(format!("saved as {}", path.display()))
+        Ok(format!("saved as {}", self.doc.title()))
     }
 
     fn vault(&self) -> PathBuf {
@@ -861,7 +863,7 @@ impl App {
                 std::fs::rename(&old, &target).map_err(|e| format!("rename failed: {e}"))?;
                 self.doc.path = Some(target.clone());
                 self.dirty = true;
-                Ok(format!("renamed to {}", target.display()))
+                Ok(format!("renamed to {}", self.doc.title()))
             }
             // Not on disk yet: fall back to a plain save under the new name.
             None => self.save_as(name),
@@ -881,7 +883,12 @@ impl App {
         };
         self.has_document = false;
         self.dirty = true;
-        Ok(format!("deleted {}", path.display()))
+        Ok(format!(
+            "deleted {}",
+            path.file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default()
+        ))
     }
 
     // ── palette ─────────────────────────────────────────────────────────────
@@ -899,7 +906,7 @@ impl App {
                     entries.push((name, Action::Open(path)));
                 }
             }
-            Err(e) => self.status = format!("cannot list {}: {e}", dir.display()),
+            Err(e) => self.set_status(format!("cannot list {}: {e}", dir.display())),
         }
 
         self.palette = Palette {
@@ -920,12 +927,12 @@ impl App {
         };
         match action {
             Action::Open(path) => match self.open_document(path.clone()) {
-                Ok(()) => self.status = format!("opened {}", path.display()),
-                Err(e) => self.status = e,
+                Ok(()) => self.set_status(format!("opened {}", path.display())),
+                Err(e) => self.set_status(e),
             },
             Action::NewFile => match self.new_document() {
-                Ok(msg) => self.status = msg,
-                Err(e) => self.status = e,
+                Ok(msg) => self.set_status(msg),
+                Err(e) => self.set_status(e),
             },
         }
         self.to_write();
@@ -1062,14 +1069,14 @@ impl App {
                 self.confirm = None;
                 match self.delete_current() {
                     Ok(msg) => {
-                        self.status = msg;
+                        self.set_status(msg);
                         self.to_write();
                     }
                     Err(e) => self.command_error = e,
                 }
             } else {
                 self.confirm = None;
-                self.status = "cancelled".into();
+                self.set_status("cancelled");
                 self.to_write();
             }
             self.poke();
@@ -1151,7 +1158,7 @@ impl App {
         match self.run_command(el, command) {
             Ok(message) => {
                 if !message.is_empty() {
-                    self.status = message;
+                    self.set_status(message);
                 }
                 self.command.clear();
                 self.command_error.clear();
@@ -1330,6 +1337,13 @@ impl App {
         }
     }
 
+    /// Show a short message on the status line for a few seconds.
+    fn set_status(&mut self, message: impl Into<String>) {
+        self.status = message.into();
+        self.status_at = Instant::now();
+        self.dirty = true;
+    }
+
     /// Cheap "something changed, redraw soon" for non-document keys.
     fn poke(&mut self) {
         self.last_input = Instant::now();
@@ -1439,6 +1453,23 @@ impl App {
     fn touch(&mut self) {
         self.doc.last_edit = Instant::now();
         self.poke();
+    }
+
+    /// Folder the current document lives in, home abbreviated.
+    fn location(&self) -> String {
+        let dir = self
+            .doc
+            .path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| self.vault());
+        let home = storage::home_dir();
+        match dir.strip_prefix(&home) {
+            Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+            Ok(rest) => format!("~/{}", rest.display()),
+            Err(_) => dir.display().to_string(),
+        }
     }
 
     fn cycle_theme(&mut self, delta: isize) -> Result<String, String> {
@@ -1587,16 +1618,6 @@ impl ApplicationHandler for App {
         if self.doc.editor.modified() {
             let _ = self.save();
         }
-    }
-}
-
-fn initial_sync_label(cfg: &SyncConfig) -> String {
-    if !cfg.is_configured() {
-        "webdav off".into()
-    } else if cfg.enabled {
-        "sync idle".into()
-    } else {
-        "sync off".into()
     }
 }
 

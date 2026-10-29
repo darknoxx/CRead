@@ -41,7 +41,10 @@ pub enum Bottom<'a> {
 
 pub struct DocumentView<'a> {
     pub title: &'a str,
-    pub modified: bool,
+    /// "saved", "modified", or empty when there is no file yet.
+    pub state: &'a str,
+    /// Where the document lives, home abbreviated. Shown top right.
+    pub location: &'a str,
     /// All logical lines of the document; rows index into this.
     pub lines: &'a [String],
     pub rows: &'a [VisualRow],
@@ -50,9 +53,7 @@ pub struct DocumentView<'a> {
     pub margin: usize,
     pub stats: Stats,
     pub cursor_pos: (usize, usize),
-    pub sync: &'a str,
     pub bottom: Bottom<'a>,
-    pub theme_name: &'a str,
     /// Fenced-code state at the first visible line.
     pub in_fence: bool,
     pub cursor_on: bool,
@@ -78,29 +79,22 @@ fn draw_top_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
     let (fg, bg) = (theme.status_fg, theme.status_bg);
     screen.fill_row(0, Cell::blank(fg, bg));
 
-    let marker = if view.modified {
-        " \u{00b7} modified "
-    } else {
-        ""
-    };
-    screen.put_str_ellipsis(
-        0,
-        0,
-        &format!(" {}{}", view.title, marker),
-        cols,
-        fg,
-        bg,
-        Style::Bold,
-    );
+    // The location is right-aligned, so reserve its space first; otherwise a
+    // long path would eat into the file name.
+    let location = format!("{} ", view.location);
+    let location_width = location.chars().count() as u32;
+    let name_width = cols.saturating_sub(location_width + 1);
 
-    let right = if view.sync.is_empty() {
-        format!("{} ", view.theme_name)
+    let left = if view.state.is_empty() {
+        format!(" {}", view.title)
     } else {
-        format!("{}  {} ", view.sync, view.theme_name)
+        format!(" {}  {}", view.title, view.state)
     };
-    let x = cols.saturating_sub(right.chars().count() as u32);
-    if x > cols / 2 {
-        screen.put_str(x, 0, &right, fg, bg, Style::Normal);
+    screen.put_str_ellipsis(0, 0, &left, name_width, fg, bg, Style::Bold);
+
+    if location_width < cols / 2 {
+        let x = cols.saturating_sub(location_width);
+        screen.put_str(x, 0, &location, theme.status_dim, bg, Style::Normal);
     }
 }
 
@@ -662,8 +656,9 @@ mod tests {
     ) -> DocumentView<'a> {
         DocumentView {
             title: "note.md",
+            state: "modified",
+            location: "~/Dokumente/CRead",
             lines,
-            modified: true,
             rows,
             cursor,
             margin: 1,
@@ -673,9 +668,7 @@ mod tests {
                 lines: 2,
             },
             cursor_pos: (0, 3),
-            sync: "sync: idle",
             bottom: Bottom::Status { message: input.0 },
-            theme_name: input.1,
             in_fence: false,
             cursor_on: true,
         }

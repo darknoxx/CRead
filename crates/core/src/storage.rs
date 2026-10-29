@@ -103,6 +103,10 @@ pub fn config_dir() -> PathBuf {
     home().join(".config").join("cread")
 }
 
+pub fn home_dir() -> PathBuf {
+    home()
+}
+
 fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
