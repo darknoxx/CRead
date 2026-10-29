@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cread_core::{
-    Editor, Prefs, ScaleMode, Screen, Stats, Theme, Viewport,
+    Editor, Position, Prefs, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
     resolution::target_line_px_for_scale_factor,
     storage,
@@ -111,10 +111,21 @@ impl Palette {
     }
 }
 
+/// An active incremental search.
+struct Search {
+    /// Where the cursor was when the search started, for Esc to restore.
+    origin: Position,
+    query: String,
+    matches: Vec<(Position, usize)>,
+    current: usize,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// Typing into the document.
     Write,
+    /// The `/` prompt at the bottom.
+    Search,
     /// A command line at the bottom, like a shell.
     Action,
     /// File picker.
@@ -149,6 +160,8 @@ struct App {
     typewriter: bool,
 
     doc: Document,
+    search: Option<Search>,
+    last_search: Option<String>,
     /// Kept alive for the whole run: on Wayland the clipboard is served by the
     /// owning process, so dropping the handle would lose the copied text.
     clipboard: Option<arboard::Clipboard>,
@@ -306,6 +319,8 @@ impl App {
             mods: ModifiersState::empty(),
             typewriter,
             doc,
+            search: None,
+            last_search: None,
             clipboard: None,
             has_document,
             mode: if has_document {
@@ -589,14 +604,40 @@ impl App {
             };
             let location = self.location();
             let selection = self.doc.editor.selection();
+            let (matches, current_match) = match &self.search {
+                Some(search) => (
+                    search.matches.as_slice(),
+                    (!search.matches.is_empty()).then_some(search.current),
+                ),
+                None => (&[][..], None),
+            };
             let message = if self.status_at.elapsed() < STATUS_TTL {
                 self.status.as_str()
             } else {
                 ""
             };
 
-            let bottom = if self.mode == Mode::Action {
+            let search_hint = self.search.as_ref().map(|s| {
+                if s.matches.is_empty() {
+                    "no matches   Esc cancel".to_string()
+                } else {
+                    format!(
+                        "{}/{}   Enter keep   Esc cancel",
+                        s.current + 1,
+                        s.matches.len()
+                    )
+                }
+            });
+            let bottom = if self.mode == Mode::Search {
                 ui::Bottom::Prompt {
+                    sigil: "/",
+                    input: self.search.as_ref().map(|s| s.query.as_str()).unwrap_or(""),
+                    hint: search_hint.as_deref().unwrap_or(""),
+                    error: "",
+                }
+            } else if self.mode == Mode::Action {
+                ui::Bottom::Prompt {
+                    sigil: ">",
                     input: &self.command,
                     hint: &hint,
                     error: &error,
@@ -619,6 +660,8 @@ impl App {
                 lines: self.doc.editor.lines(),
                 rows: &visible,
                 selection,
+                matches,
+                current_match,
                 cursor: cursor_cell,
                 margin,
                 stats,
@@ -961,6 +1004,7 @@ impl App {
         }
         match self.mode {
             Mode::Write => self.on_key_write(el, event),
+            Mode::Search => self.on_key_search(event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -980,6 +1024,7 @@ impl App {
         if ctrl {
             // Undo is an editing gesture, not a command, so it keeps its key.
             match code {
+                Some(KeyCode::KeyF) => self.start_search(None),
                 Some(KeyCode::KeyA) => {
                     self.doc.editor.select_all();
                     self.poke();
@@ -1041,6 +1086,7 @@ impl App {
                 self.doc.editor.break_undo_group();
                 self.poke();
             }
+            Key::Named(NamedKey::F3) => self.repeat_search(!shift),
             Key::Named(NamedKey::ArrowUp) => self.move_vertical(-1, shift),
             Key::Named(NamedKey::ArrowDown) => self.move_vertical(1, shift),
             Key::Named(NamedKey::Home) => {
@@ -1292,6 +1338,10 @@ impl App {
                     Err("nothing to redo".into())
                 }
             }
+            Command::Find(query) => {
+                self.start_search(query);
+                Ok(String::new())
+            }
             Command::Settings => {
                 self.open_settings();
                 Ok(String::new())
@@ -1459,6 +1509,143 @@ impl App {
         // Render as soon as the event loop comes back around.
         self.next_frame = Instant::now();
         self.dirty = true;
+    }
+
+    fn on_key_search(&mut self, event: KeyEvent) {
+        let shift = self.mods.shift_key();
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => self.cancel_search(),
+            Key::Named(NamedKey::Enter) => self.accept_search(),
+            Key::Named(NamedKey::F3) => self.step_match(!shift),
+            Key::Named(NamedKey::Backspace) => {
+                if let Some(search) = self.search.as_mut() {
+                    search.query.pop();
+                }
+                self.update_search();
+            }
+            Key::Named(NamedKey::Space) => {
+                if let Some(search) = self.search.as_mut() {
+                    search.query.push(' ');
+                }
+                self.update_search();
+            }
+            Key::Character(text) => {
+                if self.mods.alt_key() {
+                    return;
+                }
+                if let Some(search) = self.search.as_mut() {
+                    for ch in text.chars().filter(|c| !c.is_control()) {
+                        search.query.push(ch);
+                    }
+                }
+                self.update_search();
+            }
+            _ => {}
+        }
+    }
+
+    fn start_search(&mut self, query: Option<String>) {
+        if !self.has_document {
+            return;
+        }
+        self.search = Some(Search {
+            origin: self.doc.editor.cursor(),
+            query: query.unwrap_or_default(),
+            matches: Vec::new(),
+            current: 0,
+        });
+        self.mode = Mode::Search;
+        self.update_search();
+    }
+
+    /// Recompute the hits and jump to the first one at or after the origin.
+    fn update_search(&mut self) {
+        let (matches, origin) = match &self.search {
+            Some(search) => (self.doc.editor.find_all(&search.query), search.origin),
+            None => return,
+        };
+        if let Some(search) = self.search.as_mut() {
+            search.current = matches
+                .iter()
+                .position(|(pos, _)| *pos >= origin)
+                .unwrap_or(0);
+            search.matches = matches;
+        }
+        if let Some(pos) = self
+            .search
+            .as_ref()
+            .and_then(|s| s.matches.get(s.current))
+            .map(|(pos, _)| *pos)
+        {
+            self.doc.editor.set_cursor(pos);
+        }
+        self.dirty = true;
+    }
+
+    fn step_match(&mut self, forward: bool) {
+        let Some(search) = self.search.as_mut() else {
+            return;
+        };
+        if search.matches.is_empty() {
+            return;
+        }
+        let len = search.matches.len();
+        search.current = if forward {
+            (search.current + 1) % len
+        } else {
+            (search.current + len - 1) % len
+        };
+        let pos = search.matches[search.current].0;
+        self.doc.editor.set_cursor(pos);
+        self.dirty = true;
+    }
+
+    /// Enter: keep the cursor where the search landed.
+    fn accept_search(&mut self) {
+        if let Some(search) = self.search.take() {
+            if !search.query.is_empty() {
+                self.last_search = Some(search.query.clone());
+            }
+            if let Some((pos, _)) = search.matches.get(search.current) {
+                self.doc.editor.set_cursor(*pos);
+            }
+        }
+        self.to_write();
+    }
+
+    /// Esc: put the cursor back where the search started.
+    fn cancel_search(&mut self) {
+        if let Some(search) = self.search.take() {
+            self.doc.editor.set_cursor(search.origin);
+        }
+        self.to_write();
+    }
+
+    /// F3 outside search: jump to the next hit of the previous query.
+    fn repeat_search(&mut self, forward: bool) {
+        let Some(query) = self.last_search.clone() else {
+            self.set_status("no previous search");
+            return;
+        };
+        let matches = self.doc.editor.find_all(&query);
+        if matches.is_empty() {
+            self.set_status(format!("no matches for {query}"));
+            return;
+        }
+        let cursor = self.doc.editor.cursor();
+        let index = if forward {
+            matches
+                .iter()
+                .position(|(pos, _)| *pos > cursor)
+                .unwrap_or(0)
+        } else {
+            matches
+                .iter()
+                .rposition(|(pos, _)| *pos < cursor)
+                .unwrap_or(matches.len() - 1)
+        };
+        self.doc.editor.set_cursor(matches[index].0);
+        self.set_status(format!("{}/{} matches", index + 1, matches.len()));
     }
 
     fn on_key_palette(&mut self, event: KeyEvent) {
@@ -1678,6 +1865,10 @@ impl ApplicationHandler for App {
             "settings" => self.open_settings(),
             "help" => {
                 self.mode = Mode::Help;
+            }
+            "search" => {
+                let query = self.opts.command.clone();
+                self.start_search((!query.is_empty()).then_some(query));
             }
             "welcome" => {
                 self.has_document = false;

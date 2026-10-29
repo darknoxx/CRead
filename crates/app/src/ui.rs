@@ -31,8 +31,10 @@ pub fn text_height(rows: u32) -> usize {
 pub enum Bottom<'a> {
     /// Write mode: statistics and a hint.
     Status { message: &'a str },
-    /// Action mode: the command prompt.
+    /// Action or search prompt.
     Prompt {
+        /// `>` for commands, `/` for search.
+        sigil: &'a str,
         input: &'a str,
         hint: &'a str,
         error: &'a str,
@@ -50,6 +52,10 @@ pub struct DocumentView<'a> {
     pub rows: &'a [VisualRow],
     /// Highlighted range, in document positions.
     pub selection: Option<(cread_core::Position, cread_core::Position)>,
+    /// Search hits: start position and length in chars.
+    pub matches: &'a [(cread_core::Position, usize)],
+    /// Index of the hit the cursor is on.
+    pub current_match: Option<usize>,
     /// Cursor as (row index into `rows`, column offset inside that row).
     pub cursor: Option<(usize, usize)>,
     pub margin: usize,
@@ -70,7 +76,12 @@ pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>
     draw_text(screen, theme, view);
     match &view.bottom {
         Bottom::Status { message } => draw_status_bar(screen, theme, view, message),
-        Bottom::Prompt { input, hint, error } => draw_prompt(screen, theme, input, hint, error),
+        Bottom::Prompt {
+            sigil,
+            input,
+            hint,
+            error,
+        } => draw_prompt(screen, theme, sigil, input, hint, error),
     }
 
     debug_assert!(cols > 0 && rows > 0);
@@ -141,8 +152,21 @@ fn draw_text(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
                 };
                 pos >= start && pos < end
             });
+            let pos = cread_core::Position {
+                line: row.line,
+                col: doc_col,
+            };
+            let hit = view.matches.iter().position(|(start, len)| {
+                *start <= pos && pos.col < start.col + len && start.line == pos.line
+            });
             let cell = if selected {
                 Cell::new(ch, bg, fg, style)
+            } else if let Some(idx) = hit {
+                if view.current_match == Some(idx) {
+                    Cell::new(ch, theme.bg, theme.accent, style)
+                } else {
+                    Cell::new(ch, theme.accent, theme.code_bg, style)
+                }
             } else {
                 Cell::new(ch, fg, bg, style)
             };
@@ -205,13 +229,20 @@ fn draw_status_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>, 
 }
 
 /// The action-mode command line: `> input▌` plus a dimmed hint on the right.
-fn draw_prompt(screen: &mut Screen, theme: &Theme, input: &str, hint: &str, error: &str) {
+fn draw_prompt(
+    screen: &mut Screen,
+    theme: &Theme,
+    sigil: &str,
+    input: &str,
+    hint: &str,
+    error: &str,
+) {
     let cols = screen.cols();
     let bar = screen.rows().saturating_sub(1);
     let (fg, bg) = (theme.status_fg, theme.status_bg);
     screen.fill_row(bar, Cell::blank(fg, bg));
 
-    screen.put_str(0, bar, ">", theme.accent, bg, Style::Bold);
+    screen.put_str(0, bar, sigil, theme.accent, bg, Style::Bold);
     screen.put(1, bar, Cell::blank(fg, bg));
 
     // Long command lines scroll, keeping the tail (and the cursor) visible.
@@ -271,7 +302,7 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, input: &str, hint: &str,
         Style::Normal,
     );
 
-    draw_prompt(screen, theme, input, hint, error);
+    draw_prompt(screen, theme, ">", input, hint, error);
 }
 
 fn put_centered(screen: &mut Screen, y: u32, text: &str, fg: u8, bg: u8, style: Style) {
@@ -678,6 +709,8 @@ mod tests {
             lines,
             rows,
             selection: None,
+            matches: &[],
+            current_match: None,
             cursor,
             margin: 1,
             stats: Stats {
@@ -777,6 +810,33 @@ mod tests {
         assert_eq!(sel.fg, Theme::BLACK.bg, "selected cell is inverted");
         assert_eq!(sel.bg, Theme::BLACK.fg);
         assert_eq!(plain.fg, Theme::BLACK.fg, "unselected cell is not");
+    }
+
+    #[test]
+    fn search_hits_get_a_highlight_and_the_current_one_is_inverted() {
+        let vp = vp(1280, 800);
+        let mut ed = Editor::from_text("one two one");
+        let (w, m) = layout(vp.cols());
+        let rows = ed.visible_rows(w, text_height(vp.rows()));
+        let hits = ed.find_all("one");
+
+        let mut screen = Screen::new(vp.cols(), vp.rows());
+        let mut view = view_from(ed.lines(), &rows, None, ("", "black"));
+        view.matches = &hits;
+        view.current_match = Some(1);
+        draw_document(&mut screen, &Theme::BLACK, &view);
+
+        let first = screen.get(m as u32, 2).unwrap();
+        let second = screen.get(m as u32 + 8, 2).unwrap();
+        let plain = screen.get(m as u32 + 4, 2).unwrap();
+
+        assert_eq!(first.bg, Theme::BLACK.code_bg, "other hits are marked");
+        assert_eq!(
+            second.bg,
+            Theme::BLACK.accent,
+            "the current hit is inverted"
+        );
+        assert_eq!(plain.bg, Theme::BLACK.bg, "plain text is untouched");
     }
 
     #[test]

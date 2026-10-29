@@ -229,6 +229,35 @@ impl Editor {
         self.anchor = None;
     }
 
+    /// Every non-overlapping match of `needle`, case insensitive, with its
+    /// length in chars. An empty needle matches nothing.
+    pub fn find_all(&self, needle: &str) -> Vec<(Position, usize)> {
+        let wanted: Vec<char> = needle.chars().map(lower).collect();
+        if wanted.is_empty() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for (line_no, line) in self.lines.iter().enumerate() {
+            let chars: Vec<char> = line.chars().map(lower).collect();
+            let mut i = 0;
+            while i + wanted.len() <= chars.len() {
+                if chars[i..i + wanted.len()] == wanted[..] {
+                    out.push((
+                        Position {
+                            line: line_no,
+                            col: i,
+                        },
+                        wanted.len(),
+                    ));
+                    i += wanted.len();
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        out
+    }
+
     /// The selected text, with real newlines between lines.
     pub fn selected_text(&self) -> String {
         let Some((start, end)) = self.selection() else {
@@ -746,6 +775,12 @@ fn segment_of(segs: &[(usize, usize)], col: usize) -> usize {
     segs.len().saturating_sub(1)
 }
 
+/// Lowercase one char; keeps multi-char mappings (like `ß`) from shifting
+/// character indices, which would break the match positions.
+fn lower(c: char) -> char {
+    c.to_lowercase().next().unwrap_or(c)
+}
+
 fn byte_of_char(s: &str, col: usize) -> usize {
     s.char_indices().nth(col).map(|(b, _)| b).unwrap_or(s.len())
 }
@@ -1001,6 +1036,33 @@ three");
         assert_eq!(e.text(), "xy");
         assert!(e.undo());
         assert_eq!(e.text(), "abc");
+    }
+
+    #[test]
+    fn find_all_is_case_insensitive_and_non_overlapping() {
+        let e = ed("Hallo hallo\nHALLO");
+        let hits = e.find_all("hallo");
+        assert_eq!(hits.len(), 3);
+        assert_eq!(hits[0].0, Position { line: 0, col: 0 });
+        assert_eq!(hits[0].1, 5);
+        assert_eq!(hits[1].0, Position { line: 0, col: 6 });
+        assert_eq!(hits[2].0, Position { line: 1, col: 0 });
+    }
+
+    #[test]
+    fn find_all_handles_umlauts_and_empty_needles() {
+        let e = ed("Über über");
+        assert_eq!(e.find_all("über").len(), 2);
+        assert!(e.find_all("").is_empty());
+        assert!(e.find_all("nichts").is_empty());
+    }
+
+    #[test]
+    fn find_all_does_not_match_twice_in_the_same_spot() {
+        let e = ed("aaaa");
+        let hits = e.find_all("aa");
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[1].0.col, 2);
     }
 
     #[test]

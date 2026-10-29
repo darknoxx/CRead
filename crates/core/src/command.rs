@@ -22,6 +22,8 @@ pub enum Command {
     Fullscreen(bool),
     Undo,
     Redo,
+    /// Open the search prompt, optionally with a query already typed.
+    Find(Option<String>),
     Settings,
     Help,
     About,
@@ -159,6 +161,12 @@ pub const SPECS: &[Spec] = &[
         summary: "redo",
     },
     Spec {
+        name: "find",
+        aliases: &["search"],
+        argument: "[text]",
+        summary: "search the document (Ctrl+F, F3 for the next hit)",
+    },
+    Spec {
         name: "settings",
         aliases: &["set", "cfg"],
         argument: "",
@@ -238,6 +246,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "windowed" => Command::Fullscreen(false),
         "undo" => Command::Undo,
         "redo" => Command::Redo,
+        "find" => Command::Find(optional(rest)),
         "settings" => Command::Settings,
         "help" => Command::Help,
         "about" => Command::About,
