@@ -134,15 +134,16 @@ fn inline(chars: &[char], from: usize, to: usize, base: Kind, out: &mut Vec<Span
         let c = chars[i];
 
         if c == '`'
-            && let Some(close) = find(chars, i + 1, to, '`') {
-                push(out, text_start, i, base);
-                push(out, i, i + 1, Kind::Marker);
-                push(out, i + 1, close, Kind::Code);
-                push(out, close, close + 1, Kind::Marker);
-                i = close + 1;
-                text_start = i;
-                continue;
-            }
+            && let Some(close) = find(chars, i + 1, to, '`')
+        {
+            push(out, text_start, i, base);
+            push(out, i, i + 1, Kind::Marker);
+            push(out, i + 1, close, Kind::Code);
+            push(out, close, close + 1, Kind::Marker);
+            i = close + 1;
+            text_start = i;
+            continue;
+        }
 
         if (c == '*' || c == '_') && depth < 4 {
             let doubled = i + 1 < to && chars[i + 1] == c;
@@ -153,30 +154,34 @@ fn inline(chars: &[char], from: usize, to: usize, base: Kind, out: &mut Vec<Span
                 (false, _) => Kind::Emphasis,
             };
             if let Some(close) = find_run(chars, i + marker, to, c, marker)
-                && close > i + marker {
-                    push(out, text_start, i, base);
-                    push(out, i, i + marker, Kind::Marker);
-                    inline(chars, i + marker, close, kind, out, depth + 1);
-                    push(out, close, close + marker, Kind::Marker);
-                    i = close + marker;
-                    text_start = i;
-                    continue;
-                }
+                && close > i + marker
+            {
+                push(out, text_start, i, base);
+                push(out, i, i + marker, Kind::Marker);
+                inline(chars, i + marker, close, kind, out, depth + 1);
+                push(out, close, close + marker, Kind::Marker);
+                i = close + marker;
+                text_start = i;
+                continue;
+            }
         }
 
-        if c == '[' && depth < 4
+        if c == '['
+            && depth < 4
             && let Some(close) = find(chars, i + 1, to, ']')
-                && close + 1 < to && chars[close + 1] == '('
-                    && let Some(paren) = find(chars, close + 2, to, ')') {
-                        push(out, text_start, i, base);
-                        push(out, i, i + 1, Kind::Marker);
-                        inline(chars, i + 1, close, Kind::Link, out, depth + 1);
-                        push(out, close, close + 1, Kind::Marker);
-                        push(out, close + 1, paren + 1, Kind::LinkUrl);
-                        i = paren + 1;
-                        text_start = i;
-                        continue;
-                    }
+            && close + 1 < to
+            && chars[close + 1] == '('
+            && let Some(paren) = find(chars, close + 2, to, ')')
+        {
+            push(out, text_start, i, base);
+            push(out, i, i + 1, Kind::Marker);
+            inline(chars, i + 1, close, Kind::Link, out, depth + 1);
+            push(out, close, close + 1, Kind::Marker);
+            push(out, close + 1, paren + 1, Kind::LinkUrl);
+            i = paren + 1;
+            text_start = i;
+            continue;
+        }
 
         if c == '\\' && i + 1 < to {
             i += 2;
@@ -281,8 +286,26 @@ mod tests {
 
     #[test]
     fn strong_and_emphasis() {
-        assert_eq!(kinds("a **b** c"), vec![Kind::Normal, Kind::Marker, Kind::Strong, Kind::Marker, Kind::Normal]);
-        assert_eq!(kinds("a *b* c"), vec![Kind::Normal, Kind::Marker, Kind::Emphasis, Kind::Marker, Kind::Normal]);
+        assert_eq!(
+            kinds("a **b** c"),
+            vec![
+                Kind::Normal,
+                Kind::Marker,
+                Kind::Strong,
+                Kind::Marker,
+                Kind::Normal
+            ]
+        );
+        assert_eq!(
+            kinds("a *b* c"),
+            vec![
+                Kind::Normal,
+                Kind::Marker,
+                Kind::Emphasis,
+                Kind::Marker,
+                Kind::Normal
+            ]
+        );
     }
 
     #[test]

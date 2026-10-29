@@ -69,26 +69,126 @@ pub struct Spec {
 }
 
 pub const SPECS: &[Spec] = &[
-    Spec { name: "save", aliases: &["w", "safe", "write"], argument: "", summary: "write the document to disk" },
-    Spec { name: "saveas", aliases: &["sa"], argument: "<name>", summary: "save under a new name in the vault" },
-    Spec { name: "open", aliases: &["o", "e"], argument: "[name]", summary: "open a document (bare: file list)" },
-    Spec { name: "new", aliases: &["n"], argument: "", summary: "start an empty document" },
-    Spec { name: "rename", aliases: &["mv", "rn"], argument: "<name>", summary: "rename the current document" },
-    Spec { name: "delete", aliases: &["rm", "del"], argument: "", summary: "delete the current document" },
-    Spec { name: "sync", aliases: &[], argument: "", summary: "sync the vault with WebDAV now" },
-    Spec { name: "theme", aliases: &[], argument: "[name]", summary: "switch theme (no argument: next)" },
-    Spec { name: "scanlines", aliases: &["scan", "sl"], argument: "[on|off]", summary: "toggle or set the scanlines" },
-    Spec { name: "bloom", aliases: &[], argument: "[on|off]", summary: "toggle or set the phosphor glow" },
-    Spec { name: "flicker", aliases: &["fl"], argument: "[on|off]", summary: "toggle or set the flicker" },
-    Spec { name: "typewriter", aliases: &["tw"], argument: "[on|off]", summary: "toggle or set typewriter scrolling" },
-    Spec { name: "fullscreen", aliases: &["fs"], argument: "", summary: "go fullscreen" },
-    Spec { name: "windowed", aliases: &["win"], argument: "", summary: "leave fullscreen" },
-    Spec { name: "undo", aliases: &["u"], argument: "", summary: "undo the last edit" },
-    Spec { name: "redo", aliases: &[], argument: "", summary: "redo" },
-    Spec { name: "settings", aliases: &["set", "cfg"], argument: "", summary: "WebDAV settings" },
-    Spec { name: "help", aliases: &["?", "h"], argument: "", summary: "list these commands" },
-    Spec { name: "about", aliases: &["version"], argument: "", summary: "version and credits" },
-    Spec { name: "quit", aliases: &["q", "x", "exit"], argument: "", summary: "save and quit" },
+    Spec {
+        name: "save",
+        aliases: &["w", "safe", "write"],
+        argument: "",
+        summary: "write the document to disk",
+    },
+    Spec {
+        name: "saveas",
+        aliases: &["sa"],
+        argument: "<name>",
+        summary: "save under a new name in the vault",
+    },
+    Spec {
+        name: "open",
+        aliases: &["o", "e"],
+        argument: "[name]",
+        summary: "open a document (bare: file list)",
+    },
+    Spec {
+        name: "new",
+        aliases: &["n"],
+        argument: "",
+        summary: "start an empty document",
+    },
+    Spec {
+        name: "rename",
+        aliases: &["mv", "rn"],
+        argument: "<name>",
+        summary: "rename the current document",
+    },
+    Spec {
+        name: "delete",
+        aliases: &["rm", "del"],
+        argument: "",
+        summary: "delete the current document",
+    },
+    Spec {
+        name: "sync",
+        aliases: &[],
+        argument: "",
+        summary: "sync the vault with WebDAV now",
+    },
+    Spec {
+        name: "theme",
+        aliases: &[],
+        argument: "[name]",
+        summary: "switch theme (no argument: next)",
+    },
+    Spec {
+        name: "scanlines",
+        aliases: &["scan", "sl"],
+        argument: "[on|off]",
+        summary: "toggle or set the scanlines",
+    },
+    Spec {
+        name: "bloom",
+        aliases: &[],
+        argument: "[on|off]",
+        summary: "toggle or set the phosphor glow",
+    },
+    Spec {
+        name: "flicker",
+        aliases: &["fl"],
+        argument: "[on|off]",
+        summary: "toggle or set the flicker",
+    },
+    Spec {
+        name: "typewriter",
+        aliases: &["tw"],
+        argument: "[on|off]",
+        summary: "toggle or set typewriter scrolling",
+    },
+    Spec {
+        name: "fullscreen",
+        aliases: &["fs"],
+        argument: "",
+        summary: "go fullscreen",
+    },
+    Spec {
+        name: "windowed",
+        aliases: &["win"],
+        argument: "",
+        summary: "leave fullscreen",
+    },
+    Spec {
+        name: "undo",
+        aliases: &["u"],
+        argument: "",
+        summary: "undo the last edit",
+    },
+    Spec {
+        name: "redo",
+        aliases: &[],
+        argument: "",
+        summary: "redo",
+    },
+    Spec {
+        name: "settings",
+        aliases: &["set", "cfg"],
+        argument: "",
+        summary: "WebDAV settings",
+    },
+    Spec {
+        name: "help",
+        aliases: &["?", "h"],
+        argument: "",
+        summary: "list these commands",
+    },
+    Spec {
+        name: "about",
+        aliases: &["version"],
+        argument: "",
+        summary: "version and credits",
+    },
+    Spec {
+        name: "quit",
+        aliases: &["q", "x", "exit"],
+        argument: "",
+        summary: "save and quit",
+    },
 ];
 
 /// Parse a command line. Arguments are everything after the first whitespace, so
@@ -121,9 +221,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
             Ok(rest.to_string())
         }
     };
-    let optional = |rest: &str| -> Option<String> {
-        (!rest.is_empty()).then(|| rest.to_string())
-    };
+    let optional = |rest: &str| -> Option<String> { (!rest.is_empty()).then(|| rest.to_string()) };
     let switch = |rest: &str| -> Result<Option<bool>, CommandError> {
         parse_switch(rest).map_err(|value| CommandError::BadValue {
             value,
@@ -186,7 +284,16 @@ pub fn complete(input: &str) -> Option<Completion> {
             .find(|s| s.name == word || s.aliases.contains(&word.as_str()))?;
         return Some(Completion {
             completed: input.to_string(),
-            hint: format!("{}{}  {}", spec.name, if spec.argument.is_empty() { String::new() } else { format!(" {}", spec.argument) }, spec.summary),
+            hint: format!(
+                "{}{}  {}",
+                spec.name,
+                if spec.argument.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", spec.argument)
+                },
+                spec.summary
+            ),
         });
     }
 
@@ -201,7 +308,11 @@ pub fn complete(input: &str) -> Option<Completion> {
     let hint = format!(
         "{}{}  {}",
         first.name,
-        if first.argument.is_empty() { String::new() } else { format!(" {}", first.argument) },
+        if first.argument.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", first.argument)
+        },
         first.summary
     );
 
@@ -275,7 +386,10 @@ mod tests {
     fn optional_arguments_may_be_missing() {
         assert_eq!(parse("open"), Ok(Command::Open(None)));
         assert_eq!(parse("theme"), Ok(Command::Theme(None)));
-        assert_eq!(parse("theme amber"), Ok(Command::Theme(Some("amber".into()))));
+        assert_eq!(
+            parse("theme amber"),
+            Ok(Command::Theme(Some("amber".into())))
+        );
     }
 
     #[test]
@@ -292,16 +406,25 @@ mod tests {
         let err = parse("saveas").unwrap_err();
         assert_eq!(
             err,
-            CommandError::MissingArgument { command: "saveas", argument: "<name>" }
+            CommandError::MissingArgument {
+                command: "saveas",
+                argument: "<name>"
+            }
         );
         assert!(err.message().contains("needs <name>"));
     }
 
     #[test]
     fn nonsense_is_rejected_with_the_offending_word() {
-        assert_eq!(parse("frobnicate"), Err(CommandError::Unknown("frobnicate".into())));
+        assert_eq!(
+            parse("frobnicate"),
+            Err(CommandError::Unknown("frobnicate".into()))
+        );
         assert!(parse("").is_err());
-        assert!(matches!(parse("bloom maybe"), Err(CommandError::BadValue { .. })));
+        assert!(matches!(
+            parse("bloom maybe"),
+            Err(CommandError::BadValue { .. })
+        ));
     }
 
     #[test]

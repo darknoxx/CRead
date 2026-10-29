@@ -7,8 +7,8 @@ pub mod command;
 pub mod editor;
 pub mod markdown;
 pub mod resolution;
-pub mod storage;
 pub mod screen;
+pub mod storage;
 pub mod theme;
 
 pub use command::{Command, CommandError};

@@ -5,11 +5,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cread_core::{
+    Editor, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
     resolution::target_line_px_for_scale_factor,
-    storage, Editor, ScaleMode, Screen, Stats, Theme, Viewport,
+    storage,
 };
-use cread_render::{raster, CrtSettings, Font, FrameStatus, Framebuffer, Renderer};
+use cread_render::{CrtSettings, Font, FrameStatus, Framebuffer, Renderer, raster};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -36,7 +37,9 @@ pub fn run(opts: Options) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| format!("event loop: {e}"))?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut app = App::new(opts);
-    event_loop.run_app(&mut app).map_err(|e| format!("event loop: {e}"))
+    event_loop
+        .run_app(&mut app)
+        .map_err(|e| format!("event loop: {e}"))
 }
 
 struct Document {
@@ -208,13 +211,33 @@ impl FormState {
 
     fn fields(&self) -> Vec<ui::FormField> {
         vec![
-            ui::FormField { label: "server".into(), value: self.url.clone(), secret: false },
-            ui::FormField { label: "user".into(), value: self.username.clone(), secret: false },
-            ui::FormField { label: "password".into(), value: self.password.clone(), secret: true },
-            ui::FormField { label: "folder".into(), value: self.remote_dir.clone(), secret: false },
+            ui::FormField {
+                label: "server".into(),
+                value: self.url.clone(),
+                secret: false,
+            },
+            ui::FormField {
+                label: "user".into(),
+                value: self.username.clone(),
+                secret: false,
+            },
+            ui::FormField {
+                label: "password".into(),
+                value: self.password.clone(),
+                secret: true,
+            },
+            ui::FormField {
+                label: "folder".into(),
+                value: self.remote_dir.clone(),
+                secret: false,
+            },
             ui::FormField {
                 label: "sync".into(),
-                value: if self.enabled { "on".into() } else { "off".into() },
+                value: if self.enabled {
+                    "on".into()
+                } else {
+                    "off".into()
+                },
                 secret: false,
             },
         ]
@@ -292,13 +315,14 @@ impl App {
 
         if !opts.demo
             && let Some(path) = last_opened_file()
-                && let Ok(text) = storage::load(&path) {
-                    return Document {
-                        path: Some(path),
-                        editor: Editor::from_text(&text),
-                        last_edit: Instant::now(),
-                    };
-                }
+            && let Ok(text) = storage::load(&path)
+        {
+            return Document {
+                path: Some(path),
+                editor: Editor::from_text(&text),
+                last_edit: Instant::now(),
+            };
+        }
 
         Document {
             path: None,
@@ -338,9 +362,10 @@ impl App {
 
     fn target_phys_size(&self, window: &Window) -> (u32, u32) {
         if self.opts.screenshot.is_some()
-            && let Some(size) = self.opts.size {
-                return size;
-            }
+            && let Some(size) = self.opts.size
+        {
+            return size;
+        }
         let size = window.inner_size();
         (size.width.max(1), size.height.max(1))
     }
@@ -463,9 +488,7 @@ impl App {
         let height = ui::text_height(rows);
 
         let anchor = self.typewriter.then_some(height / 2);
-        self.doc
-            .editor
-            .scroll_to_cursor(text_width, height, anchor);
+        self.doc.editor.scroll_to_cursor(text_width, height, anchor);
 
         let visible = self.doc.editor.visible_rows(text_width, height);
         let cursor = self.doc.editor.cursor();
@@ -525,7 +548,11 @@ impl App {
             }
         };
         // The document cursor belongs to write mode; the prompt has its own.
-        let cursor_cell = if self.mode == Mode::Write { cursor_cell } else { None };
+        let cursor_cell = if self.mode == Mode::Write {
+            cursor_cell
+        } else {
+            None
+        };
 
         // The document is always there; overlays are painted on top of it, like
         // a TSR popping up over a DOS application.
@@ -612,7 +639,8 @@ impl App {
                 SyncEvent::Done(report) => {
                     self.sync_label = format!("sync {}", report_word(&report));
                     if report.conflicts > 0 {
-                        self.status = format!("sync: {} - conflict copy kept", report_word(&report));
+                        self.status =
+                            format!("sync: {} - conflict copy kept", report_word(&report));
                     }
                     if report.downloaded > 0 {
                         self.reload_after_sync();
@@ -1108,11 +1136,7 @@ impl App {
         self.poke();
     }
 
-    fn run_command(
-        &mut self,
-        el: &ActiveEventLoop,
-        command: Command,
-    ) -> Result<String, String> {
+    fn run_command(&mut self, el: &ActiveEventLoop, command: Command) -> Result<String, String> {
         match command {
             Command::Save => self.save(),
             Command::SaveAs(name) => self.save_as(&name),
@@ -1152,7 +1176,10 @@ impl App {
                 Ok("sync requested".into())
             }
             Command::Theme(None) => {
-                let idx = Theme::ALL.iter().position(|t| *t == self.theme).unwrap_or(0);
+                let idx = Theme::ALL
+                    .iter()
+                    .position(|t| *t == self.theme)
+                    .unwrap_or(0);
                 self.theme = Theme::ALL[(idx + 1) % Theme::ALL.len()];
                 self.dirty = true;
                 Ok(format!("theme: {}", self.theme.name))
@@ -1396,7 +1423,6 @@ impl App {
         }
         self.dirty = true;
     }
-
 }
 
 /// Effect switches: `None` toggles, `Some` sets. Returns the resulting state.

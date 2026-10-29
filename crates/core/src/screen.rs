@@ -91,7 +91,8 @@ impl Screen {
     }
 
     pub fn get(&self, x: u32, y: u32) -> Option<&Cell> {
-        self.in_bounds(x, y).then(|| &self.cells[(y * self.cols + x) as usize])
+        self.in_bounds(x, y)
+            .then(|| &self.cells[(y * self.cols + x) as usize])
     }
 
     pub fn put(&mut self, x: u32, y: u32, cell: Cell) {

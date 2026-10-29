@@ -80,7 +80,10 @@ pub fn list_documents(dir: &Path) -> io::Result<Vec<PathBuf>> {
         .map(|e| e.path())
         .filter(|p| p.is_file())
         .filter(|p| {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             !name.starts_with('.')
                 && (name.ends_with(".md") || name.ends_with(".txt") || name.ends_with(".markdown"))
         })
@@ -107,7 +110,10 @@ mod tests {
         save_atomic(&path, "hallo\nwelt\n").unwrap();
         assert_eq!(load(&path).unwrap(), "hallo\nwelt\n");
 
-        let entries: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        let entries: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
         assert_eq!(entries.len(), 1, "temp file was left behind: {entries:?}");
 
         fs::remove_dir_all(&dir).unwrap();

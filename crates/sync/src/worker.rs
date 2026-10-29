@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
 
-use crate::{sync_once, Config, Report};
+use crate::{Config, Report, sync_once};
 
 /// How long to wait after the last change before actually syncing, so a burst
 /// of keystrokes becomes one round trip.
@@ -46,7 +46,8 @@ impl Worker {
             {
                 Ok(rt) => rt,
                 Err(e) => {
-                    let _ = event_tx.send(Event::Failed(format!("cannot start async runtime: {e}")));
+                    let _ =
+                        event_tx.send(Event::Failed(format!("cannot start async runtime: {e}")));
                     return;
                 }
             };
@@ -147,7 +148,10 @@ mod tests {
         let worker = Worker::spawn(dir.clone(), Config::default(), Duration::from_millis(50));
         worker.request_sync();
         thread::sleep(Duration::from_millis(200));
-        assert!(worker.try_recv().is_none(), "disabled config must stay silent");
+        assert!(
+            worker.try_recv().is_none(),
+            "disabled config must stay silent"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -33,7 +33,9 @@ impl VisualRow {
     }
 
     pub fn contains(&self, pos: Position) -> bool {
-        self.line == pos.line && pos.col >= self.start && pos.col <= self.start + self.text.chars().count()
+        self.line == pos.line
+            && pos.col >= self.start
+            && pos.col <= self.start + self.text.chars().count()
     }
 }
 
@@ -146,7 +148,10 @@ impl Editor {
         let mut editor = Self::new();
         // Keep a trailing newline meaningful: "a\n" splits into ["a", ""], which
         // round-trips through `text()` exactly.
-        editor.lines = text.split('\n').map(|l| l.trim_end_matches('\r').to_string()).collect();
+        editor.lines = text
+            .split('\n')
+            .map(|l| l.trim_end_matches('\r').to_string())
+            .collect();
         if editor.lines.is_empty() {
             editor.lines.push(String::new());
         }
@@ -337,7 +342,10 @@ impl Editor {
         let to = self.clamp(to);
         self.before_edit(EditKind::Deleting);
         let tail = self.lines[to.line].chars().skip(to.col).collect::<String>();
-        let head = self.lines[from.line].chars().take(from.col).collect::<String>();
+        let head = self.lines[from.line]
+            .chars()
+            .take(from.col)
+            .collect::<String>();
         self.lines[from.line] = head + &tail;
         self.lines.drain(from.line + 1..=to.line);
         self.cursor = from;
@@ -349,7 +357,8 @@ impl Editor {
     pub fn move_left(&mut self) {
         self.preferred_x = None;
         if self.cursor.col > 0 {
-            self.cursor.col = grapheme_at_char(&self.lines[self.cursor.line], self.cursor.col - 1).0;
+            self.cursor.col =
+                grapheme_at_char(&self.lines[self.cursor.line], self.cursor.col - 1).0;
         } else if self.cursor.line > 0 {
             self.cursor.line -= 1;
             self.cursor.col = self.lines[self.cursor.line].chars().count();
@@ -557,7 +566,9 @@ impl Editor {
     /// row when `anchor` is None).
     fn anchor_from_cursor(&mut self, width: usize, height: usize, anchor: Option<usize>) {
         let width = width.max(1);
-        let target = anchor.unwrap_or(height.saturating_sub(1)).min(height.saturating_sub(1));
+        let target = anchor
+            .unwrap_or(height.saturating_sub(1))
+            .min(height.saturating_sub(1));
 
         let mut line = self.cursor.line;
         let mut segs = wrap(&self.lines[line], width);
@@ -606,9 +617,10 @@ pub fn wrap(line: &str, width: usize) -> Vec<(usize, usize)> {
         if hard_end < chars.len() {
             // Prefer the last space (keep it on this row) so words stay whole.
             if let Some(rel) = chars[start..hard_end].iter().rposition(|c| *c == ' ')
-                && rel > 0 {
-                    end = start + rel + 1;
-                }
+                && rel > 0
+            {
+                end = start + rel + 1;
+            }
         }
         out.push((start, end));
         start = end;
@@ -762,7 +774,10 @@ mod tests {
 
     #[test]
     fn scroll_keeps_cursor_in_view() {
-        let text = (0..100).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..100)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut e = ed(&text);
         e.move_doc_end();
         e.scroll_to_cursor(80, 10, None);
@@ -773,7 +788,10 @@ mod tests {
 
     #[test]
     fn typewriter_anchor_pins_the_cursor_row() {
-        let text = (0..100).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..100)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut e = ed(&text);
         for _ in 0..60 {
             e.move_down(80);
@@ -786,7 +804,10 @@ mod tests {
 
     #[test]
     fn scrolling_back_up_works() {
-        let text = (0..50).map(|i| format!("l{i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..50)
+            .map(|i| format!("l{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let mut e = ed(&text);
         e.move_doc_end();
         e.scroll_to_cursor(80, 10, None);

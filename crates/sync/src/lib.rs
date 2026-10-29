@@ -47,8 +47,8 @@ impl Config {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let text = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        let text =
+            serde_json::to_string_pretty(self).map_err(|e| std::io::Error::other(e.to_string()))?;
 
         #[cfg(unix)]
         {
@@ -104,7 +104,8 @@ impl Index {
     fn save(&self, vault: &Path) -> std::io::Result<()> {
         let dir = vault.join(".cread-sync");
         std::fs::create_dir_all(&dir)?;
-        let text = serde_json::to_string_pretty(self).map_err(|e| std::io::Error::other(e.to_string()))?;
+        let text =
+            serde_json::to_string_pretty(self).map_err(|e| std::io::Error::other(e.to_string()))?;
         std::fs::write(dir.join("index.json"), text)
     }
 }
@@ -389,7 +390,10 @@ async fn ensure_remote_dir(client: &Client, dir: &str) {
     }
 }
 
-async fn list_remote(client: &Client, remote_dir: &str) -> Result<BTreeMap<String, String>, String> {
+async fn list_remote(
+    client: &Client,
+    remote_dir: &str,
+) -> Result<BTreeMap<String, String>, String> {
     let listing = client
         .list(remote_dir, Depth::Number(1))
         .await
@@ -416,17 +420,15 @@ async fn download(client: &Client, path: &str, name: &str) -> Result<Vec<u8>, St
 }
 
 fn set_hash(index: &mut Index, name: &str, hash: String) {
-    index
-        .files
-        .entry(name.to_string())
-        .or_default()
-        .hash = hash;
+    index.files.entry(name.to_string()).or_default().hash = hash;
 }
 
 fn local_exists(files: &[PathBuf], name: &str) -> bool {
-    files
-        .iter()
-        .any(|p| p.file_name().map(|n| n.to_string_lossy() == name).unwrap_or(false))
+    files.iter().any(|p| {
+        p.file_name()
+            .map(|n| n.to_string_lossy() == name)
+            .unwrap_or(false)
+    })
 }
 
 fn version_of(file: &ListFile) -> String {
@@ -496,16 +498,31 @@ mod tests {
 
     #[test]
     fn versions_prefer_etag_and_fall_back_to_mtime() {
-        assert_eq!(version_from(Some("\"abc\""), "2026-10-29T10:00:00Z"), "\"abc\"");
-        assert_eq!(version_from(Some(""), "2026-10-29T10:00:00Z"), "2026-10-29T10:00:00Z");
-        assert_eq!(version_from(None, "2026-10-29T10:00:00Z"), "2026-10-29T10:00:00Z");
+        assert_eq!(
+            version_from(Some("\"abc\""), "2026-10-29T10:00:00Z"),
+            "\"abc\""
+        );
+        assert_eq!(
+            version_from(Some(""), "2026-10-29T10:00:00Z"),
+            "2026-10-29T10:00:00Z"
+        );
+        assert_eq!(
+            version_from(None, "2026-10-29T10:00:00Z"),
+            "2026-10-29T10:00:00Z"
+        );
     }
 
     #[test]
     fn report_summaries_read_like_english() {
         assert_eq!(Report::default().summary(), "up to date");
         assert_eq!(
-            Report { uploaded: 2, downloaded: 1, conflicts: 1, skipped: 0 }.summary(),
+            Report {
+                uploaded: 2,
+                downloaded: 1,
+                conflicts: 1,
+                skipped: 0
+            }
+            .summary(),
             "2 up, 1 down, 1 conflict"
         );
     }
@@ -513,6 +530,12 @@ mod tests {
     #[test]
     fn config_needs_a_url_to_be_useful() {
         assert!(!Config::default().is_configured());
-        assert!(Config { url: "https://x".into(), ..Config::default() }.is_configured());
+        assert!(
+            Config {
+                url: "https://x".into(),
+                ..Config::default()
+            }
+            .is_configured()
+        );
     }
 }

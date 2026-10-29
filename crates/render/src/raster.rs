@@ -82,7 +82,13 @@ impl Framebuffer {
                 let Some(cell) = screen.get(x, y) else {
                     continue;
                 };
-                self.draw_cell(cell, x as i32 * GLYPH_W as i32, y as i32 * GLYPH_H as i32, theme, font);
+                self.draw_cell(
+                    cell,
+                    x as i32 * GLYPH_W as i32,
+                    y as i32 * GLYPH_H as i32,
+                    theme,
+                    font,
+                );
             }
         }
     }
@@ -192,6 +198,12 @@ mod tests {
         fb.resize(8, 8);
         assert_eq!(fb.data().len(), 8 * 8 * 4);
         fb.clear([9, 9, 9]);
-        assert!(fb.data().as_chunks::<4>().0.iter().all(|p| *p == [9, 9, 9, 255]));
+        assert!(
+            fb.data()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [9, 9, 9, 255])
+        );
     }
 }

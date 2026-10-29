@@ -33,6 +33,18 @@ cargo build --release
 ./target/release/cread notes.md     # or a specific file
 ```
 
+## Download a build
+
+Every push to `main` builds a ready-to-run Linux binary in CI:
+
+1. Open the **Actions** tab and pick the newest *Release build* run.
+2. Download the `cread-linux-x86_64` artifact.
+3. `tar xzf cread-linux-x86_64.tar.gz && ./cread`
+
+Tagged releases (`v0.1.0`, …) also publish the tarball on the Releases page.
+The Linux build is made against glibc 2.35, so it runs on Ubuntu 22.04 and
+newer.
+
 To have it on `$PATH` (this is a workspace, so point at the binary crate):
 
 ```bash

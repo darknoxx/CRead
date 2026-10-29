@@ -155,7 +155,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
 }
 
 fn parse_size(s: &str) -> Result<(u32, u32), String> {
-    let (w, h) = s.split_once(['x', 'X']).ok_or_else(|| format!("bad size: {s}"))?;
+    let (w, h) = s
+        .split_once(['x', 'X'])
+        .ok_or_else(|| format!("bad size: {s}"))?;
     let w: u32 = w.parse().map_err(|_| format!("bad width: {w}"))?;
     let h: u32 = h.parse().map_err(|_| format!("bad height: {h}"))?;
     if w < 320 || h < 200 {

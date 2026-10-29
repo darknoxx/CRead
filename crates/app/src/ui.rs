@@ -4,8 +4,8 @@
 //! scratch, and so do we.
 
 use cread_core::{
-    markdown::{self, Kind},
     Cell, Screen, Span, Stats, Style, Theme, VisualRow,
+    markdown::{self, Kind},
 };
 
 /// Rows reserved above and below the text area.
@@ -77,8 +77,20 @@ fn draw_top_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
     let (fg, bg) = (theme.status_fg, theme.status_bg);
     screen.fill_row(0, Cell::blank(fg, bg));
 
-    let marker = if view.modified { " \u{00b7} modified " } else { "" };
-    screen.put_str_ellipsis(0, 0, &format!(" {}{}", view.title, marker), cols, fg, bg, Style::Bold);
+    let marker = if view.modified {
+        " \u{00b7} modified "
+    } else {
+        ""
+    };
+    screen.put_str_ellipsis(
+        0,
+        0,
+        &format!(" {}{}", view.title, marker),
+        cols,
+        fg,
+        bg,
+        Style::Bold,
+    );
 
     let right = if view.sync.is_empty() {
         format!("{} ", view.theme_name)
@@ -131,16 +143,13 @@ fn draw_text(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
 
     // Cursor: invert the cell under it, or paint a block at the line end.
     if let Some((row_idx, col)) = view.cursor
-        && view.cursor_on {
-            let y = first_row + row_idx as u32;
-            if y < screen.rows().saturating_sub(1) {
-                screen.put(
-                    margin + col as u32,
-                    y,
-                    Cell::blank(theme.bg, theme.fg),
-                );
-            }
+        && view.cursor_on
+    {
+        let y = first_row + row_idx as u32;
+        if y < screen.rows().saturating_sub(1) {
+            screen.put(margin + col as u32, y, Cell::blank(theme.bg, theme.fg));
         }
+    }
 }
 
 fn style_for(kind: Kind, theme: &Theme) -> (u8, u8, Style) {
@@ -160,12 +169,7 @@ fn style_for(kind: Kind, theme: &Theme) -> (u8, u8, Style) {
     }
 }
 
-fn draw_status_bar(
-    screen: &mut Screen,
-    theme: &Theme,
-    view: &DocumentView<'_>,
-    message: &str,
-) {
+fn draw_status_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>, message: &str) {
     let cols = screen.cols();
     let bar = screen.rows().saturating_sub(1);
     let (fg, bg) = (theme.status_fg, theme.status_bg);
@@ -173,7 +177,10 @@ fn draw_status_bar(
 
     let left = format!(
         " {} words  {} chars  Ln {},Col {}",
-        view.stats.words, view.stats.chars, view.cursor_pos.0 + 1, view.cursor_pos.1 + 1
+        view.stats.words,
+        view.stats.chars,
+        view.cursor_pos.0 + 1,
+        view.cursor_pos.1 + 1
     );
     screen.put_str(0, bar, &left, fg, bg, Style::Bold);
 
@@ -276,9 +283,23 @@ pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool) {
             } else {
                 format!("{} {}", spec.name, spec.argument)
             };
-            screen.put_str(2, y, &format!("{name:<22}"), theme.accent, bg, Style::Normal);
+            screen.put_str(
+                2,
+                y,
+                &format!("{name:<22}"),
+                theme.accent,
+                bg,
+                Style::Normal,
+            );
             let aliases = spec.aliases.join(", ");
-            screen.put_str(25, y, &format!("{aliases:<15}"), theme.dim, bg, Style::Normal);
+            screen.put_str(
+                25,
+                y,
+                &format!("{aliases:<15}"),
+                theme.dim,
+                bg,
+                Style::Normal,
+            );
             screen.put_str_ellipsis(
                 41,
                 y,
@@ -305,7 +326,14 @@ pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool) {
     let right = "type any command name to run it ";
     let x = cols.saturating_sub(right.chars().count() as u32 + 1);
     if x > 30 {
-        screen.put_str(x, bar, right, theme.status_fg, theme.status_bg, Style::Normal);
+        screen.put_str(
+            x,
+            bar,
+            right,
+            theme.status_fg,
+            theme.status_bg,
+            Style::Normal,
+        );
     }
 }
 
@@ -343,17 +371,44 @@ pub fn draw_form(screen: &mut Screen, theme: &Theme, view: &FormView<'_>) {
     let (b, d) = (theme.accent, theme.dim);
     for x in x0 + 1..x0 + width - 1 {
         screen.put(x, y0, Cell::new('\u{2550}', b, theme.bg, Style::Normal));
-        screen.put(x, y0 + height - 1, Cell::new('\u{2550}', b, theme.bg, Style::Normal));
+        screen.put(
+            x,
+            y0 + height - 1,
+            Cell::new('\u{2550}', b, theme.bg, Style::Normal),
+        );
     }
     for y in y0 + 1..y0 + height - 1 {
         screen.put(x0, y, Cell::new('\u{2551}', b, theme.bg, Style::Normal));
-        screen.put(x0 + width - 1, y, Cell::new('\u{2551}', b, theme.bg, Style::Normal));
+        screen.put(
+            x0 + width - 1,
+            y,
+            Cell::new('\u{2551}', b, theme.bg, Style::Normal),
+        );
     }
     screen.put(x0, y0, Cell::new('\u{2554}', b, theme.bg, Style::Normal));
-    screen.put(x0 + width - 1, y0, Cell::new('\u{2557}', b, theme.bg, Style::Normal));
-    screen.put(x0, y0 + height - 1, Cell::new('\u{255a}', b, theme.bg, Style::Normal));
-    screen.put(x0 + width - 1, y0 + height - 1, Cell::new('\u{255d}', b, theme.bg, Style::Normal));
-    screen.put_str(x0 + 2, y0, &format!(" {} ", view.title), b, theme.bg, Style::Bold);
+    screen.put(
+        x0 + width - 1,
+        y0,
+        Cell::new('\u{2557}', b, theme.bg, Style::Normal),
+    );
+    screen.put(
+        x0,
+        y0 + height - 1,
+        Cell::new('\u{255a}', b, theme.bg, Style::Normal),
+    );
+    screen.put(
+        x0 + width - 1,
+        y0 + height - 1,
+        Cell::new('\u{255d}', b, theme.bg, Style::Normal),
+    );
+    screen.put_str(
+        x0 + 2,
+        y0,
+        &format!(" {} ", view.title),
+        b,
+        theme.bg,
+        Style::Bold,
+    );
 
     for (i, field) in view.fields.iter().enumerate() {
         let y = y0 + 2 + i as u32;
@@ -442,16 +497,36 @@ pub fn draw_palette(screen: &mut Screen, theme: &Theme, view: &PaletteView<'_>) 
     let (b, d) = (theme.accent, theme.dim);
     for x in x0 + 1..x0 + width - 1 {
         screen.put(x, y0, Cell::new('\u{2550}', b, theme.bg, Style::Normal));
-        screen.put(x, y0 + height - 1, Cell::new('\u{2550}', b, theme.bg, Style::Normal));
+        screen.put(
+            x,
+            y0 + height - 1,
+            Cell::new('\u{2550}', b, theme.bg, Style::Normal),
+        );
     }
     for y in y0 + 1..y0 + height - 1 {
         screen.put(x0, y, Cell::new('\u{2551}', b, theme.bg, Style::Normal));
-        screen.put(x0 + width - 1, y, Cell::new('\u{2551}', b, theme.bg, Style::Normal));
+        screen.put(
+            x0 + width - 1,
+            y,
+            Cell::new('\u{2551}', b, theme.bg, Style::Normal),
+        );
     }
     screen.put(x0, y0, Cell::new('\u{2554}', b, theme.bg, Style::Normal));
-    screen.put(x0 + width - 1, y0, Cell::new('\u{2557}', b, theme.bg, Style::Normal));
-    screen.put(x0, y0 + height - 1, Cell::new('\u{255a}', b, theme.bg, Style::Normal));
-    screen.put(x0 + width - 1, y0 + height - 1, Cell::new('\u{255d}', b, theme.bg, Style::Normal));
+    screen.put(
+        x0 + width - 1,
+        y0,
+        Cell::new('\u{2557}', b, theme.bg, Style::Normal),
+    );
+    screen.put(
+        x0,
+        y0 + height - 1,
+        Cell::new('\u{255a}', b, theme.bg, Style::Normal),
+    );
+    screen.put(
+        x0 + width - 1,
+        y0 + height - 1,
+        Cell::new('\u{255d}', b, theme.bg, Style::Normal),
+    );
 
     // Title, overlaid on the top border.
     let title = format!(" {} ", view.title);
@@ -551,7 +626,11 @@ mod tests {
             rows,
             cursor,
             margin: 1,
-            stats: Stats { words: 3, chars: 20, lines: 2 },
+            stats: Stats {
+                words: 3,
+                chars: 20,
+                lines: 2,
+            },
             cursor_pos: (0, 3),
             sync: "sync: idle",
             bottom: Bottom::Status { message: input.0 },
@@ -574,9 +653,15 @@ mod tests {
             .map(|i| (i, ed.cursor().col - rows[i].start));
 
         let mut screen = Screen::new(vp.cols(), vp.rows());
-        draw_document(&mut screen, &Theme::DOS_BLUE, &view_from(ed.lines(), &rows, cursor, ("", "dos-blue")));
+        draw_document(
+            &mut screen,
+            &Theme::DOS_BLUE,
+            &view_from(ed.lines(), &rows, cursor, ("", "dos-blue")),
+        );
 
-        let top: String = (0..vp.cols()).map(|x| screen.get(x, 0).unwrap().ch).collect();
+        let top: String = (0..vp.cols())
+            .map(|x| screen.get(x, 0).unwrap().ch)
+            .collect();
         assert!(top.contains("note.md"));
         assert!(top.contains("modified"));
         let first: String = (1..40).map(|x| screen.get(x, 1).unwrap().ch).collect();
@@ -653,4 +738,3 @@ mod tests {
         assert_eq!((w, m), (78, 41));
     }
 }
-

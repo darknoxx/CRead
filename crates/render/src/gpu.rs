@@ -430,7 +430,9 @@ impl Renderer {
 
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("screenshot") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("screenshot"),
+            });
         self.encode_crt_pass(&mut encoder, &view, vp);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -494,7 +496,11 @@ impl Renderer {
     }
 }
 
-fn create_target(device: &wgpu::Device, width: u32, height: u32) -> (wgpu::Texture, wgpu::TextureView) {
+fn create_target(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+) -> (wgpu::Texture, wgpu::TextureView) {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("emulated framebuffer"),
         size: wgpu::Extent3d {
