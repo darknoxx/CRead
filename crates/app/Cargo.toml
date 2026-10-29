@@ -1,0 +1,15 @@
+[package]
+name = "cread"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cread"
+path = "src/main.rs"
+
+[dependencies]
+cread-core.workspace = true
+cread-render.workspace = true
+pollster = "1.0.1"
+wgpu = "30.0.1"
+winit = "0.30.13"
