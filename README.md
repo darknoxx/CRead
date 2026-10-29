@@ -56,8 +56,19 @@ cread
 
 ## Two modes
 
-You start in **write mode**: the document is live, the block cursor sits in the
-text, and nothing else competes for your attention. `Esc` switches to **action
+On launch you get a greeting and an empty prompt:
+
+```
+                             Welcome to CRead
+
+                        type new or open to start
+```
+
+`new` opens an empty document, `open` shows the vault. Pass a file name on the
+command line and it opens straight away.
+
+Then you are in **write mode**: the document is live, the block cursor sits in
+the text, and nothing else competes for your attention. `Esc` switches to **action
 mode**, where the bottom line turns into a command prompt, like a DOS shell.
 `Enter` runs the command, `Esc` on an empty prompt goes back to writing.
 

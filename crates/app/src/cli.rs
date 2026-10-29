@@ -25,7 +25,8 @@ OPTIONS:
         --vault DIR         Document folder (default: ~/Documents/CRead)
         --demo              Open the built-in welcome document
         --sync-once         Run one WebDAV sync round, print the result, exit
-        --show VIEW         Start in a view: editor | action | palette | settings | help
+        --show VIEW         Start in a view: editor | welcome | action | palette |
+                            settings | help
         --command TEXT      Prefill the action prompt (handy for demos)
         --screenshot-delay MS  Wait before capturing (lets background work finish)
         --screenshot PATH   Render one frame to PATH (PNG) and exit
@@ -132,7 +133,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             }
             "--show" => {
                 let v = args.next().ok_or("--show needs a value")?;
-                if !["editor", "action", "palette", "settings", "help"].contains(&v.as_str()) {
+                if !["editor", "welcome", "action", "palette", "settings", "help"]
+                    .contains(&v.as_str())
+                {
                     return Err(format!("unknown view: {v}"));
                 }
                 opts.show = v;

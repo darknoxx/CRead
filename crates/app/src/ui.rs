@@ -160,7 +160,7 @@ fn style_for(kind: Kind, theme: &Theme) -> (u8, u8, Style) {
         Kind::Emphasis => (theme.fg, theme.bg, Style::Italic),
         Kind::StrongEmphasis => (theme.fg, theme.bg, Style::Bold),
         Kind::Code => (theme.fg, theme.code_bg, Style::Normal),
-        Kind::Link => (theme.accent, theme.bg, Style::Normal),
+        Kind::Link => (theme.accent, theme.bg, Style::Bold),
         Kind::LinkUrl => (theme.dim, theme.bg, Style::Normal),
         Kind::Heading => (theme.accent, theme.bg, Style::Bold),
         Kind::Quote => (theme.dim, theme.bg, Style::Italic),
@@ -214,7 +214,7 @@ fn draw_prompt(screen: &mut Screen, theme: &Theme, input: &str, hint: &str, erro
         input.to_string()
     };
 
-    let end = screen.put_str(3, bar, &shown, fg, bg, Style::Normal);
+    let end = screen.put_str(2, bar, &shown, fg, bg, Style::Normal);
     screen.put(end.min(cols.saturating_sub(1)), bar, Cell::blank(bg, fg));
 
     let text = if error.is_empty() { hint } else { error };
@@ -223,12 +223,46 @@ fn draw_prompt(screen: &mut Screen, theme: &Theme, input: &str, hint: &str, erro
     } else {
         theme.error
     };
-    let used = 3 + shown.chars().count() as u32 + 2;
+    let used = 2 + shown.chars().count() as u32 + 2;
     let room = cols.saturating_sub(used);
     if (text.chars().count() as u32) < room {
         let x = cols.saturating_sub(text.chars().count() as u32 + 1);
         screen.put_str(x, bar, text, color, bg, Style::Normal);
     }
+}
+
+// ── welcome ─────────────────────────────────────────────────────────────────
+
+/// The start screen: a centred greeting with a command prompt at the bottom.
+pub fn draw_welcome(screen: &mut Screen, theme: &Theme, input: &str, hint: &str, error: &str) {
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    let rows = screen.rows() as i32;
+    let mid = rows / 2;
+    put_centered(
+        screen,
+        (mid - 1).max(1) as u32,
+        "Welcome to CRead",
+        theme.accent,
+        theme.bg,
+        Style::Bold,
+    );
+    put_centered(
+        screen,
+        (mid + 1).max(2) as u32,
+        "type new or open to start",
+        theme.status_dim,
+        theme.bg,
+        Style::Normal,
+    );
+
+    draw_prompt(screen, theme, input, hint, error);
+}
+
+fn put_centered(screen: &mut Screen, y: u32, text: &str, fg: u8, bg: u8, style: Style) {
+    let width = text.chars().count() as u32;
+    let x = screen.cols().saturating_sub(width) / 2;
+    screen.put_str(x, y, text, fg, bg, style);
 }
 
 // ── help / about ────────────────────────────────────────────────────────────
@@ -726,6 +760,36 @@ mod tests {
         assert!(all.contains("alpha.md"));
         assert!(all.contains("Enter open"));
         assert!(all.contains('\u{2554}'), "corner missing");
+    }
+
+    #[test]
+    fn welcome_is_centred_and_has_a_prompt() {
+        let vp = vp(1280, 800);
+        let mut screen = Screen::new(vp.cols(), vp.rows());
+        draw_welcome(&mut screen, &Theme::BLACK, "ne", "new  start a file", "");
+        let text = rows_as_text(&screen);
+        assert!(text.contains("Welcome to CRead"));
+        assert!(text.contains("type new or open to start"));
+        assert!(text.contains("> ne"));
+
+        // Centred means both lines share a midpoint, not a left edge.
+        let line = |y: u32| -> String {
+            (0..vp.cols())
+                .map(|x| screen.get(x, y).unwrap().ch)
+                .collect::<String>()
+        };
+        let centre = |text: &str, y: u32| -> u32 {
+            let start = line(y).find(text).expect("line missing") as u32;
+            start + text.chars().count() as u32 / 2
+        };
+        let mid = vp.rows() / 2;
+        let title = centre("Welcome to CRead", mid - 1);
+        let sub = centre("type new or open to start", mid + 1);
+        assert!(
+            title.abs_diff(sub) <= 1,
+            "greeting is not centred: {title} vs {sub}"
+        );
+        assert!(title.abs_diff(vp.cols() / 2) <= 2, "not near the middle");
     }
 
     #[test]

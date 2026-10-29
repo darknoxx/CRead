@@ -73,7 +73,7 @@ impl Theme {
     pub const BLACK: Theme = Theme {
         name: "black",
         palette: Theme::CGA,
-        fg: 7,
+        fg: 15,
         bg: 0,
         dim: 8,
         accent: 15,
@@ -244,6 +244,7 @@ mod tests {
     fn lookup_by_name() {
         assert_eq!(Theme::by_name("dos"), Some(Theme::DOS_BLUE));
         assert_eq!(Theme::by_name("black"), Some(Theme::BLACK));
+        assert_eq!(Theme::BLACK.fg, 15, "body text is pure white");
         assert_eq!(Theme::ALL[0], Theme::BLACK, "black is the default");
         assert_eq!(Theme::by_name("amber"), Some(Theme::AMBER));
         assert!(Theme::by_name("nope").is_none());

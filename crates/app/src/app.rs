@@ -151,6 +151,8 @@ struct App {
     typewriter: bool,
 
     doc: Document,
+    /// False on the start screen: no file is open yet.
+    has_document: bool,
     mode: Mode,
     palette: Palette,
     form: FormState,
@@ -258,7 +260,7 @@ impl App {
     fn new(opts: Options) -> Self {
         let crt = opts.crt;
         let theme = opts.theme;
-        let doc = Self::initial_document(&opts);
+        let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
         Self {
             opts,
@@ -282,7 +284,12 @@ impl App {
             mods: ModifiersState::empty(),
             typewriter: false,
             doc,
-            mode: Mode::Write,
+            has_document,
+            mode: if has_document {
+                Mode::Write
+            } else {
+                Mode::Action
+            },
             palette: Palette::empty(),
             form: FormState::from_config(&sync_cfg),
             status: String::new(),
@@ -299,36 +306,47 @@ impl App {
         }
     }
 
-    fn initial_document(opts: &Options) -> Document {
+    /// Returns the buffer and whether it counts as an open document.
+    ///
+    /// A file argument or `--demo` opens straight into write mode; otherwise we
+    /// start on the greeting screen. Silently resuming the last file makes it
+    /// too easy to type into the wrong document.
+    fn initial_document(opts: &Options) -> (Document, bool) {
         if let Some(path) = &opts.file {
             match storage::load(path) {
                 Ok(text) => {
-                    return Document {
-                        path: Some(path.clone()),
-                        editor: Editor::from_text(&text),
-                        last_edit: Instant::now(),
-                    };
+                    return (
+                        Document {
+                            path: Some(path.clone()),
+                            editor: Editor::from_text(&text),
+                            last_edit: Instant::now(),
+                        },
+                        true,
+                    );
                 }
                 Err(e) => eprintln!("cread: cannot open {}: {e}", path.display()),
             }
         }
 
-        if !opts.demo
-            && let Some(path) = last_opened_file()
-            && let Ok(text) = storage::load(&path)
-        {
-            return Document {
-                path: Some(path),
-                editor: Editor::from_text(&text),
-                last_edit: Instant::now(),
-            };
+        if opts.demo {
+            return (
+                Document {
+                    path: None,
+                    editor: Editor::from_text(WELCOME),
+                    last_edit: Instant::now(),
+                },
+                true,
+            );
         }
 
-        Document {
-            path: None,
-            editor: Editor::from_text(WELCOME),
-            last_edit: Instant::now(),
-        }
+        (
+            Document {
+                path: None,
+                editor: Editor::new(),
+                last_edit: Instant::now(),
+            },
+            false,
+        )
     }
 
     fn backends(&self) -> wgpu::Backends {
@@ -484,48 +502,17 @@ impl App {
 
         let cols = screen.cols();
         let rows = screen.rows();
-        let (text_width, margin) = ui::layout(cols);
-        let height = ui::text_height(rows);
-
-        let anchor = self.typewriter.then_some(height / 2);
-        self.doc.editor.scroll_to_cursor(text_width, height, anchor);
-
-        let visible = self.doc.editor.visible_rows(text_width, height);
-        let cursor = self.doc.editor.cursor();
-        let cursor_cell = visible
-            .iter()
-            .position(|r| r.contains(cursor))
-            .map(|i| (i, cursor.col - visible[i].start));
-
-        let in_fence = self
-            .doc
-            .editor
-            .lines()
-            .iter()
-            .take(self.doc.editor.top().line)
-            .filter(|l| cread_core::markdown::is_fence_line(l))
-            .count()
-            % 2
-            == 1;
-
-        let stats: Stats = self.doc.editor.stats();
-        let sync = if self.doc.path.is_none() {
-            String::new()
-        } else if self.doc.editor.modified() {
-            "unsaved".to_string()
-        } else {
-            "saved".to_string()
-        };
-        let sync = if self.sync_cfg.enabled && !self.sync_label.is_empty() {
-            format!("{sync} \u{00b7} {}", self.sync_label)
-        } else {
-            sync
-        };
 
         // A pending yes/no question takes over the prompt line.
         let question = self.confirm.clone().unwrap_or_default();
-        let hint = if self.command.is_empty() {
-            "type help for all commands".to_string()
+        let hint = if !question.is_empty() {
+            String::new()
+        } else if self.command.is_empty() {
+            if self.has_document {
+                "type help for all commands".to_string()
+            } else {
+                "new  empty document     open  file list".to_string()
+            }
         } else {
             command::complete(&self.command)
                 .map(|c| c.hint)
@@ -536,27 +523,66 @@ impl App {
         } else {
             question
         };
-        let bottom = if self.mode == Mode::Action {
-            ui::Bottom::Prompt {
-                input: &self.command,
-                hint: &hint,
-                error: &error,
-            }
-        } else {
-            ui::Bottom::Status {
-                message: &self.status,
-            }
-        };
-        // The document cursor belongs to write mode; the prompt has its own.
-        let cursor_cell = if self.mode == Mode::Write {
-            cursor_cell
-        } else {
-            None
-        };
 
-        // The document is always there; overlays are painted on top of it, like
-        // a TSR popping up over a DOS application.
-        {
+        if !self.has_document {
+            ui::draw_welcome(&mut screen, &self.theme, &self.command, &hint, &error);
+        } else {
+            let (text_width, margin) = ui::layout(cols);
+            let height = ui::text_height(rows);
+
+            let anchor = self.typewriter.then_some(height / 2);
+            self.doc.editor.scroll_to_cursor(text_width, height, anchor);
+
+            let visible = self.doc.editor.visible_rows(text_width, height);
+            let cursor = self.doc.editor.cursor();
+            let cursor_cell = visible
+                .iter()
+                .position(|r| r.contains(cursor))
+                .map(|i| (i, cursor.col - visible[i].start));
+
+            let in_fence = self
+                .doc
+                .editor
+                .lines()
+                .iter()
+                .take(self.doc.editor.top().line)
+                .filter(|l| cread_core::markdown::is_fence_line(l))
+                .count()
+                % 2
+                == 1;
+
+            let stats: Stats = self.doc.editor.stats();
+            let sync = if self.doc.path.is_none() {
+                String::new()
+            } else if self.doc.editor.modified() {
+                "unsaved".to_string()
+            } else {
+                "saved".to_string()
+            };
+            let sync = if self.sync_cfg.enabled && !self.sync_label.is_empty() {
+                format!("{sync} \u{00b7} {}", self.sync_label)
+            } else {
+                sync
+            };
+
+            let bottom = if self.mode == Mode::Action {
+                ui::Bottom::Prompt {
+                    input: &self.command,
+                    hint: &hint,
+                    error: &error,
+                }
+            } else {
+                ui::Bottom::Status {
+                    message: &self.status,
+                }
+            };
+            // The document cursor belongs to write mode; the prompt has its own.
+            let cursor_cell = if self.mode == Mode::Write {
+                cursor_cell
+            } else {
+                None
+            };
+
             let title = self.doc.title();
             let view = ui::DocumentView {
                 title: &title,
@@ -599,7 +625,7 @@ impl App {
                 };
                 ui::draw_form(&mut screen, &self.theme, &view);
             }
-            Mode::Write | Mode::Action | Mode::Help => {}
+            _ => {}
         }
 
         self.screen = screen;
@@ -810,7 +836,7 @@ impl App {
             editor: Editor::from_text(&text),
             last_edit: Instant::now(),
         };
-        remember_last_file(&path);
+        self.has_document = true;
         self.dirty = true;
         Ok(())
     }
@@ -837,9 +863,10 @@ impl App {
         std::fs::remove_file(&path).map_err(|e| format!("delete failed: {e}"))?;
         self.doc = Document {
             path: None,
-            editor: Editor::from_text(WELCOME),
+            editor: Editor::new(),
             last_edit: Instant::now(),
         };
+        self.has_document = false;
         self.dirty = true;
         Ok(format!("deleted {}", path.display()))
     }
@@ -890,6 +917,7 @@ impl App {
                     editor: Editor::new(),
                     last_edit: Instant::now(),
                 };
+                self.has_document = true;
                 match self.save_to(&path) {
                     Ok(()) => self.status = format!("created {}", path.display()),
                     Err(e) => self.status = e,
@@ -1157,6 +1185,7 @@ impl App {
                     editor: Editor::new(),
                     last_edit: Instant::now(),
                 };
+                self.has_document = true;
                 self.dirty = true;
                 Ok("new document".into())
             }
@@ -1250,7 +1279,9 @@ impl App {
                 Ok(String::new())
             }
             Command::Quit => {
-                self.save()?;
+                if self.has_document {
+                    self.save()?;
+                }
                 el.exit();
                 Ok(String::new())
             }
@@ -1269,7 +1300,11 @@ impl App {
 
     #[allow(clippy::wrong_self_convention)]
     fn to_write(&mut self) {
-        self.mode = Mode::Write;
+        self.mode = if self.has_document {
+            Mode::Write
+        } else {
+            Mode::Action
+        };
         self.command.clear();
         self.command_error.clear();
         self.history_pos = None;
@@ -1500,6 +1535,10 @@ impl ApplicationHandler for App {
             "help" => {
                 self.mode = Mode::Help;
             }
+            "welcome" => {
+                self.has_document = false;
+                self.mode = Mode::Action;
+            }
             "action" => {
                 self.to_action();
                 self.command = self.opts.command.clone();
@@ -1567,10 +1606,4 @@ fn remember_last_file(path: &Path) {
     let dir = storage::config_dir();
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(dir.join("last.txt"), path.to_string_lossy().as_bytes());
-}
-
-fn last_opened_file() -> Option<PathBuf> {
-    let content = std::fs::read_to_string(storage::config_dir().join("last.txt")).ok()?;
-    let path = PathBuf::from(content.trim());
-    path.is_file().then_some(path)
 }
