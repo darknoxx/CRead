@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cread_core::{
-    Editor, ScaleMode, Screen, Stats, Theme, Viewport,
+    Editor, Prefs, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
     resolution::target_line_px_for_scale_factor,
     storage,
@@ -138,7 +138,7 @@ struct App {
 
     theme: Theme,
     crt: CrtSettings,
-    crt_base: CrtSettings,
+    prefs: Prefs,
 
     start: Instant,
     last_frame: Instant,
@@ -260,8 +260,30 @@ impl FormState {
 
 impl App {
     fn new(opts: Options) -> Self {
-        let crt = opts.crt;
-        let theme = opts.theme;
+        let prefs = Prefs::load();
+        // Command line wins over saved preferences, which win over defaults.
+        let mut crt = if opts.crt_explicit {
+            opts.crt
+        } else {
+            CrtSettings {
+                scanline: if prefs.scanlines {
+                    CrtSettings::default().scanline
+                } else {
+                    0.0
+                },
+                bloom: if prefs.bloom {
+                    CrtSettings::default().bloom
+                } else {
+                    0.0
+                },
+                ..CrtSettings::default()
+            }
+        };
+        if opts.crt_explicit {
+            crt.brightness = opts.crt.brightness;
+        }
+        let theme = opts.theme.unwrap_or_else(|| prefs.theme());
+        let typewriter = prefs.typewriter;
         let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
         Self {
@@ -275,14 +297,14 @@ impl App {
             vp: None,
             theme,
             crt,
-            crt_base: crt,
+            prefs,
             start: Instant::now(),
             last_frame: Instant::now(),
             next_frame: Instant::now(),
             dirty: true,
             blink: true,
             mods: ModifiersState::empty(),
-            typewriter: false,
+            typewriter,
             doc,
             clipboard: None,
             has_document,
@@ -1224,21 +1246,29 @@ impl App {
                     format!("unknown theme: {name} ({})", names.join(", "))
                 })?;
                 self.theme = theme;
+                self.save_prefs();
                 self.dirty = true;
                 Ok(format!("theme: {}", theme.name))
             }
             Command::Scanlines(want) => {
-                let on = apply_switch(&mut self.crt.scanline, self.crt_base.scanline, want);
+                let on = apply_switch(
+                    &mut self.crt.scanline,
+                    CrtSettings::default().scanline,
+                    want,
+                );
+                self.save_prefs();
                 self.dirty = true;
                 Ok(format!("scanlines: {}", on_off(on)))
             }
             Command::Bloom(want) => {
-                let on = apply_switch(&mut self.crt.bloom, self.crt_base.bloom, want);
+                let on = apply_switch(&mut self.crt.bloom, CrtSettings::default().bloom, want);
+                self.save_prefs();
                 self.dirty = true;
                 Ok(format!("bloom: {}", on_off(on)))
             }
             Command::Typewriter(want) => {
                 self.typewriter = want.unwrap_or(!self.typewriter);
+                self.save_prefs();
                 self.dirty = true;
                 Ok(format!("typewriter: {}", on_off(self.typewriter)))
             }
@@ -1342,6 +1372,17 @@ impl App {
     }
 
     // ── clipboard ───────────────────────────────────────────────────────────
+
+    /// Persist the bits of UI state that should survive a restart.
+    fn save_prefs(&mut self) {
+        self.prefs.set(self.theme);
+        self.prefs.typewriter = self.typewriter;
+        self.prefs.scanlines = self.crt.scanline > 0.0;
+        self.prefs.bloom = self.crt.bloom > 0.0;
+        if let Err(e) = self.prefs.save() {
+            eprintln!("cread: cannot save preferences: {e}");
+        }
+    }
 
     fn clipboard(&mut self) -> Result<&mut arboard::Clipboard, String> {
         if self.clipboard.is_none() {
@@ -1549,6 +1590,7 @@ impl App {
             .unwrap_or(0) as isize;
         let next = (idx + delta).rem_euclid(len);
         self.theme = Theme::ALL[next as usize];
+        self.save_prefs();
         self.dirty = true;
         Ok(format!("theme: {}", self.theme.name))
     }

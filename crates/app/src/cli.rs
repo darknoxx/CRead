@@ -37,8 +37,11 @@ OPTIONS:
 pub struct Options {
     pub fullscreen: bool,
     pub scale: Option<u32>,
-    pub theme: Theme,
+    /// `None` means: take it from the saved preferences.
+    pub theme: Option<Theme>,
     pub crt: CrtSettings,
+    /// True when a CRT flag was given, so preferences must not override it.
+    pub crt_explicit: bool,
     pub size: Option<(u32, u32)>,
     pub backend: Option<String>,
     pub screenshot: Option<PathBuf>,
@@ -56,8 +59,9 @@ impl Default for Options {
         Self {
             fullscreen: true,
             scale: None,
-            theme: Theme::BLACK,
+            theme: None,
             crt: CrtSettings::default(),
+            crt_explicit: false,
             size: None,
             backend: None,
             screenshot: None,
@@ -91,9 +95,16 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             "--no-crt" => {
                 opts.crt.scanline = 0.0;
                 opts.crt.bloom = 0.0;
+                opts.crt_explicit = true;
             }
-            "--no-scanlines" => opts.crt.scanline = 0.0,
-            "--no-bloom" => opts.crt.bloom = 0.0,
+            "--no-scanlines" => {
+                opts.crt.scanline = 0.0;
+                opts.crt_explicit = true;
+            }
+            "--no-bloom" => {
+                opts.crt.bloom = 0.0;
+                opts.crt_explicit = true;
+            }
             "--scale" => {
                 let v = args.next().ok_or("--scale needs a value")?;
                 let n: u32 = v.parse().map_err(|_| format!("bad scale: {v}"))?;
@@ -104,7 +115,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             }
             "--theme" => {
                 let v = args.next().ok_or("--theme needs a value")?;
-                opts.theme = Theme::by_name(&v).ok_or_else(|| format!("unknown theme: {v}"))?;
+                opts.theme = Some(Theme::by_name(&v).ok_or_else(|| format!("unknown theme: {v}"))?);
             }
             "--size" => {
                 let v = args.next().ok_or("--size needs a value")?;
@@ -184,7 +195,7 @@ mod tests {
     fn defaults_are_fullscreen_dos_blue() {
         let o = run(&[]);
         assert!(o.fullscreen);
-        assert_eq!(o.theme, Theme::BLACK);
+        assert_eq!(o.theme, None, "theme comes from preferences by default");
         assert!(o.crt.scanline > 0.0);
         assert!(o.file.is_none());
     }
@@ -194,7 +205,7 @@ mod tests {
         let o = run(&["--windowed", "--scale", "3", "--theme", "amber", "notes.md"]);
         assert!(!o.fullscreen);
         assert_eq!(o.scale, Some(3));
-        assert_eq!(o.theme, Theme::AMBER);
+        assert_eq!(o.theme, Some(Theme::AMBER));
         assert_eq!(o.file.unwrap().to_str(), Some("notes.md"));
     }
 
