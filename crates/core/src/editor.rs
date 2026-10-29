@@ -229,6 +229,28 @@ impl Editor {
         self.anchor = None;
     }
 
+    /// Put the cursor somewhere and start a selection there (mouse press).
+    pub fn begin_selection(&mut self, pos: Position) {
+        self.set_cursor(pos);
+        self.anchor = Some(self.cursor);
+    }
+
+    /// Move the cursor end of a selection (mouse drag).
+    pub fn drag_to(&mut self, pos: Position) {
+        self.cursor = self.clamp(pos);
+        self.preferred_x = None;
+    }
+
+    /// Scroll the view by whole logical lines, without touching the cursor.
+    pub fn scroll_lines(&mut self, delta: isize) {
+        let target = self.top.line as isize + delta;
+        let last = self.lines.len().saturating_sub(1) as isize;
+        self.top = Position {
+            line: target.clamp(0, last) as usize,
+            col: 0,
+        };
+    }
+
     /// Every non-overlapping match of `needle`, case insensitive, with its
     /// length in chars. An empty needle matches nothing.
     pub fn find_all(&self, needle: &str) -> Vec<(Position, usize)> {
@@ -1063,6 +1085,21 @@ three");
         let hits = e.find_all("aa");
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[1].0.col, 2);
+    }
+
+    #[test]
+    fn mouse_selection_and_scrolling() {
+        let mut e = ed("hello\nworld");
+        e.begin_selection(Position { line: 0, col: 1 });
+        e.drag_to(Position { line: 1, col: 2 });
+        assert_eq!(e.selected_text(), "ello\nwo");
+
+        e.scroll_lines(1);
+        assert_eq!(e.top().line, 1);
+        e.scroll_lines(-5);
+        assert_eq!(e.top().line, 0);
+        e.scroll_lines(99);
+        assert_eq!(e.top().line, 1, "clamped to the last line");
     }
 
     #[test]

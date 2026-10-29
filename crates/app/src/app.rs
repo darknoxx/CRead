@@ -12,7 +12,7 @@ use cread_core::{
 };
 use cread_render::{CrtSettings, Font, FrameStatus, Framebuffer, Renderer, raster};
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
@@ -162,6 +162,12 @@ struct App {
     doc: Document,
     search: Option<Search>,
     last_search: Option<String>,
+    /// Last known pointer position in physical pixels.
+    pointer: (f64, f64),
+    dragging: bool,
+    /// False after a wheel scroll, until the next key or click: the view must
+    /// not snap back to the cursor while you are just looking around.
+    follow_cursor: bool,
     /// Kept alive for the whole run: on Wayland the clipboard is served by the
     /// owning process, so dropping the handle would lose the copied text.
     clipboard: Option<arboard::Clipboard>,
@@ -321,6 +327,9 @@ impl App {
             doc,
             search: None,
             last_search: None,
+            pointer: (0.0, 0.0),
+            dragging: false,
+            follow_cursor: true,
             clipboard: None,
             has_document,
             mode: if has_document {
@@ -573,8 +582,10 @@ impl App {
             let (text_width, margin) = ui::layout(cols);
             let height = ui::text_height(rows);
 
-            let anchor = self.typewriter.then_some(height / 2);
-            self.doc.editor.scroll_to_cursor(text_width, height, anchor);
+            if self.follow_cursor {
+                let anchor = self.typewriter.then_some(height / 2);
+                self.doc.editor.scroll_to_cursor(text_width, height, anchor);
+            }
 
             let visible = self.doc.editor.visible_rows(text_width, height);
             let cursor = self.doc.editor.cursor();
@@ -1014,6 +1025,7 @@ impl App {
 
     /// Write mode: the document is live, editing keys only.
     fn on_key_write(&mut self, _el: &ActiveEventLoop, event: KeyEvent) {
+        self.follow_cursor = true;
         let ctrl = self.mods.control_key() || self.mods.super_key();
         let shift = self.mods.shift_key();
         let code = match event.physical_key {
@@ -1432,6 +1444,80 @@ impl App {
         if let Err(e) = self.prefs.save() {
             eprintln!("cread: cannot save preferences: {e}");
         }
+    }
+
+    // ── mouse ───────────────────────────────────────────────────────────────
+
+    /// Map a physical pixel to a document position, or `None` outside the text.
+    fn position_at(&self, px: f64, py: f64) -> Option<Position> {
+        let vp = self.vp?;
+        let scale = vp.scale as f64;
+        let vx = (px - vp.offset_x as f64) / scale;
+        let vy = (py - vp.offset_y as f64) / scale;
+        if vx < 0.0 || vy < 0.0 {
+            return None;
+        }
+
+        let (text_width, margin) = ui::layout(self.screen.cols());
+        let height = ui::text_height(self.screen.rows());
+
+        // Two rows of chrome above the text.
+        let row = (vy / cread_core::FONT_H as f64) as usize;
+        let row = row.checked_sub(2)?;
+        if row >= height {
+            return None;
+        }
+        // Clicking in the margin clamps to the start or end of the row instead
+        // of doing nothing.
+        let col = (vx / cread_core::FONT_W as f64) as usize;
+        let col_in_row = col.saturating_sub(margin).min(text_width);
+
+        let rows = self.doc.editor.visible_rows(text_width, height);
+        let visual = rows.get(row)?;
+        let width = visual.text.chars().count();
+        let doc_col = visual.start + col_in_row.min(width);
+        Some(Position {
+            line: visual.line,
+            col: doc_col,
+        })
+    }
+
+    fn on_mouse_press(&mut self) {
+        if self.mode != Mode::Write {
+            return;
+        }
+        let (px, py) = self.pointer;
+        if let Some(pos) = self.position_at(px, py) {
+            self.doc.editor.begin_selection(pos);
+            self.dragging = true;
+            self.follow_cursor = true;
+            self.poke();
+        }
+    }
+
+    fn on_mouse_release(&mut self) {
+        self.dragging = false;
+    }
+
+    fn on_mouse_drag(&mut self) {
+        if !self.dragging || self.mode != Mode::Write {
+            return;
+        }
+        let (px, py) = self.pointer;
+        // Dragging past the edges just clamps to the last computed position.
+        if let Some(pos) = self.position_at(px, py) {
+            self.doc.editor.drag_to(pos);
+            self.poke();
+        }
+    }
+
+    fn on_wheel(&mut self, lines: isize) {
+        if self.mode != Mode::Write {
+            return;
+        }
+        self.doc.editor.scroll_lines(lines);
+        self.follow_cursor = false;
+        self.poke();
     }
 
     fn clipboard(&mut self) -> Result<&mut arboard::Clipboard, String> {
@@ -1893,6 +1979,22 @@ impl ApplicationHandler for App {
                 self.recompute_viewport();
             }
             WindowEvent::ScaleFactorChanged { .. } => self.recompute_viewport(),
+            WindowEvent::CursorMoved { position, .. } => {
+                self.pointer = (position.x, position.y);
+                self.on_mouse_drag();
+            }
+            WindowEvent::MouseInput { state, button, .. } => match (button, state) {
+                (MouseButton::Left, ElementState::Pressed) => self.on_mouse_press(),
+                (MouseButton::Left, ElementState::Released) => self.on_mouse_release(),
+                _ => {}
+            },
+            WindowEvent::MouseWheel { delta, .. } => {
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => (y * 3.0).round() as isize,
+                    MouseScrollDelta::PixelDelta(pos) => (pos.y / 16.0).round() as isize,
+                };
+                self.on_wheel(-lines);
+            }
             WindowEvent::RedrawRequested => self.frame(el),
             WindowEvent::KeyboardInput { event, .. } => self.on_key(el, event),
             _ => {}
