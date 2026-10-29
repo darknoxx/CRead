@@ -24,6 +24,7 @@ OPTIONS:
         --no-flicker        Disable flicker only
         --vault DIR         Document folder (default: ~/Documents/CRead)
         --demo              Open the built-in welcome document
+        --sync-once         Run one WebDAV sync round, print the result, exit
         --screenshot PATH   Render one frame to PATH (PNG) and exit
     -h, --help              Show this help
 ";
@@ -40,6 +41,7 @@ pub struct Options {
     pub file: Option<PathBuf>,
     pub vault: Option<PathBuf>,
     pub demo: bool,
+    pub sync_once: bool,
 }
 
 impl Default for Options {
@@ -55,6 +57,7 @@ impl Default for Options {
             file: None,
             vault: None,
             demo: false,
+            sync_once: false,
         }
     }
 }
@@ -109,6 +112,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                 opts.vault = Some(PathBuf::from(v));
             }
             "--demo" => opts.demo = true,
+            "--sync-once" => opts.sync_once = true,
             "--screenshot" => {
                 let v = args.next().ok_or("--screenshot needs a path")?;
                 opts.screenshot = Some(PathBuf::from(v));
