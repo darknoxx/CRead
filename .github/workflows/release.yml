@@ -73,4 +73,6 @@ jobs:
           files: |
             ${{ env.DIST }}.tar.gz
             ${{ env.DIST }}.tar.gz.sha256
-          generate_release_notes: true
+          # The annotated tag message is the release body; it is written by hand
+          # and reads better than a commit list.
+          generate_release_notes: false
