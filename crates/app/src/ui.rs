@@ -815,7 +815,7 @@ mod tests {
     #[test]
     fn search_hits_get_a_highlight_and_the_current_one_is_inverted() {
         let vp = vp(1280, 800);
-        let mut ed = Editor::from_text("one two one");
+        let ed = Editor::from_text("one two one");
         let (w, m) = layout(vp.cols());
         let rows = ed.visible_rows(w, text_height(vp.rows()));
         let hits = ed.find_all("one");
