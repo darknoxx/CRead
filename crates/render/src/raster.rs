@@ -49,7 +49,7 @@ impl Framebuffer {
 
     pub fn clear(&mut self, rgb: Rgb) {
         let px = [rgb[0], rgb[1], rgb[2], 0xff];
-        for chunk in self.data.chunks_exact_mut(4) {
+        for chunk in self.data.as_chunks_mut::<4>().0 {
             chunk.copy_from_slice(&px);
         }
     }
@@ -67,7 +67,7 @@ impl Framebuffer {
         for row in y0..y1 {
             let start = ((row * self.width + x0) * 4) as usize;
             let end = ((row * self.width + x1) * 4) as usize;
-            for chunk in self.data[start..end].chunks_exact_mut(4) {
+            for chunk in self.data[start..end].as_chunks_mut::<4>().0 {
                 chunk.copy_from_slice(&px);
             }
         }
@@ -192,6 +192,6 @@ mod tests {
         fb.resize(8, 8);
         assert_eq!(fb.data().len(), 8 * 8 * 4);
         fb.clear([9, 9, 9]);
-        assert!(fb.data().chunks_exact(4).all(|p| p == [9, 9, 9, 255]));
+        assert!(fb.data().as_chunks::<4>().0.iter().all(|p| *p == [9, 9, 9, 255]));
     }
 }

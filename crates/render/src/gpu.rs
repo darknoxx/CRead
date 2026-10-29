@@ -480,7 +480,7 @@ impl Renderer {
             if format == wgpu::TextureFormat::Bgra8Unorm
                 || format == wgpu::TextureFormat::Bgra8UnormSrgb
             {
-                for px in line.chunks_exact(4) {
+                for px in line.as_chunks::<4>().0 {
                     out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
                 }
             } else {

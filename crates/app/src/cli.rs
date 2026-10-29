@@ -22,6 +22,8 @@ OPTIONS:
         --no-scanlines      Disable scanlines only
         --no-bloom          Disable bloom only
         --no-flicker        Disable flicker only
+        --vault DIR         Document folder (default: ~/Documents/CRead)
+        --demo              Open the built-in welcome document
         --screenshot PATH   Render one frame to PATH (PNG) and exit
     -h, --help              Show this help
 ";
@@ -36,6 +38,8 @@ pub struct Options {
     pub backend: Option<String>,
     pub screenshot: Option<PathBuf>,
     pub file: Option<PathBuf>,
+    pub vault: Option<PathBuf>,
+    pub demo: bool,
 }
 
 impl Default for Options {
@@ -49,10 +53,13 @@ impl Default for Options {
             backend: None,
             screenshot: None,
             file: None,
+            vault: None,
+            demo: false,
         }
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum ParseOutcome {
     Run(Options),
     Help,
@@ -97,6 +104,11 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                 }
                 opts.backend = Some(v);
             }
+            "--vault" => {
+                let v = args.next().ok_or("--vault needs a path")?;
+                opts.vault = Some(PathBuf::from(v));
+            }
+            "--demo" => opts.demo = true,
             "--screenshot" => {
                 let v = args.next().ok_or("--screenshot needs a path")?;
                 opts.screenshot = Some(PathBuf::from(v));

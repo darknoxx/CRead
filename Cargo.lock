@@ -336,6 +336,9 @@ dependencies = [
 [[package]]
 name = "cread-core"
 version = "0.1.0"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cread-render"

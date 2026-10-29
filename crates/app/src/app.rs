@@ -1,24 +1,115 @@
 //! Window lifetime, frame loop and input.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use cread_core::{resolution::target_line_px_for_scale_factor, ScaleMode, Screen, Theme, Viewport};
+use cread_core::{
+    resolution::target_line_px_for_scale_factor, storage, Editor, ScaleMode, Screen, Stats, Theme,
+    Viewport,
+};
 use cread_render::{raster, CrtSettings, Font, FrameStatus, Framebuffer, Renderer};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key, NamedKey};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::cli::Options;
 use crate::ui;
+
+const WELCOME: &str = include_str!("welcome.md");
+
+/// How long the editor waits after the last keystroke before writing to disk.
+const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
+
+/// Frame budget while typing. The flicker is quantised to 24 Hz anyway.
+const ACTIVE_FPS: u32 = 30;
+/// While idle the screen is static; we only redraw for the cursor blink.
+const IDLE_FPS: u32 = 2;
+/// How long after the last keystroke we stay on the fast path.
+const ACTIVE_WINDOW: Duration = Duration::from_millis(1200);
 
 pub fn run(opts: Options) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| format!("event loop: {e}"))?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut app = App::new(opts);
     event_loop.run_app(&mut app).map_err(|e| format!("event loop: {e}"))
+}
+
+struct Document {
+    path: Option<PathBuf>,
+    editor: Editor,
+    last_edit: Instant,
+}
+
+impl Document {
+    fn title(&self) -> String {
+        match &self.path {
+            Some(p) => p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "untitled".into()),
+            None => "welcome.md".into(),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum Action {
+    Open(PathBuf),
+    NewFile,
+}
+
+struct Palette {
+    input: String,
+    entries: Vec<(String, Action)>,
+    filtered: Vec<usize>,
+    selected: usize,
+    title: String,
+}
+
+impl Palette {
+    fn empty() -> Self {
+        Self {
+            input: String::new(),
+            entries: Vec::new(),
+            filtered: Vec::new(),
+            selected: 0,
+            title: "OPEN".into(),
+        }
+    }
+
+    fn refilter(&mut self) {
+        let needle = self.input.to_lowercase();
+        self.filtered = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, (name, _))| needle.is_empty() || name.to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
+            .collect();
+        self.selected = self.selected.min(self.filtered.len().saturating_sub(1));
+    }
+
+    fn items(&self) -> Vec<String> {
+        self.filtered
+            .iter()
+            .map(|i| self.entries[*i].0.clone())
+            .collect()
+    }
+
+    fn current(&self) -> Option<&Action> {
+        self.filtered
+            .get(self.selected)
+            .map(|i| &self.entries[*i].1)
+    }
+}
+
+#[derive(PartialEq, Eq)]
+enum Mode {
+    Editor,
+    Palette,
 }
 
 struct App {
@@ -34,16 +125,21 @@ struct App {
 
     theme: Theme,
     crt: CrtSettings,
-    /// Effect settings to restore when a toggle flips something back on.
     crt_base: CrtSettings,
 
     start: Instant,
     last_frame: Instant,
+    next_frame: Instant,
+    last_input: Instant,
     fps: f32,
     dirty: bool,
     blink: bool,
+    mods: ModifiersState,
+    typewriter: bool,
 
-    line: String,
+    doc: Document,
+    mode: Mode,
+    palette: Palette,
     status: String,
     screenshot_done: bool,
 }
@@ -52,6 +148,7 @@ impl App {
     fn new(opts: Options) -> Self {
         let crt = opts.crt;
         let theme = opts.theme;
+        let doc = Self::initial_document(&opts);
         Self {
             opts,
             window: None,
@@ -66,12 +163,49 @@ impl App {
             crt_base: crt,
             start: Instant::now(),
             last_frame: Instant::now(),
+            next_frame: Instant::now(),
+            last_input: Instant::now(),
             fps: 60.0,
             dirty: true,
             blink: true,
-            line: String::new(),
-            status: String::from("ready"),
+            mods: ModifiersState::empty(),
+            typewriter: false,
+            doc,
+            mode: Mode::Editor,
+            palette: Palette::empty(),
+            status: String::new(),
             screenshot_done: false,
+        }
+    }
+
+    fn initial_document(opts: &Options) -> Document {
+        if let Some(path) = &opts.file {
+            match storage::load(path) {
+                Ok(text) => {
+                    return Document {
+                        path: Some(path.clone()),
+                        editor: Editor::from_text(&text),
+                        last_edit: Instant::now(),
+                    };
+                }
+                Err(e) => eprintln!("cread: cannot open {}: {e}", path.display()),
+            }
+        }
+
+        if !opts.demo
+            && let Some(path) = last_opened_file()
+                && let Ok(text) = storage::load(&path) {
+                    return Document {
+                        path: Some(path),
+                        editor: Editor::from_text(&text),
+                        last_edit: Instant::now(),
+                    };
+                }
+
+        Document {
+            path: None,
+            editor: Editor::from_text(WELCOME),
+            last_edit: Instant::now(),
         }
     }
 
@@ -83,7 +217,6 @@ impl App {
         }
     }
 
-    /// Recompute the emulated raster for the current surface size.
     fn recompute_viewport(&mut self) {
         let Some(window) = self.window.as_ref() else {
             return;
@@ -105,41 +238,39 @@ impl App {
         }
     }
 
-    /// Physical size we render into: the window, unless a screenshot run was
-    /// told to emulate a specific display.
     fn target_phys_size(&self, window: &Window) -> (u32, u32) {
-        if self.opts.screenshot.is_some() {
-            if let Some(size) = self.opts.size {
+        if self.opts.screenshot.is_some()
+            && let Some(size) = self.opts.size {
                 return size;
             }
-        }
         let size = window.inner_size();
         (size.width.max(1), size.height.max(1))
     }
 
+    // ── frame ───────────────────────────────────────────────────────────────
+
     fn frame(&mut self, el: &ActiveEventLoop) {
+        self.autosave_if_due();
+
         let Some(vp) = self.vp else {
             return;
         };
-        let Some(renderer) = self.renderer.as_mut() else {
+        if self.renderer.is_none() {
             return;
-        };
+        }
 
         let time = self.start.elapsed().as_secs_f32();
+        let blink = ((time * 1.6) as u32).is_multiple_of(2);
+        if blink != self.blink {
+            self.blink = blink;
+            self.dirty = true;
+        }
 
-        // Paper-like schemes are not emissive; printing a glow onto them just
-        // makes the text mushy.
         let mut crt = self.crt;
         if self.theme.is_light() {
             crt.bloom = 0.0;
             crt.scanline *= 0.4;
             crt.flicker *= 0.4;
-        }
-
-        let blink = (time * 1.6) as u32 % 2 == 0;
-        if blink != self.blink {
-            self.blink = blink;
-            self.dirty = true;
         }
 
         if self.dirty {
@@ -149,26 +280,20 @@ impl App {
             if self.fb.width() != vp.virt_w || self.fb.height() != vp.virt_h {
                 self.fb.resize(vp.virt_w, vp.virt_h);
             }
-
-            let hud = ui::Hud {
-                adapter: &self.adapter,
-                vp: &vp,
-                fps: self.fps,
-                status: &self.status,
-                line: &self.line,
-                cursor_on: self.blink,
-            };
-            ui::draw(&mut self.screen, &self.theme, &hud);
+            self.compose();
             self.fb.draw_screen(&self.screen, &self.theme, &self.font);
-            renderer.upload(&self.fb);
+            if let Some(renderer) = self.renderer.as_mut() {
+                renderer.upload(&self.fb);
+            }
             self.dirty = false;
         }
 
-        // Headless verification path: no window frame needed.
+        let Some(renderer) = self.renderer.as_mut() else {
+            return;
+        };
+
         if let Some(path) = self.opts.screenshot.clone() {
             if !self.screenshot_done {
-                // Render at the full physical size so the letterbox border is
-                // visible in the capture, exactly as on screen.
                 let (w, h) = (vp.phys_w, vp.phys_h);
                 match renderer.render_offscreen(&vp, time, &crt, w, h) {
                     Ok((data, w, h)) => {
@@ -211,29 +336,232 @@ impl App {
         if dt > 0.0 && dt < 1.0 {
             self.fps = self.fps * 0.9 + (1.0 / dt) * 0.1;
         }
+
+        let fps = if now.duration_since(self.last_input) < ACTIVE_WINDOW {
+            ACTIVE_FPS
+        } else {
+            IDLE_FPS
+        };
+        self.next_frame = now + Duration::from_millis(1000 / fps as u64);
     }
+
+    /// Build the cell grid for the current state.
+    fn compose(&mut self) {
+        let cols = self.screen.cols();
+        let rows = self.screen.rows();
+        let (text_width, margin) = ui::layout(cols);
+        let height = ui::text_height(rows);
+
+        let anchor = self.typewriter.then_some(height / 2);
+        self.doc
+            .editor
+            .scroll_to_cursor(text_width, height, anchor);
+
+        let visible = self.doc.editor.visible_rows(text_width, height);
+        let cursor = self.doc.editor.cursor();
+        let cursor_cell = visible
+            .iter()
+            .position(|r| r.contains(cursor))
+            .map(|i| (i, cursor.col - visible[i].start));
+
+        let in_fence = self
+            .doc
+            .editor
+            .lines()
+            .iter()
+            .take(self.doc.editor.top().line)
+            .filter(|l| cread_core::markdown::is_fence_line(l))
+            .count()
+            % 2
+            == 1;
+
+        let stats: Stats = self.doc.editor.stats();
+        let sync = if self.doc.path.is_none() {
+            String::new()
+        } else if self.doc.editor.modified() {
+            "unsaved".to_string()
+        } else {
+            "saved".to_string()
+        };
+
+        let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
+        if self.mode == Mode::Palette {
+            let items = self.palette.items();
+            let view = ui::PaletteView {
+                title: &self.palette.title,
+                input: &self.palette.input,
+                items: &items,
+                selected: self.palette.selected,
+                hint: "Enter select   Esc close",
+            };
+            ui::draw_palette(&mut screen, &self.theme, &view);
+        } else {
+            let title = self.doc.title();
+            let view = ui::DocumentView {
+                title: &title,
+                modified: self.doc.editor.modified(),
+                lines: self.doc.editor.lines(),
+                rows: &visible,
+                cursor: cursor_cell,
+                margin,
+                stats,
+                cursor_pos: (cursor.line, cursor.col),
+                sync: &sync,
+                status: &self.status,
+                theme_name: self.theme.name,
+                in_fence,
+                cursor_on: self.blink,
+            };
+            ui::draw_document(&mut screen, &self.theme, &view);
+        }
+        self.screen = screen;
+    }
+
+    // ── persistence ─────────────────────────────────────────────────────────
+
+    fn autosave_if_due(&mut self) {
+        if self.mode != Mode::Editor {
+            return;
+        }
+        if !self.doc.editor.modified() {
+            return;
+        }
+        if self.doc.last_edit.elapsed() < AUTOSAVE_DELAY {
+            return;
+        }
+        let Some(path) = self.doc.path.clone() else {
+            return;
+        };
+        if self.save_to(&path) {
+            self.status = "autosaved".into();
+        }
+    }
+
+    fn save_to(&mut self, path: &Path) -> bool {
+        let text = self.doc.editor.text();
+        match storage::save_atomic(path, &text) {
+            Ok(()) => {
+                self.doc.editor.mark_saved();
+                self.doc.path = Some(path.to_path_buf());
+                remember_last_file(path);
+                self.dirty = true;
+                true
+            }
+            Err(e) => {
+                self.status = format!("save failed: {e}");
+                self.dirty = true;
+                false
+            }
+        }
+    }
+
+    fn save(&mut self) {
+        if let Some(path) = self.doc.path.clone() {
+            if self.save_to(&path) {
+                self.status = format!("saved {}", self.doc.title());
+            }
+            return;
+        }
+
+        // First save of the welcome buffer: pick a free name in the vault.
+        let dir = self.opts.vault.clone().unwrap_or_else(storage::vault_dir);
+        let mut path = dir.join("untitled.md");
+        let mut n = 2;
+        while path.exists() {
+            path = dir.join(format!("untitled-{n}.md"));
+            n += 1;
+        }
+        if self.save_to(&path) {
+            self.status = format!("saved as {}", path.display());
+        }
+    }
+
+    // ── palette ─────────────────────────────────────────────────────────────
+
+    fn open_palette(&mut self) {
+        let dir = self.opts.vault.clone().unwrap_or_else(storage::vault_dir);
+        let mut entries = vec![("+ new document".to_string(), Action::NewFile)];
+        match storage::list_documents(&dir) {
+            Ok(files) => {
+                for path in files {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    entries.push((name, Action::Open(path)));
+                }
+            }
+            Err(e) => self.status = format!("cannot list {}: {e}", dir.display()),
+        }
+
+        self.palette = Palette {
+            input: String::new(),
+            entries,
+            filtered: Vec::new(),
+            selected: 0,
+            title: "OPEN".into(),
+        };
+        self.palette.refilter();
+        self.mode = Mode::Palette;
+        self.dirty = true;
+    }
+
+    fn palette_accept(&mut self) {
+        let Some(action) = self.palette.current().cloned() else {
+            return;
+        };
+        match action {
+            Action::Open(path) => {
+                match storage::load(&path) {
+                    Ok(text) => {
+                        self.doc = Document {
+                            path: Some(path.clone()),
+                            editor: Editor::from_text(&text),
+                            last_edit: Instant::now(),
+                        };
+                        remember_last_file(&path);
+                        self.status = format!("opened {}", path.display());
+                    }
+                    Err(e) => self.status = format!("cannot open: {e}"),
+                }
+            }
+            Action::NewFile => {
+                let dir = self.opts.vault.clone().unwrap_or_else(storage::vault_dir);
+                let mut path = dir.join("untitled.md");
+                let mut n = 2;
+                while path.exists() {
+                    path = dir.join(format!("untitled-{n}.md"));
+                    n += 1;
+                }
+                self.doc = Document {
+                    path: None,
+                    editor: Editor::new(),
+                    last_edit: Instant::now(),
+                };
+                if self.save_to(&path) {
+                    self.status = format!("created {}", path.display());
+                }
+            }
+        }
+        self.mode = Mode::Editor;
+        self.dirty = true;
+    }
+
+    // ── input ───────────────────────────────────────────────────────────────
 
     fn on_key(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
         if event.state != ElementState::Pressed {
             return;
         }
+        if self.mode == Mode::Palette {
+            self.on_key_palette(event);
+            return;
+        }
+
+        let ctrl = self.mods.control_key() || self.mods.super_key();
 
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => el.exit(),
-            Key::Named(NamedKey::F11) => {
-                if let Some(window) = self.window.as_ref() {
-                    let go_fullscreen = window.fullscreen().is_none();
-                    window.set_fullscreen(
-                        go_fullscreen.then_some(Fullscreen::Borderless(None)),
-                    );
-                    self.status = if go_fullscreen {
-                        "fullscreen".into()
-                    } else {
-                        "windowed".into()
-                    };
-                    self.dirty = true;
-                }
-            }
             Key::Named(NamedKey::F1) => {
                 let idx = Theme::ALL.iter().position(|t| *t == self.theme).unwrap_or(0);
                 self.theme = Theme::ALL[(idx + 1) % Theme::ALL.len()];
@@ -243,29 +571,195 @@ impl App {
             Key::Named(NamedKey::F2) => self.toggle_effect(Effect::Scanline),
             Key::Named(NamedKey::F3) => self.toggle_effect(Effect::Bloom),
             Key::Named(NamedKey::F4) => self.toggle_effect(Effect::Flicker),
-            Key::Named(NamedKey::Backspace) => {
-                self.line.pop();
+            Key::Named(NamedKey::F8) => {
+                self.typewriter = !self.typewriter;
+                self.status = format!(
+                    "typewriter scrolling: {}",
+                    if self.typewriter { "on" } else { "off" }
+                );
                 self.dirty = true;
             }
-            Key::Named(NamedKey::Space) => {
-                self.line.push(' ');
+            Key::Named(NamedKey::F11) => self.toggle_fullscreen(),
+            _ if ctrl => self.on_key_ctrl(el, &event),
+            Key::Named(NamedKey::ArrowLeft) => {
+                self.doc.editor.move_left();
+                self.doc.editor.break_undo_group();
                 self.dirty = true;
+            }
+            Key::Named(NamedKey::ArrowRight) => {
+                self.doc.editor.move_right();
+                self.doc.editor.break_undo_group();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::ArrowUp) => {
+                self.move_vertical(-1);
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                self.move_vertical(1);
+            }
+            Key::Named(NamedKey::Home) => {
+                self.doc.editor.move_home();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::End) => {
+                self.doc.editor.move_end();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::PageUp) => {
+                let h = ui::text_height(self.screen.rows()) as isize;
+                self.move_vertical(-h);
+            }
+            Key::Named(NamedKey::PageDown) => {
+                let h = ui::text_height(self.screen.rows()) as isize;
+                self.move_vertical(h);
+            }
+            Key::Named(NamedKey::Backspace) => {
+                self.doc.editor.backspace();
+                self.touch();
+            }
+            Key::Named(NamedKey::Delete) => {
+                self.doc.editor.delete_forward();
+                self.touch();
             }
             Key::Named(NamedKey::Enter) => {
-                if !self.line.is_empty() {
-                    self.status = format!("echo: {}", self.line);
-                    self.line.clear();
-                    self.dirty = true;
-                }
+                self.doc.editor.insert_newline();
+                self.touch();
+            }
+            Key::Named(NamedKey::Tab) => {
+                self.doc.editor.insert_tab();
+                self.touch();
+            }
+            Key::Named(NamedKey::Space) => {
+                self.doc.editor.insert_char(' ');
+                self.touch();
             }
             Key::Character(text) => {
-                for ch in text.chars().filter(|c| !c.is_control()) {
-                    self.line.push(ch);
+                if self.mods.alt_key() {
+                    return;
                 }
+                if text.chars().any(|c| !c.is_control()) {
+                    self.doc.editor.insert_text(text);
+                    self.touch();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn on_key_ctrl(&mut self, el: &ActiveEventLoop, event: &KeyEvent) {
+        let shift = self.mods.shift_key();
+        match &event.logical_key {
+            Key::Character(c) => match c.to_lowercase().as_str() {
+                "s" => self.save(),
+                "p" => self.open_palette(),
+                "q" => el.exit(),
+                "z" if shift => {
+                    self.doc.editor.redo();
+                    self.dirty = true;
+                }
+                "z" => {
+                    self.doc.editor.undo();
+                    self.dirty = true;
+                }
+                "y" => {
+                    self.doc.editor.redo();
+                    self.dirty = true;
+                }
+                _ => {}
+            },
+            Key::Named(NamedKey::ArrowLeft) => {
+                self.doc.editor.move_word_left();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::ArrowRight) => {
+                self.doc.editor.move_word_right();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::Home) => {
+                self.doc.editor.move_doc_start();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::End) => {
+                self.doc.editor.move_doc_end();
                 self.dirty = true;
             }
             _ => {}
         }
+    }
+
+    fn on_key_palette(&mut self, event: KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.mode = Mode::Editor;
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::Enter) => self.palette_accept(),
+            Key::Named(NamedKey::ArrowUp) => {
+                self.palette.selected = self.palette.selected.saturating_sub(1);
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                if self.palette.selected + 1 < self.palette.filtered.len() {
+                    self.palette.selected += 1;
+                }
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::Backspace) => {
+                self.palette.input.pop();
+                self.palette.refilter();
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::Space) => {
+                self.palette.input.push(' ');
+                self.palette.refilter();
+                self.dirty = true;
+            }
+            Key::Character(text) => {
+                for ch in text.chars().filter(|c| !c.is_control()) {
+                    self.palette.input.push(ch);
+                }
+                self.palette.refilter();
+                self.dirty = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn move_vertical(&mut self, delta: isize) {
+        let (text_width, _) = ui::layout(self.screen.cols());
+        for _ in 0..delta.unsigned_abs() {
+            if delta < 0 {
+                self.doc.editor.move_up(text_width);
+            } else {
+                self.doc.editor.move_down(text_width);
+            }
+        }
+        self.doc.editor.break_undo_group();
+        self.dirty = true;
+    }
+
+    /// Mark the document edited and restart the autosave timer.
+    fn touch(&mut self) {
+        let now = Instant::now();
+        self.doc.last_edit = now;
+        self.last_input = now;
+        // Do not wait for the frame budget after a keystroke.
+        self.next_frame = now;
+        self.dirty = true;
+    }
+
+    fn toggle_fullscreen(&mut self) {
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let go_fullscreen = window.fullscreen().is_none();
+        window.set_fullscreen(go_fullscreen.then_some(Fullscreen::Borderless(None)));
+        self.status = if go_fullscreen {
+            "fullscreen".into()
+        } else {
+            "windowed".into()
+        };
+        self.dirty = true;
     }
 
     fn toggle_effect(&mut self, effect: Effect) {
@@ -297,8 +791,6 @@ impl ApplicationHandler for App {
         let mut attrs = Window::default_attributes()
             .with_title("CRead")
             .with_fullscreen(fullscreen.then_some(Fullscreen::Borderless(None)));
-        // In screenshot mode the window is only scaffolding for the wgpu
-        // adapter; the emulated display size comes from `--size`.
         match (self.opts.screenshot.is_none(), self.opts.size) {
             (true, Some((w, h))) => {
                 attrs = attrs.with_inner_size(winit::dpi::PhysicalSize::new(w, h));
@@ -327,8 +819,6 @@ impl ApplicationHandler for App {
             }
         };
 
-        // The first surface configure happened with the pre-fullscreen size;
-        // re-apply the real one before the first frame.
         let size = window.inner_size();
         renderer.resize(size.width.max(1), size.height.max(1));
 
@@ -345,14 +835,10 @@ impl ApplicationHandler for App {
         self.dirty = true;
     }
 
-    fn window_event(
-        &mut self,
-        el: &ActiveEventLoop,
-        _id: WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => el.exit(),
+            WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
             WindowEvent::Resized(size) => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.resize(size.width.max(1), size.height.max(1));
@@ -367,8 +853,32 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
+        // Render on our own clock instead of as fast as the compositor asks:
+        // a writing app should be close to idle when you are just reading.
+        if Instant::now() < self.next_frame {
+            return;
+        }
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
     }
+
+    fn exiting(&mut self, _el: &ActiveEventLoop) {
+        // Never lose the last keystrokes on quit.
+        if self.doc.editor.modified() {
+            self.save();
+        }
+    }
+}
+
+fn remember_last_file(path: &Path) {
+    let dir = storage::config_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("last.txt"), path.to_string_lossy().as_bytes());
+}
+
+fn last_opened_file() -> Option<PathBuf> {
+    let content = std::fs::read_to_string(storage::config_dir().join("last.txt")).ok()?;
+    let path = PathBuf::from(content.trim());
+    path.is_file().then_some(path)
 }

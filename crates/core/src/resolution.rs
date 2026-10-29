@@ -177,7 +177,6 @@ mod tests {
                     assert!(h - sh < vp.scale);
                     assert_eq!(vp.offset_x, (w - sw) / 2);
                     assert_eq!(vp.offset_y, (h - sh) / 2);
-                    assert_eq!(vp.virt_w % 1, 0);
                 }
             }
         }

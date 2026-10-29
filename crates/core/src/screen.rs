@@ -126,7 +126,8 @@ impl Screen {
         cx
     }
 
-    /// Like [`Screen::put_str`] but pads to `width` cells and reports discarded text.
+    /// Like [`Screen::put_str`] but clips to `width` cells with a `>` marker.
+    #[allow(clippy::too_many_arguments)]
     pub fn put_str_ellipsis(
         &mut self,
         x: u32,
