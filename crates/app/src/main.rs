@@ -37,6 +37,10 @@ fn main() -> ExitCode {
             print!("{}", cli::USAGE);
             return ExitCode::SUCCESS;
         }
+        Ok(cli::ParseOutcome::Version) => {
+            println!("cread {}", ui::VERSION);
+            return ExitCode::SUCCESS;
+        }
         Err(e) => {
             eprintln!("cread: {e}\n\n{}", cli::USAGE);
             return ExitCode::FAILURE;

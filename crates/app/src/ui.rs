@@ -268,6 +268,9 @@ fn put_centered(screen: &mut Screen, y: u32, text: &str, fg: u8, bg: u8, style: 
 
 // ── help / about ────────────────────────────────────────────────────────────
 
+/// Version shown on the about screen and in the help title.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Full-screen reference. Without hotkeys this is the only way to discover what
 /// the program can do, so it is a first-class screen rather than a popup.
 pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool) {
@@ -279,7 +282,7 @@ pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool) {
     // title bar
     screen.fill_row(0, Cell::blank(theme.status_fg, theme.status_bg));
     let title = if about {
-        " CRead 0.1.0 ".to_string()
+        format!(" CRead {} ", VERSION)
     } else {
         " CRead \u{00b7} commands ".to_string()
     };

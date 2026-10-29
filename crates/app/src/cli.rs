@@ -31,6 +31,7 @@ OPTIONS:
         --command TEXT      Prefill the action prompt (handy for demos)
         --screenshot-delay MS  Wait before capturing (lets background work finish)
         --screenshot PATH   Render one frame to PATH (PNG) and exit
+    -V, --version           Show the version
     -h, --help              Show this help
 ";
 
@@ -79,6 +80,7 @@ impl Default for Options {
 pub enum ParseOutcome {
     Run(Options),
     Help,
+    Version,
 }
 
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, String> {
@@ -88,6 +90,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Ok(ParseOutcome::Help),
+            "-V" | "--version" => return Ok(ParseOutcome::Version),
             "-w" | "--windowed" => opts.fullscreen = false,
             "--no-crt" => {
                 opts.crt.scanline = 0.0;
@@ -187,7 +190,7 @@ mod tests {
     fn run(args: &[&str]) -> Options {
         match parse(args.iter().map(|s| s.to_string())).unwrap() {
             ParseOutcome::Run(o) => o,
-            ParseOutcome::Help => panic!("expected options"),
+            ParseOutcome::Help | ParseOutcome::Version => panic!("expected options"),
         }
     }
 
@@ -222,6 +225,22 @@ mod tests {
             Err(e) => e,
             Ok(_) => panic!("expected an error for {args:?}"),
         }
+    }
+
+    #[test]
+    fn version_and_help_are_their_own_outcomes() {
+        assert!(matches!(
+            parse(["--version".to_string()]),
+            Ok(ParseOutcome::Version)
+        ));
+        assert!(matches!(
+            parse(["-V".to_string()]),
+            Ok(ParseOutcome::Version)
+        ));
+        assert!(matches!(
+            parse(["--help".to_string()]),
+            Ok(ParseOutcome::Help)
+        ));
     }
 
     #[test]
