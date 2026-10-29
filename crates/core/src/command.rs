@@ -383,6 +383,12 @@ mod tests {
     }
 
     #[test]
+    fn theme_accepts_plus_and_minus() {
+        assert_eq!(parse("theme +"), Ok(Command::Theme(Some("+".into()))));
+        assert_eq!(parse("theme -"), Ok(Command::Theme(Some("-".into()))));
+    }
+
+    #[test]
     fn optional_arguments_may_be_missing() {
         assert_eq!(parse("open"), Ok(Command::Open(None)));
         assert_eq!(parse("theme"), Ok(Command::Theme(None)));

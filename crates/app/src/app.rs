@@ -44,6 +44,8 @@ pub fn run(opts: Options) -> Result<(), String> {
 
 struct Document {
     path: Option<PathBuf>,
+    /// Shown when there is no path yet, e.g. the built-in demo document.
+    title_hint: Option<&'static str>,
     editor: Editor,
     last_edit: Instant,
 }
@@ -55,7 +57,7 @@ impl Document {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "untitled".into()),
-            None => "welcome.md".into(),
+            None => self.title_hint.unwrap_or("untitled").to_string(),
         }
     }
 }
@@ -318,6 +320,7 @@ impl App {
                     return (
                         Document {
                             path: Some(path.clone()),
+                            title_hint: None,
                             editor: Editor::from_text(&text),
                             last_edit: Instant::now(),
                         },
@@ -332,6 +335,7 @@ impl App {
             return (
                 Document {
                     path: None,
+                    title_hint: Some("welcome.md"),
                     editor: Editor::from_text(WELCOME),
                     last_edit: Instant::now(),
                 },
@@ -342,6 +346,7 @@ impl App {
         (
             Document {
                 path: None,
+                title_hint: None,
                 editor: Editor::new(),
                 last_edit: Instant::now(),
             },
@@ -509,7 +514,8 @@ impl App {
             String::new()
         } else if self.command.is_empty() {
             if self.has_document {
-                "type help for all commands".to_string()
+                // Left empty on purpose: the prompt then shows how to leave.
+                String::new()
             } else {
                 "new  empty document     open  file list".to_string()
             }
@@ -760,7 +766,6 @@ impl App {
         storage::save_atomic(path, &text).map_err(|e| format!("save failed: {e}"))?;
         self.doc.editor.mark_saved();
         self.doc.path = Some(path.to_path_buf());
-        remember_last_file(path);
         if self.sync_cfg.enabled {
             self.request_sync();
         }
@@ -781,6 +786,20 @@ impl App {
         })
     }
 
+    /// Start a fresh file in the vault, named `untitled.md`, `untitled-2.md`, …
+    fn new_document(&mut self) -> Result<String, String> {
+        let path = self.free_untitled_path();
+        self.doc = Document {
+            path: None,
+            title_hint: None,
+            editor: Editor::new(),
+            last_edit: Instant::now(),
+        };
+        self.has_document = true;
+        self.save_to(&path)?;
+        Ok(format!("created {}", path.display()))
+    }
+
     fn save_as(&mut self, name: &str) -> Result<String, String> {
         let path = self.document_path(name);
         self.save_to(&path)?;
@@ -793,14 +812,7 @@ impl App {
 
     /// First free `untitled[-n].md` in the vault.
     fn free_untitled_path(&self) -> PathBuf {
-        let dir = self.vault();
-        let mut path = dir.join("untitled.md");
-        let mut n = 2;
-        while path.exists() {
-            path = dir.join(format!("untitled-{n}.md"));
-            n += 1;
-        }
-        path
+        storage::free_untitled(&self.vault())
     }
 
     /// Resolve a user-supplied name inside the vault, adding `.md` when needed.
@@ -833,6 +845,7 @@ impl App {
             storage::load(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
         self.doc = Document {
             path: Some(path.clone()),
+            title_hint: None,
             editor: Editor::from_text(&text),
             last_edit: Instant::now(),
         };
@@ -847,7 +860,6 @@ impl App {
             Some(old) => {
                 std::fs::rename(&old, &target).map_err(|e| format!("rename failed: {e}"))?;
                 self.doc.path = Some(target.clone());
-                remember_last_file(&target);
                 self.dirty = true;
                 Ok(format!("renamed to {}", target.display()))
             }
@@ -863,6 +875,7 @@ impl App {
         std::fs::remove_file(&path).map_err(|e| format!("delete failed: {e}"))?;
         self.doc = Document {
             path: None,
+            title_hint: None,
             editor: Editor::new(),
             last_edit: Instant::now(),
         };
@@ -910,19 +923,10 @@ impl App {
                 Ok(()) => self.status = format!("opened {}", path.display()),
                 Err(e) => self.status = e,
             },
-            Action::NewFile => {
-                let path = self.free_untitled_path();
-                self.doc = Document {
-                    path: None,
-                    editor: Editor::new(),
-                    last_edit: Instant::now(),
-                };
-                self.has_document = true;
-                match self.save_to(&path) {
-                    Ok(()) => self.status = format!("created {}", path.display()),
-                    Err(e) => self.status = e,
-                }
-            }
+            Action::NewFile => match self.new_document() {
+                Ok(msg) => self.status = msg,
+                Err(e) => self.status = e,
+            },
         }
         self.to_write();
     }
@@ -1179,16 +1183,7 @@ impl App {
                 self.open_document(path)?;
                 Ok(format!("opened {}", self.doc.title()))
             }
-            Command::New => {
-                self.doc = Document {
-                    path: None,
-                    editor: Editor::new(),
-                    last_edit: Instant::now(),
-                };
-                self.has_document = true;
-                self.dirty = true;
-                Ok("new document".into())
-            }
+            Command::New => self.new_document(),
             Command::Rename(name) => self.rename_current(&name),
             Command::Delete => {
                 if self.doc.path.is_none() {
@@ -1204,15 +1199,9 @@ impl App {
                 self.request_sync();
                 Ok("sync requested".into())
             }
-            Command::Theme(None) => {
-                let idx = Theme::ALL
-                    .iter()
-                    .position(|t| *t == self.theme)
-                    .unwrap_or(0);
-                self.theme = Theme::ALL[(idx + 1) % Theme::ALL.len()];
-                self.dirty = true;
-                Ok(format!("theme: {}", self.theme.name))
-            }
+            Command::Theme(None) => self.cycle_theme(1),
+            Command::Theme(Some(arg)) if arg == "+" => self.cycle_theme(1),
+            Command::Theme(Some(arg)) if arg == "-" => self.cycle_theme(-1),
             Command::Theme(Some(name)) => {
                 let theme = Theme::by_name(&name).ok_or_else(|| {
                     let names: Vec<&str> = Theme::ALL.iter().map(|t| t.name).collect();
@@ -1452,6 +1441,18 @@ impl App {
         self.poke();
     }
 
+    fn cycle_theme(&mut self, delta: isize) -> Result<String, String> {
+        let len = Theme::ALL.len() as isize;
+        let idx = Theme::ALL
+            .iter()
+            .position(|t| *t == self.theme)
+            .unwrap_or(0) as isize;
+        let next = (idx + delta).rem_euclid(len);
+        self.theme = Theme::ALL[next as usize];
+        self.dirty = true;
+        Ok(format!("theme: {}", self.theme.name))
+    }
+
     fn set_fullscreen(&mut self, on: bool) {
         if let Some(window) = self.window.as_ref() {
             window.set_fullscreen(on.then_some(Fullscreen::Borderless(None)));
@@ -1513,6 +1514,7 @@ impl ApplicationHandler for App {
         renderer.resize(size.width.max(1), size.height.max(1));
 
         self.adapter = renderer.adapter_info().to_string();
+        println!("cread: vault {}", self.vault().display());
         println!(
             "cread: {} · surface {:?}",
             self.adapter,
@@ -1600,10 +1602,4 @@ fn initial_sync_label(cfg: &SyncConfig) -> String {
 
 fn report_word(report: &SyncReport) -> String {
     report.summary()
-}
-
-fn remember_last_file(path: &Path) {
-    let dir = storage::config_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    let _ = std::fs::write(dir.join("last.txt"), path.to_string_lossy().as_bytes());
 }

@@ -8,8 +8,9 @@ use cread_core::{
     markdown::{self, Kind},
 };
 
-/// Rows reserved above and below the text area.
-pub const CHROME_ROWS: u32 = 2;
+/// Rows reserved above and below the text area: a title bar, a blank line, the
+/// text, another blank line, then the status or command line.
+pub const CHROME_ROWS: u32 = 4;
 
 /// Width of the text column, and the left margin that centres it.
 ///
@@ -104,7 +105,7 @@ fn draw_top_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
 }
 
 fn draw_text(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
-    let first_row = 1u32;
+    let first_row = 2u32;
     let margin = view.margin as u32;
 
     let mut fence = view.in_fence;
@@ -113,7 +114,7 @@ fn draw_text(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
 
     for (i, row) in view.rows.iter().enumerate() {
         let y = first_row + i as u32;
-        if y >= screen.rows().saturating_sub(1) {
+        if y >= screen.rows().saturating_sub(2) {
             break;
         }
 
@@ -184,14 +185,14 @@ fn draw_status_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>, 
     );
     screen.put_str(0, bar, &left, fg, bg, Style::Bold);
 
-    let right = if message.is_empty() {
-        "Esc  commands".to_string()
+    let (right, colour) = if message.is_empty() {
+        ("Esc switch to action mode".to_string(), theme.status_dim)
     } else {
-        message.to_string()
+        (message.to_string(), fg)
     };
     let x = cols.saturating_sub(right.chars().count() as u32 + 1);
     if x > left.chars().count() as u32 + 1 {
-        screen.put_str(x, bar, &right, fg, bg, Style::Normal);
+        screen.put_str(x, bar, &right, colour, bg, Style::Normal);
     }
 }
 
@@ -217,7 +218,13 @@ fn draw_prompt(screen: &mut Screen, theme: &Theme, input: &str, hint: &str, erro
     let end = screen.put_str(2, bar, &shown, fg, bg, Style::Normal);
     screen.put(end.min(cols.saturating_sub(1)), bar, Cell::blank(bg, fg));
 
-    let text = if error.is_empty() { hint } else { error };
+    let text = if !error.is_empty() {
+        error
+    } else if !hint.is_empty() {
+        hint
+    } else {
+        "Esc switch to write mode"
+    };
     let color = if error.is_empty() {
         theme.status_dim
     } else {
@@ -698,7 +705,7 @@ mod tests {
             .collect();
         assert!(top.contains("note.md"));
         assert!(top.contains("modified"));
-        let first: String = (1..40).map(|x| screen.get(x, 1).unwrap().ch).collect();
+        let first: String = (1..40).map(|x| screen.get(x, 2).unwrap().ch).collect();
         assert!(first.contains("Title"));
     }
 
@@ -715,8 +722,8 @@ mod tests {
             &Theme::DOS_BLUE,
             &view_from(ed.lines(), &rows, Some((0, 6)), ("", "dos-blue")),
         );
-        let hash = screen.get(m as u32, 1).unwrap();
-        let letter = screen.get(m as u32 + 4, 1).unwrap();
+        let hash = screen.get(m as u32, 2).unwrap();
+        let letter = screen.get(m as u32 + 4, 2).unwrap();
         assert_eq!(hash.fg, Theme::DOS_BLUE.dim);
         assert_eq!(letter.fg, Theme::DOS_BLUE.accent);
     }
@@ -734,7 +741,7 @@ mod tests {
             &Theme::DOS_BLUE,
             &view_from(ed.lines(), &rows, Some((0, 3)), ("", "dos-blue")),
         );
-        let cell = screen.get(m as u32 + 3, 1).unwrap();
+        let cell = screen.get(m as u32 + 3, 2).unwrap();
         assert_eq!(cell.fg, Theme::DOS_BLUE.bg);
         assert_eq!(cell.bg, Theme::DOS_BLUE.fg);
     }

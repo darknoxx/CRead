@@ -52,11 +52,47 @@ pub fn save_atomic(path: &Path, text: &str) -> io::Result<()> {
 }
 
 /// Where new documents live by default.
+///
+/// Follows the XDG user directory, so a German desktop gets `~/Dokumente/CRead`
+/// instead of quietly creating an English `~/Documents` next to it.
 pub fn vault_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("CREAD_VAULT") {
         return PathBuf::from(dir);
     }
-    home().join("Documents").join("CRead")
+    documents_dir().join("CRead")
+}
+
+/// The user's document folder, from `~/.config/user-dirs.dirs` when present.
+pub fn documents_dir() -> PathBuf {
+    let xdg = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".config"))
+        .join("user-dirs.dirs");
+    if let Ok(text) = std::fs::read_to_string(xdg)
+        && let Some(dir) = documents_from_user_dirs(&text, &home())
+    {
+        return dir;
+    }
+    home().join("Documents")
+}
+
+/// Pull `XDG_DOCUMENTS_DIR` out of a `user-dirs.dirs` file.
+fn documents_from_user_dirs(text: &str, home: &Path) -> Option<PathBuf> {
+    for line in text.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("XDG_DOCUMENTS_DIR=") else {
+            continue;
+        };
+        let value = rest.trim().trim_matches('"');
+        let path = match value {
+            "$HOME" => home.to_path_buf(),
+            _ if value.starts_with("$HOME/") => home.join(&value[6..]),
+            _ if value.is_empty() => return None,
+            other => PathBuf::from(other),
+        };
+        return path.is_dir().then_some(path);
+    }
+    None
 }
 
 /// Config: WebDAV credentials and user preferences.
@@ -71,6 +107,17 @@ fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// First free `untitled[-n].md` in a directory.
+pub fn free_untitled(dir: &Path) -> PathBuf {
+    let mut path = dir.join("untitled.md");
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("untitled-{n}.md"));
+        n += 1;
+    }
+    path
 }
 
 /// Markdown documents in a directory, sorted by name, ignoring dotfiles.
@@ -150,6 +197,48 @@ mod tests {
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, vec!["a.txt", "b.md", "d.markdown"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn user_dirs_file_gives_the_localised_document_folder() {
+        let home = Path::new("/home/noxx");
+        let german =
+            "XDG_DESKTOP_DIR=\"$HOME/Schreibtisch\"\nXDG_DOCUMENTS_DIR=\"$HOME/Dokumente\"\n";
+        assert_eq!(
+            documents_from_user_dirs(german, home),
+            None,
+            "a folder that does not exist is ignored"
+        );
+
+        // Point at something that certainly exists to exercise the expansion.
+        let existing = std::env::temp_dir();
+        let line = format!("XDG_DOCUMENTS_DIR=\"{}\"\n", existing.display());
+        assert_eq!(documents_from_user_dirs(&line, home), Some(existing));
+
+        assert_eq!(documents_from_user_dirs("", home), None);
+        assert_eq!(
+            documents_from_user_dirs("XDG_DOCUMENTS_DIR=\"\"", home),
+            None
+        );
+        assert_eq!(
+            documents_from_user_dirs("XDG_DOCUMENTS_DIR=\"$HOME\"", home),
+            None,
+            "$HOME resolves to a missing directory here"
+        );
+    }
+
+    #[test]
+    fn untitled_names_avoid_existing_files() {
+        let dir = tmpdir("untitled");
+        assert_eq!(free_untitled(&dir).file_name().unwrap(), "untitled.md");
+
+        fs::write(dir.join("untitled.md"), "x").unwrap();
+        assert_eq!(free_untitled(&dir).file_name().unwrap(), "untitled-2.md");
+
+        fs::write(dir.join("untitled-2.md"), "x").unwrap();
+        assert_eq!(free_untitled(&dir).file_name().unwrap(), "untitled-3.md");
+
         fs::remove_dir_all(&dir).unwrap();
     }
 

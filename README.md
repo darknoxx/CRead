@@ -88,7 +88,7 @@ the right tells you what the command does before you commit to it.
 | `rename <name>` | `mv`, `rn` | rename the current document |
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
 | `sync` | | push the vault to WebDAV now |
-| `theme [name]` | | black, dos-blue, amber, green, paper |
+| `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
 | `scanlines [on\|off]` | `scan`, `sl` | scanline strength |
 | `bloom [on\|off]` | | phosphor glow |
 | `flicker [on\|off]` | `fl` | luminance drift |
@@ -129,8 +129,9 @@ nearly free to leave open.
 
 ## Documents and sync
 
-Documents are plain Markdown files in `~/Documents/CRead` (override with
-`--vault DIR` or `CREAD_VAULT`). Writes are atomic: temp file, fsync, rename. A
+Documents are plain Markdown files in your XDG document folder — `~/Dokumente/CRead`
+on a German desktop, `~/Documents/CRead` in English. Override it with `--vault DIR`
+or `CREAD_VAULT`. Writes are atomic: temp file, fsync, rename. A
 crash leaves either the old file or the new one, never half a page.
 
 WebDAV sync mirrors that folder. Run `settings` in action mode and fill in:
