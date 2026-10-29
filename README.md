@@ -124,8 +124,10 @@ On a 1280x800 panel that gives 640x400 at 2x — the real VGA text mode. On a
 height and follows the monitor's scale factor, so 4K at 200% gets 4x rather than
 2x. Override it with `--scale N`.
 
-The app renders at 30 fps while you type and drops to 2 fps when idle, so it is
-nearly free to leave open.
+The app renders at 60 fps while the screen is alive and drops to 2 fps when
+idle, so it is nearly free to leave open. On a software rasteriser it settles
+for 30 fps; `--fps N` overrides either way. The cursor blink is timed
+independently, so raising the frame rate does not turn it into a strobe.
 
 ## Documents and sync
 
@@ -175,8 +177,17 @@ and prints the result, which is handy for cron or for debugging.
 
 Linux is the target (Wayland and X11 both work). macOS should build with
 `cargo install --path crates/app` and can be started from a shell alias; no app
-bundle needed. GPU-wise, anything Vulkan, Metal or OpenGL works — the app also runs on
-a software rasteriser (llvmpipe) without complaint, which is how it is developed.
+bundle needed. GPU-wise, anything Vulkan, Metal or OpenGL works — wgpu picks the adapter and
+prefers the integrated GPU on hybrid laptops to save battery. The startup line
+tells you what you got:
+
+```
+cread: AMD Radeon 780M (Vulkan, IntegratedGpu) · surface Bgra8Unorm · 60 fps
+cread: llvmpipe (LLVM 21.1.8, 256 bits) (Vulkan, Cpu) · surface Bgra8Unorm · 30 fps
+```
+
+The second one is a software rasteriser: no GPU involved, which is how the app
+is developed and why that build asks for fewer frames.
 
 ## Layout
 

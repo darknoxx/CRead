@@ -26,10 +26,17 @@ const WELCOME: &str = include_str!("welcome.md");
 /// How long the editor waits after the last keystroke before writing to disk.
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
 
-/// Frame budget while typing. The flicker is quantised to 24 Hz anyway.
-const ACTIVE_FPS: u32 = 30;
+/// Frame budget while the screen is alive, on a real GPU. Matching the usual
+/// display refresh keeps the phosphor drift smooth instead of stepping.
+const ACTIVE_FPS: u32 = 60;
+/// Software rasterisers cannot hit 60 fps at a sharp resolution, so we do not
+/// ask them to and burn a core for nothing.
+const SOFTWARE_FPS: u32 = 30;
 /// While idle the screen is static; we only redraw for the cursor blink.
 const IDLE_FPS: u32 = 2;
+/// Cursor blink, in toggles per second. Deliberately independent of the frame
+/// rate so raising the frame budget does not turn the cursor into a strobe.
+const CURSOR_BLINK_HZ: f32 = 1.6;
 /// How long after the last keystroke we stay on the fast path.
 const ACTIVE_WINDOW: Duration = Duration::from_millis(1200);
 /// How long a status message stays on the line before the mode hint returns.
@@ -134,6 +141,7 @@ struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     adapter: String,
+    active_fps: u32,
 
     font: Font,
     screen: Screen,
@@ -265,6 +273,7 @@ impl App {
     fn new(opts: Options) -> Self {
         let crt = opts.crt;
         let theme = opts.theme;
+        let active_fps = opts.fps.unwrap_or(ACTIVE_FPS);
         let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
         Self {
@@ -272,6 +281,7 @@ impl App {
             window: None,
             renderer: None,
             adapter: String::from("unknown"),
+            active_fps,
             font: Font::new(),
             screen: Screen::new(80, 25),
             fb: Framebuffer::new(640, 400),
@@ -415,8 +425,9 @@ impl App {
             return;
         }
 
+        let frame_start = Instant::now();
         let time = self.start.elapsed().as_secs_f32();
-        let blink = ((time * 1.6) as u32).is_multiple_of(2);
+        let blink = ((time * CURSOR_BLINK_HZ) as u32).is_multiple_of(2);
         if blink != self.blink {
             self.blink = blink;
             self.dirty = true;
@@ -497,12 +508,14 @@ impl App {
             self.fps = self.fps * 0.9 + (1.0 / dt) * 0.1;
         }
 
+        // Schedule from the *start* of the frame: presenting already blocks on
+        // vsync, so adding a full interval afterwards would halve the real rate.
         let fps = if now.duration_since(self.last_input) < ACTIVE_WINDOW {
-            ACTIVE_FPS
+            self.active_fps
         } else {
             IDLE_FPS
         };
-        self.next_frame = now + Duration::from_millis(1000 / fps as u64);
+        self.next_frame = frame_start + Duration::from_millis(1000 / fps as u64);
     }
 
     /// Build the cell grid for the current state.
@@ -1545,11 +1558,18 @@ impl ApplicationHandler for App {
         renderer.resize(size.width.max(1), size.height.max(1));
 
         self.adapter = renderer.adapter_info().to_string();
+        if self.opts.fps.is_none() {
+            self.active_fps = match renderer.device_type() {
+                wgpu::DeviceType::Cpu => SOFTWARE_FPS,
+                _ => ACTIVE_FPS,
+            };
+        }
         println!("cread: vault {}", self.vault().display());
         println!(
-            "cread: {} · surface {:?}",
+            "cread: {} · surface {:?} · {} fps",
             self.adapter,
-            renderer.surface_format()
+            renderer.surface_format(),
+            self.active_fps
         );
 
         self.renderer = Some(renderer);

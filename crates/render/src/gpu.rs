@@ -71,6 +71,7 @@ pub struct Renderer {
     bind_group: wgpu::BindGroup,
     tex_size: (u32, u32),
     adapter_info: String,
+    device_type: wgpu::DeviceType,
 }
 
 impl Renderer {
@@ -237,11 +238,17 @@ impl Renderer {
             bind_group,
             tex_size: (640, 400),
             adapter_info,
+            device_type: info.device_type,
         })
     }
 
     pub fn adapter_info(&self) -> &str {
         &self.adapter_info
+    }
+
+    /// Whether we are on a real GPU or a software rasteriser.
+    pub fn device_type(&self) -> wgpu::DeviceType {
+        self.device_type
     }
 
     pub fn surface_format(&self) -> wgpu::TextureFormat {
