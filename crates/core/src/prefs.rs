@@ -26,7 +26,7 @@ impl Default for Prefs {
     fn default() -> Self {
         let crt = cread_crt_defaults();
         Self {
-            theme: Theme::BLACK.name.to_string(),
+            theme: Theme::DEFAULT.name.to_string(),
             typewriter: false,
             scanlines: false,
             bloom: crt.1,
@@ -75,7 +75,7 @@ impl Prefs {
 
     /// Resolved theme, falling back to the default if the name is unknown.
     pub fn theme(&self) -> Theme {
-        Theme::by_name(&self.theme).unwrap_or(Theme::BLACK)
+        Theme::by_name(&self.theme).unwrap_or(Theme::DEFAULT)
     }
 
     pub fn set(&mut self, theme: Theme) {
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn defaults_are_the_black_theme_with_both_effects_on() {
         let p = Prefs::default();
-        assert_eq!(p.theme(), Theme::BLACK);
+        assert_eq!(p.theme(), Theme::PAPER);
         assert!(!p.scanlines, "scanlines are opt-in");
         assert!(p.bloom);
         assert!(!p.typewriter);
@@ -139,7 +139,7 @@ mod tests {
         assert_eq!(Prefs::load_from(&path), Prefs::default());
 
         std::fs::write(&path, r#"{"theme":"neon"}"#).unwrap();
-        assert_eq!(Prefs::load_from(&path).theme(), Theme::BLACK);
+        assert_eq!(Prefs::load_from(&path).theme(), Theme::DEFAULT);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

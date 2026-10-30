@@ -9,10 +9,12 @@ use crate::raster::Framebuffer;
 
 /// How to colour the image.
 pub enum SplashStyle {
-    /// Keep the artwork's own colours (for dark themes that carry an accent).
+    /// Keep the artwork's own colours, for a colour logo.
     Native,
-    /// Map luminance onto one ink colour, optionally inverted for light paper.
-    Tinted { ink: Rgb, invert: bool },
+    /// Paint the artwork's *dark* pixels in one ink colour and let the light
+    /// ones show the background through. The logo is black line art with white
+    /// counters, so darkness is the coverage and luminance is the anti-aliasing.
+    Ink(Rgb),
 }
 
 pub struct Splash {
@@ -62,9 +64,21 @@ impl Splash {
 
 impl Framebuffer {
     /// Blit the logo with its top-left corner at (`x`, `y`) in emulated pixels.
-    pub fn draw_splash(&mut self, splash: &Splash, x: i32, y: i32, style: &SplashStyle) {
-        for py in 0..splash.height {
-            for px in 0..splash.width {
+    ///
+    /// `divisor` shrinks it by a whole factor when the raster is too small;
+    /// fractional scaling would blur the pixel art, so the caller picks an
+    /// integer and we sample every n-th pixel instead.
+    pub fn draw_splash(
+        &mut self,
+        splash: &Splash,
+        x: i32,
+        y: i32,
+        divisor: u32,
+        style: &SplashStyle,
+    ) {
+        let step = divisor.max(1);
+        for py in (0..splash.height).step_by(step as usize) {
+            for px in (0..splash.width).step_by(step as usize) {
                 let idx = ((py * splash.width + px) * 4) as usize;
                 let alpha = splash.pixels[idx + 3];
                 if alpha < 128 {
@@ -75,22 +89,36 @@ impl Framebuffer {
                     splash.pixels[idx + 1],
                     splash.pixels[idx + 2],
                 ];
-                let colour = match style {
-                    SplashStyle::Native => source,
-                    SplashStyle::Tinted { ink, invert } => {
+                let dx = x + (px / step) as i32;
+                let dy = y + (py / step) as i32;
+                match style {
+                    SplashStyle::Native => self.put(dx, dy, source),
+                    SplashStyle::Ink(ink) => {
+                        // Darkness is the coverage: the artwork is black line
+                        // art with white counters, so white must show the
+                        // background through rather than paint over it.
                         let luma = (0.2126 * source[0] as f32
                             + 0.7152 * source[1] as f32
                             + 0.0722 * source[2] as f32)
                             / 255.0;
-                        let luma = if *invert { 1.0 - luma } else { luma };
-                        [
-                            (ink[0] as f32 * luma) as u8,
-                            (ink[1] as f32 * luma) as u8,
-                            (ink[2] as f32 * luma) as u8,
-                        ]
+                        let coverage = (1.0 - luma) * (alpha as f32 / 255.0);
+                        if coverage <= 0.02 {
+                            continue;
+                        }
+                        let under = self.pixel(dx, dy);
+                        let blend =
+                            |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * coverage) as u8;
+                        self.put(
+                            dx,
+                            dy,
+                            [
+                                blend(under[0], ink[0]),
+                                blend(under[1], ink[1]),
+                                blend(under[2], ink[2]),
+                            ],
+                        );
                     }
-                };
-                self.put(x + px as i32, y + py as i32, colour);
+                }
             }
         }
     }
@@ -122,7 +150,7 @@ mod tests {
 
         let mut fb = Framebuffer::new(4, 4);
         fb.clear([0, 0, 0]);
-        fb.draw_splash(&splash, 1, 1, &SplashStyle::Native);
+        fb.draw_splash(&splash, 1, 1, 1, &SplashStyle::Native);
 
         // Opaque pixel painted, transparent one left alone.
         assert_eq!(fb.pixel(1, 1), [255, 255, 255]);
@@ -131,32 +159,14 @@ mod tests {
     }
 
     #[test]
-    fn tinting_maps_brightness_onto_the_ink_colour() {
+    fn ink_uses_darkness_as_coverage() {
         let splash = Splash::from_png(&tiny_png()).unwrap();
-        let mut fb = Framebuffer::new(4, 4);
-        fb.clear([0, 0, 0]);
-        fb.draw_splash(
-            &splash,
-            0,
-            0,
-            &SplashStyle::Tinted {
-                ink: [255, 176, 0],
-                invert: false,
-            },
-        );
-        assert_eq!(fb.pixel(0, 0), [255, 176, 0], "white maps to full ink");
-
-        fb.clear([0, 0, 0]);
-        fb.draw_splash(
-            &splash,
-            0,
-            0,
-            &SplashStyle::Tinted {
-                ink: [255, 176, 0],
-                invert: true,
-            },
-        );
-        assert_eq!(fb.pixel(0, 0), [0, 0, 0], "inverted white maps to nothing");
+        let mut fb = Framebuffer::new(2, 1);
+        fb.clear([241, 237, 227]);
+        // The test image is one white pixel (ink 0) and one transparent one.
+        fb.draw_splash(&splash, 0, 0, 1, &SplashStyle::Ink([20, 20, 20]));
+        assert_eq!(fb.pixel(0, 0), [241, 237, 227], "white stays background");
+        assert_eq!(fb.pixel(1, 0), [241, 237, 227], "transparent untouched");
     }
 
     #[test]

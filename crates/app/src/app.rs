@@ -34,7 +34,7 @@ const CURSOR_BLINK_HZ: f32 = 1.6;
 /// twelve seconds. Fast enough to see, slow enough not to pull the eye.
 const ROLL_SPEED: f32 = 40.0;
 /// While the raster drifts we need a frame clock again; this is the budget.
-const ANIMATION_FPS: u32 = 30;
+const ANIMATION_FPS: u32 = 60;
 /// How long a status message stays on the line before the mode hint returns.
 const STATUS_TTL: Duration = Duration::from_secs(4);
 
@@ -186,8 +186,8 @@ struct App {
 
     doc: Document,
     splash: Option<Splash>,
-    /// Where the logo was blitted this frame, in framebuffer pixels.
-    splash_at: Option<(i32, i32)>,
+    /// Where the logo was blitted this frame: x, y and the integer divisor.
+    splash_at: Option<(i32, i32, u32)>,
     search: Option<Search>,
     last_search: Option<String>,
     /// Reader-mode rows, computed on entering the view and on resize.
@@ -507,7 +507,8 @@ impl App {
 
         let mut crt = self.crt;
         if self.theme.is_light() {
-            crt.bloom = 0.0;
+            // Glow on paper is ink bleed: keep a trace, not a haze.
+            crt.bloom *= 0.3;
             crt.scanline *= 0.4;
         }
 
@@ -520,18 +521,12 @@ impl App {
             }
             self.compose();
             self.fb.draw_screen(&self.screen, &self.theme, &self.font);
-            if let (Some(splash), Some((x, y))) = (self.splash.as_ref(), self.splash_at) {
-                // Monochrome themes get the logo tinted to match; the black
-                // theme keeps the artwork's own grey and teal.
-                let style = if self.theme.name == "black" {
-                    SplashStyle::Native
-                } else {
-                    SplashStyle::Tinted {
-                        ink: self.theme.color(self.theme.accent),
-                        invert: self.theme.is_light(),
-                    }
-                };
-                self.fb.draw_splash(splash, x, y, &style);
+            if let (Some(splash), Some((x, y, divisor))) = (self.splash.as_ref(), self.splash_at) {
+                // The artwork is black on transparency, so the shape comes from
+                // the alpha channel and the ink follows the theme: dark on
+                // paper, light on the dark schemes.
+                let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
+                self.fb.draw_splash(splash, x, y, divisor, &style);
             }
             if let Some(renderer) = self.renderer.as_mut() {
                 renderer.upload(&self.fb);
@@ -663,15 +658,33 @@ impl App {
             let show_prompt = matches!(self.mode, Mode::Action | Mode::Search);
             // With a logo above it the greeting moves down; without one it sits
             // in the middle of the screen as before.
-            let (title_row, subtitle_row, splash_y) = match &self.splash {
-                Some(splash) if splash.width() <= cols * cread_core::FONT_W => {
-                    let rows_img = splash.height().div_ceil(cread_core::FONT_H);
-                    let block = rows_img + 1 + 3;
+            // The logo is pixel art: shrink it by a whole factor at most, never
+            // fractionally, and only when the raster genuinely cannot hold it.
+            let max_w = cols * cread_core::FONT_W;
+            let max_h = rows.saturating_sub(6) * cread_core::FONT_H;
+            let mut divisor = 1;
+            while let Some(splash) = &self.splash {
+                if splash.width() / divisor <= max_w && splash.height() / divisor <= max_h {
+                    break;
+                }
+                divisor += 1;
+                if divisor > 8 {
+                    break;
+                }
+            }
+            let fits = self
+                .splash
+                .as_ref()
+                .is_some_and(|s| s.width() / divisor <= max_w && s.height() / divisor <= max_h);
+            let (title_row, subtitle_row, splash_pos) = match (&self.splash, fits) {
+                (Some(splash), true) => {
+                    let img_rows = (splash.height() / divisor).div_ceil(cread_core::FONT_H);
+                    let block = img_rows + 1 + 3;
                     let top = rows.saturating_sub(block) / 2;
                     (
-                        top + rows_img + 1,
-                        top + rows_img + 3,
-                        Some((top * cread_core::FONT_H) as i32),
+                        top + img_rows + 1,
+                        top + img_rows + 3,
+                        Some((top * cread_core::FONT_H, divisor)),
                     )
                 }
                 _ => (rows / 2 - 1, rows / 2 + 1, None),
@@ -679,10 +692,14 @@ impl App {
             // The logo is blitted into the framebuffer after the cell grid, so
             // it would land on top of any overlay drawn into that grid.
             let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
-            self.splash_at = splash_y.filter(|_| !overlay_open).map(|y| {
-                let x = (cols * cread_core::FONT_W) as i32 / 2
-                    - self.splash.as_ref().map(|s| s.width() as i32).unwrap_or(0) / 2;
-                (x, y)
+            self.splash_at = splash_pos.filter(|_| !overlay_open).map(|(y, divisor)| {
+                let width = self
+                    .splash
+                    .as_ref()
+                    .map(|s| (s.width() / divisor) as i32)
+                    .unwrap_or(0);
+                let x = (cols * cread_core::FONT_W) as i32 / 2 - width / 2;
+                (x, y as i32, divisor)
             });
             ui::draw_welcome(
                 &mut screen,
@@ -1514,15 +1531,25 @@ impl App {
                 self.dirty = true;
                 Ok(format!("theme: {}", theme.name))
             }
-            Command::Scanlines(want) => {
-                let on = apply_switch(
-                    &mut self.crt.scanline,
-                    CrtSettings::default().scanline,
-                    want,
-                );
+            Command::Scanlines { on, roll } => {
+                // Bare `scanlines` switches them on rather than toggling: it is
+                // the everyday "give me the CRT" gesture.
+                let enable = on.unwrap_or(true) || roll;
+                self.crt.scanline = if enable {
+                    CrtSettings::default().scanline
+                } else {
+                    0.0
+                };
+                if roll {
+                    self.crt.roll = ROLL_SPEED;
+                }
                 self.save_prefs();
                 self.dirty = true;
-                Ok(format!("scanlines: {}", on_off(on)))
+                Ok(format!(
+                    "scanlines: {}{}",
+                    on_off(enable),
+                    if roll { ", roll on" } else { "" }
+                ))
             }
             Command::Bloom(want) => {
                 let on = apply_switch(&mut self.crt.bloom, CrtSettings::default().bloom, want);
@@ -1594,6 +1621,21 @@ impl App {
             }
             Command::Find(query) => {
                 self.start_search(query);
+                Ok(String::new())
+            }
+            Command::Welcome => {
+                if self.has_document && self.doc.editor.modified() {
+                    self.save()?;
+                }
+                self.doc = Document {
+                    path: None,
+                    title_hint: None,
+                    editor: Editor::new(),
+                    last_edit: Instant::now(),
+                };
+                self.has_document = false;
+                self.mode = Mode::Action;
+                self.dirty = true;
                 Ok(String::new())
             }
             Command::Settings => {

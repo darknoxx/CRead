@@ -151,6 +151,9 @@ impl Theme {
         notice_bg: 1,
     };
 
+    /// The scheme the app starts with.
+    pub const DEFAULT: Theme = Theme::PAPER;
+
     pub const ALL: [Theme; 5] = [
         Theme::BLACK,
         Theme::DOS_BLUE,

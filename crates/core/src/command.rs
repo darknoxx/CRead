@@ -15,7 +15,11 @@ pub enum Command {
     Sync,
     Theme(Option<String>),
     /// `Some(true/false)` sets, `None` toggles.
-    Scanlines(Option<bool>),
+    /// Bare `scanlines` switches them on; `-r` adds the drift.
+    Scanlines {
+        on: Option<bool>,
+        roll: bool,
+    },
     Bloom(Option<bool>),
     /// Let the scanline pattern drift downwards.
     Roll(Option<bool>),
@@ -30,6 +34,8 @@ pub enum Command {
     Find(Option<String>),
     /// Toggle reader mode.
     View,
+    /// Back to the start screen.
+    Welcome,
     Settings,
     Help,
     About,
@@ -191,6 +197,12 @@ pub const SPECS: &[Spec] = &[
         summary: "search the document (Ctrl+F, F3 for the next hit)",
     },
     Spec {
+        name: "welcome",
+        aliases: &["home"],
+        argument: "",
+        summary: "back to the start screen",
+    },
+    Spec {
         name: "settings",
         aliases: &["set", "cfg"],
         argument: "",
@@ -263,7 +275,20 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "delete" => Command::Delete,
         "sync" => Command::Sync,
         "theme" => Command::Theme(optional(rest)),
-        "scanlines" => Command::Scanlines(switch(rest)?),
+        "scanlines" => {
+            let roll = rest
+                .split_whitespace()
+                .any(|word| word == "-r" || word == "--roll");
+            let plain = rest
+                .split_whitespace()
+                .filter(|word| !word.starts_with('-'))
+                .collect::<Vec<_>>()
+                .join(" ");
+            Command::Scanlines {
+                on: switch(&plain)?,
+                roll,
+            }
+        }
         "bloom" => Command::Bloom(switch(rest)?),
         "roll" => Command::Roll(switch(rest)?),
         "typewriter" => Command::Typewriter(switch(rest)?),
@@ -274,6 +299,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "redo" => Command::Redo,
         "view" => Command::View,
         "find" => Command::Find(optional(rest)),
+        "welcome" => Command::Welcome,
         "settings" => Command::Settings,
         "help" => Command::Help,
         "about" => Command::About,
@@ -428,9 +454,41 @@ mod tests {
 
     #[test]
     fn switches_accept_the_obvious_spellings() {
-        assert_eq!(parse("scanlines"), Ok(Command::Scanlines(None)));
-        assert_eq!(parse("scanlines on"), Ok(Command::Scanlines(Some(true))));
-        assert_eq!(parse("scanlines off"), Ok(Command::Scanlines(Some(false))));
+        assert_eq!(
+            parse("scanlines"),
+            Ok(Command::Scanlines {
+                on: None,
+                roll: false
+            })
+        );
+        assert_eq!(
+            parse("scanlines on"),
+            Ok(Command::Scanlines {
+                on: Some(true),
+                roll: false
+            })
+        );
+        assert_eq!(
+            parse("scanlines off"),
+            Ok(Command::Scanlines {
+                on: Some(false),
+                roll: false
+            })
+        );
+        assert_eq!(
+            parse("scanlines -r"),
+            Ok(Command::Scanlines {
+                on: None,
+                roll: true
+            })
+        );
+        assert_eq!(
+            parse("scanlines off -r"),
+            Ok(Command::Scanlines {
+                on: Some(false),
+                roll: true
+            })
+        );
         assert_eq!(parse("bloom 0"), Ok(Command::Bloom(Some(false))));
         assert_eq!(parse("tw yes"), Ok(Command::Typewriter(Some(true))));
     }
@@ -463,7 +521,13 @@ mod tests {
 
     #[test]
     fn cases_are_forgiving_where_it_matters() {
-        assert_eq!(parse("SCANLINES ON"), Ok(Command::Scanlines(Some(true))));
+        assert_eq!(
+            parse("SCANLINES ON"),
+            Ok(Command::Scanlines {
+                on: Some(true),
+                roll: false
+            })
+        );
         assert_eq!(parse("Save"), Ok(Command::Save));
         assert_eq!(parse("  SyNc  "), Ok(Command::Sync));
     }

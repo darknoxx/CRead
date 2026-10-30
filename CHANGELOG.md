@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0
+
+The CRT pass, rebuilt.
+
+- **Paper is the default theme.** Dark ink on warm paper. The effects adapt:
+  glow is damped to a hint of ink bleed instead of a haze, and the boot logo
+  inverts to dark ink.
+- **New boot logo**, drawn from its own alpha and luminance so the white
+  counters show the background through. It is blitted at native size in emulated
+  pixels, shrinking only by a whole divisor when the raster is too small —
+  fractional scaling would destroy pixel art.
+- **Real glow.** A separable gaussian at half resolution replaces the eight
+  neighbour taps whose radius was about the size of a glyph, which is why it
+  read as a blur around every letter. The blur is 2.2x wider horizontally than
+  vertically, because a CRT beam sweeps sideways.
+- **Scanlines are opt-in** (`scanlines`). Where the raster affords three device
+  pixels per line the beam gets a cosine profile; at two it degenerates, so it
+  stays a discrete row. `scanlines -r` adds a slow downward drift, which stops
+  the pattern reading as a printed overlay. The drift brings back a 60 fps frame
+  clock while it runs.
+- `welcome` returns to the start screen, saving first.
+- `font` toggles between the two 8x16 faces: classic VGA and the thinner ISO.
+
 ## 0.3.0
 
 Writing, not fighting the editor.

@@ -89,12 +89,12 @@ the right tells you what the command does before you commit to it.
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
 | `find [text]` | `search` | search the document (`Ctrl+F`) |
 | `view` | `read` | reading mode: markup stripped, nothing to edit |
+| `welcome` | `home` | back to the start screen |
 | `font [classic\|thin\|cga]` | `weight` | typeface; bare `font` cycles |
 | `sync` | | push the vault to WebDAV now |
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
-| `scanlines [on\|off]` | `scan`, `sl` | scanline strength |
+| `scanlines [on\|off] [-r]` | `scan`, `sl` | switch scanlines on; `-r` adds a slow downward drift |
 | `bloom [on\|off]` | | phosphor glow |
-| `roll [on\|off]` | `drift` | let the scanline pattern drift downwards |
 | `typewriter [on\|off]` | `tw` | keep the current line in place |
 | `fullscreen` / `windowed` | `fs` | |
 | `undo` / `redo` | `u` | also on `Ctrl+Z` / `Ctrl+Shift+Z` |
