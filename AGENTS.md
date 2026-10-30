@@ -98,6 +98,8 @@ deleted on the server.
   too. The one place German appears is the user's own documents.
 - Errors go to the status line via `set_status` (transient, 4 s) — not to stderr
   in the UI, except for startup failures.
+- Stripping markup for view mode lives in `markdown::render`, not in the UI.
+  The UI only knows how to paint a `Rendered` row.
 - `unsafe` is not used anywhere. Keep it that way.
 
 ## Tests

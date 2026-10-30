@@ -144,6 +144,8 @@ enum Mode {
     Write,
     /// The `/` prompt at the bottom.
     Search,
+    /// Reader mode: markup stripped, not editable.
+    View,
     /// A command line at the bottom, like a shell.
     Action,
     /// File picker.
@@ -183,6 +185,10 @@ struct App {
     splash_at: Option<(i32, i32)>,
     search: Option<Search>,
     last_search: Option<String>,
+    /// Reader-mode rows, computed on entering the view and on resize.
+    view_rows: Vec<cread_core::markdown::Rendered>,
+    view_top: usize,
+    view_width: usize,
     /// Last known pointer position in physical pixels.
     pointer: (f64, f64),
     dragging: bool,
@@ -352,6 +358,9 @@ impl App {
             splash_at: None,
             search: None,
             last_search: None,
+            view_rows: Vec::new(),
+            view_top: 0,
+            view_width: 0,
             pointer: (0.0, 0.0),
             dragging: false,
             follow_cursor: true,
@@ -614,7 +623,32 @@ impl App {
             question
         };
 
-        if !self.has_document {
+        if self.mode == Mode::View {
+            let (width, _) = ui::layout(cols);
+            if width != self.view_width {
+                self.view_rows = cread_core::markdown::render(self.doc.editor.lines(), width);
+                self.view_width = width;
+            }
+            let stats = self.doc.editor.stats();
+            let state = if self.doc.editor.modified() {
+                "modified"
+            } else if self.doc.path.is_some() {
+                "saved"
+            } else {
+                ""
+            };
+            let title = self.doc.title();
+            let location = self.location();
+            let view = ui::ReaderView {
+                title: &title,
+                state,
+                location: &location,
+                rows: &self.view_rows,
+                top: self.view_top,
+                words: stats.words,
+            };
+            ui::draw_reader(&mut screen, &self.theme, &view);
+        } else if !self.has_document {
             let show_prompt = matches!(self.mode, Mode::Action | Mode::Search);
             // With a logo above it the greeting moves down; without one it sits
             // in the middle of the screen as before.
@@ -1168,6 +1202,7 @@ impl App {
         match self.mode {
             Mode::Write => self.on_key_write(el, event),
             Mode::Search => self.on_key_search(event),
+            Mode::View => self.on_key_view(event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -1525,6 +1560,14 @@ impl App {
                     Err("nothing to redo".into())
                 }
             }
+            Command::View => {
+                if self.mode == Mode::View {
+                    self.to_write();
+                } else {
+                    self.enter_view();
+                }
+                Ok(String::new())
+            }
             Command::Find(query) => {
                 self.start_search(query);
                 Ok(String::new())
@@ -1688,6 +1731,10 @@ impl App {
     }
 
     fn on_wheel(&mut self, lines: isize) {
+        if self.mode == Mode::View {
+            self.scroll_view(-lines);
+            return;
+        }
         if self.mode != Mode::Write {
             return;
         }
@@ -1801,6 +1848,57 @@ impl App {
                     }
                 }
                 self.update_search();
+            }
+            _ => {}
+        }
+    }
+
+    // ── reader mode ─────────────────────────────────────────────────────────
+
+    fn enter_view(&mut self) {
+        if !self.has_document {
+            return;
+        }
+        let (width, _) = ui::layout(self.screen.cols());
+        self.view_rows = cread_core::markdown::render(self.doc.editor.lines(), width);
+        self.view_width = width;
+
+        // Open near the line being edited rather than at the top.
+        let height = ui::text_height(self.screen.rows());
+        let target = self.doc.editor.cursor().line;
+        let index = self
+            .view_rows
+            .iter()
+            .position(|row| row.source_line >= target)
+            .unwrap_or(0);
+        self.view_top = index.saturating_sub(height / 3);
+        self.mode = Mode::View;
+        self.dirty = true;
+    }
+
+    fn scroll_view(&mut self, delta: isize) {
+        let height = ui::text_height(self.screen.rows());
+        let max = self.view_rows.len().saturating_sub(height) as isize;
+        self.view_top = (self.view_top as isize + delta).clamp(0, max.max(0)) as usize;
+        self.poke();
+    }
+
+    fn on_key_view(&mut self, event: KeyEvent) {
+        let page = ui::text_height(self.screen.rows()) as isize;
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => self.to_write(),
+            Key::Named(NamedKey::ArrowDown) => self.scroll_view(1),
+            Key::Named(NamedKey::ArrowUp) => self.scroll_view(-1),
+            Key::Named(NamedKey::PageDown) | Key::Named(NamedKey::Space) => {
+                self.scroll_view(page.saturating_sub(1))
+            }
+            Key::Named(NamedKey::PageUp) => self.scroll_view(-page.saturating_sub(1)),
+            Key::Named(NamedKey::Home) => {
+                self.view_top = 0;
+                self.poke();
+            }
+            Key::Named(NamedKey::End) => {
+                self.scroll_view(isize::MAX / 2);
             }
             _ => {}
         }
@@ -2199,6 +2297,7 @@ impl ApplicationHandler for App {
             "help" => {
                 self.mode = Mode::Help;
             }
+            "view" => self.enter_view(),
             "search" => {
                 let query = self.opts.command.clone();
                 self.start_search((!query.is_empty()).then_some(query));

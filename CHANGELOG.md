@@ -17,6 +17,11 @@ Writing, not fighting the editor.
 - **Boot logo** on the start screen, tinted to match the theme.
 - **Second typeface.** `font thin` switches to the ISO 9241 face from the same
   bitmap pack: identical grid, about 31% less ink.
+- **View mode.** `view` renders the document without markup: headings bold, code
+  on an inverse field, links reduced to their text, rules drawn across the
+  column. Read-only, scrolls like a reader, `Esc` returns to the text.
+- Italic slants by two pixels instead of three, which was cutting visible gaps
+  into 8px glyphs.
 - **Flicker removed.** It annoyed more than it charmed. With nothing left to
   animate the frame clock is gone too, so frames are drawn on change and when
   the cursor blinks; idle CPU on a software rasteriser drops from ~12% to ~3%.

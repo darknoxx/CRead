@@ -72,7 +72,7 @@ pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>
     let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
 
-    draw_top_bar(screen, theme, view);
+    draw_top_bar(screen, theme, view.title, view.state, view.location);
     draw_text(screen, theme, view);
     match &view.bottom {
         Bottom::Status { message } => draw_status_bar(screen, theme, view, message),
@@ -87,21 +87,21 @@ pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>
     debug_assert!(cols > 0 && rows > 0);
 }
 
-fn draw_top_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
+fn draw_top_bar(screen: &mut Screen, theme: &Theme, title: &str, state: &str, location: &str) {
     let cols = screen.cols();
     let (fg, bg) = (theme.status_fg, theme.status_bg);
     screen.fill_row(0, Cell::blank(fg, bg));
 
     // The location is right-aligned, so reserve its space first; otherwise a
     // long path would eat into the file name.
-    let location = format!("{} ", view.location);
+    let location = format!("{location} ");
     let location_width = location.chars().count() as u32;
     let name_width = cols.saturating_sub(location_width + 1);
 
-    let left = if view.state.is_empty() {
-        format!(" {}", view.title)
+    let left = if state.is_empty() {
+        format!(" {title}")
     } else {
-        format!(" {}  {}", view.title, view.state)
+        format!(" {title}  {state}")
     };
     screen.put_str_ellipsis(0, 0, &left, name_width, fg, bg, Style::Bold);
 
@@ -283,6 +283,72 @@ fn draw_prompt(
     if (text.chars().count() as u32) < room {
         let x = cols.saturating_sub(text.chars().count() as u32 + 1);
         screen.put_str(x, bar, text, color, bg, Style::Normal);
+    }
+}
+
+// ── reader (view mode) ──────────────────────────────────────────────────────
+
+pub struct ReaderView<'a> {
+    pub title: &'a str,
+    pub state: &'a str,
+    pub location: &'a str,
+    pub rows: &'a [markdown::Rendered],
+    /// Index of the first visible row.
+    pub top: usize,
+    pub words: usize,
+}
+
+/// The document with the markup taken out: what the thing actually says.
+pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    draw_top_bar(screen, theme, view.title, view.state, view.location);
+
+    let (_, margin) = layout(cols);
+    let height = text_height(rows);
+    let first_row = 2u32;
+    let margin = margin as u32;
+    let top = view.top.min(view.rows.len().saturating_sub(1));
+
+    for (i, row) in view.rows.iter().skip(top).take(height).enumerate() {
+        let y = first_row + i as u32;
+        if y >= rows.saturating_sub(2) {
+            break;
+        }
+        let mut span_idx = 0;
+        for (offset, ch) in row.text.chars().enumerate() {
+            while span_idx + 1 < row.spans.len() && row.spans[span_idx].end <= offset {
+                span_idx += 1;
+            }
+            let kind = row
+                .spans
+                .get(span_idx)
+                .filter(|s| offset >= s.start && offset < s.end)
+                .map(|s| s.kind)
+                .unwrap_or(Kind::Normal);
+            let (fg, bg, style) = style_for(kind, theme);
+            screen.put(margin + offset as u32, y, Cell::new(ch, fg, bg, style));
+        }
+    }
+
+    // Status line: where you are, and how to get out.
+    let bar = rows.saturating_sub(1);
+    let (fg, bg) = (theme.status_fg, theme.status_bg);
+    screen.fill_row(bar, Cell::blank(fg, bg));
+    let left = format!(
+        " view  \u{00b7}  {} words  \u{00b7}  {}/{} ",
+        view.words,
+        top + 1,
+        view.rows.len().max(1)
+    );
+    screen.put_str(0, bar, &left, fg, bg, Style::Bold);
+
+    let right = "Esc back to write mode";
+    let x = cols.saturating_sub(right.chars().count() as u32 + 1);
+    if x > left.chars().count() as u32 + 1 {
+        screen.put_str(x, bar, right, theme.status_dim, bg, Style::Normal);
     }
 }
 

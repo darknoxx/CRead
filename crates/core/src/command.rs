@@ -26,6 +26,8 @@ pub enum Command {
     Redo,
     /// Open the search prompt, optionally with a query already typed.
     Find(Option<String>),
+    /// Toggle reader mode.
+    View,
     Settings,
     Help,
     About,
@@ -169,6 +171,12 @@ pub const SPECS: &[Spec] = &[
         summary: "redo",
     },
     Spec {
+        name: "view",
+        aliases: &["read"],
+        argument: "",
+        summary: "reading mode: markup stripped, nothing to edit",
+    },
+    Spec {
         name: "find",
         aliases: &["search"],
         argument: "[text]",
@@ -255,6 +263,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "windowed" => Command::Fullscreen(false),
         "undo" => Command::Undo,
         "redo" => Command::Redo,
+        "view" => Command::View,
         "find" => Command::Find(optional(rest)),
         "settings" => Command::Settings,
         "help" => Command::Help,

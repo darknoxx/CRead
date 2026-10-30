@@ -25,7 +25,7 @@ OPTIONS:
         --demo              Open the built-in welcome document
         --sync-once         Run one WebDAV sync round, print the result, exit
         --show VIEW         Start in a view: editor | welcome | action | search |
-                            palette | settings | help
+                            view | palette | settings | help
         --command TEXT      Prefill the action prompt (handy for demos)
         --screenshot-delay MS  Wait before capturing (lets background work finish)
         --screenshot PATH   Render one frame to PATH (PNG) and exit
@@ -145,7 +145,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             "--show" => {
                 let v = args.next().ok_or("--show needs a value")?;
                 if ![
-                    "editor", "welcome", "action", "search", "palette", "settings", "help",
+                    "editor", "welcome", "action", "search", "view", "palette", "settings", "help",
                 ]
                 .contains(&v.as_str())
                 {

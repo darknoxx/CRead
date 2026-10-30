@@ -1,3 +1,6 @@
 /target
 *.swp
 *.tmp
+
+# local download, not part of the project
+/Retro.Crisis.GDV-NTSC.2026.09.27/

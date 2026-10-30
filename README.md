@@ -88,6 +88,7 @@ the right tells you what the command does before you commit to it.
 | `rename <name>` | `mv`, `rn` | rename the current document |
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
 | `find [text]` | `search` | search the document (`Ctrl+F`) |
+| `view` | `read` | reading mode: markup stripped, nothing to edit |
 | `font [classic\|thin]` | `weight` | letter weight; bare `font` toggles |
 | `sync` | | push the vault to WebDAV now |
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
@@ -110,6 +111,14 @@ most a sentence.
 usual `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work with the system clipboard. Marked text
 is drawn inverted, and typing or `Backspace` replaces it. The mouse does the
 obvious thing: click places the cursor, dragging marks, the wheel scrolls.
+
+## View mode
+
+`view` renders the document the way a reader sees it: `#`, `**` and backticks
+gone, headings bold, code on an inverse field, links reduced to their text, and
+`---` as a rule across the column. It is read-only — arrows, `PageUp`/`PageDown`
+and the wheel scroll, `Esc` goes back to the text — and it opens at the line you
+were last editing.
 
 ## Search
 

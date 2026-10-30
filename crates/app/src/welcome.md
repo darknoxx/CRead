@@ -39,6 +39,11 @@ shell. Type a command, press `Enter`, and you are back in the text.
 cursor jumps to the first one; `F3` walks forward, `Shift+F3` back.
 `Enter` keeps the cursor where it landed, `Esc` puts it back.
 
+## Reading
+
+`view` strips the markup and shows the document as a reader sees it. It opens
+where your cursor was; `Esc` takes you back to the text.
+
 ## Files
 
 `open` lists the vault. Inside the list, `Ctrl+R` renames the highlighted

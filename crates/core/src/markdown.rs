@@ -32,6 +32,92 @@ pub struct Span {
     pub kind: Kind,
 }
 
+/// A line of reader-mode text: markup stripped, styling kept.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rendered {
+    pub text: String,
+    /// Styles for `text`, in char indices.
+    pub spans: Vec<Span>,
+    /// Source line this row came from, so the view can open near the cursor.
+    pub source_line: usize,
+}
+
+/// One horizontal rule, once the `---` has been turned into a line.
+const RULE: char = '\u{2500}';
+
+/// Turn the document into the lines a reader should see.
+///
+/// Markers are dropped rather than dimmed, so the text reflows — acceptable
+/// here because nothing can be edited in this view. Link URLs go too; there is
+/// nothing to click.
+pub fn render(lines: &[String], width: usize) -> Vec<Rendered> {
+    let width = width.max(1);
+    let mut out = Vec::new();
+    let mut fence = false;
+
+    for (line_no, line) in lines.iter().enumerate() {
+        let (spans, next) = parse_line(line, fence);
+        fence = next;
+
+        if is_fence_line(line) {
+            // The delimiters themselves disappear; the code inside is kept.
+            continue;
+        }
+
+        if spans.len() == 1 && spans[0].kind == Kind::Rule {
+            out.push(Rendered {
+                text: RULE.to_string().repeat(width),
+                spans: vec![Span {
+                    start: 0,
+                    end: width,
+                    kind: Kind::Rule,
+                }],
+                source_line: line_no,
+            });
+            continue;
+        }
+
+        // Strip markers and link targets, keeping everything else in order.
+        let chars: Vec<char> = line.chars().collect();
+        let mut visible = String::new();
+        let mut style: Vec<Span> = Vec::new();
+        for span in &spans {
+            if matches!(span.kind, Kind::Marker | Kind::LinkUrl) {
+                continue;
+            }
+            let start = visible.chars().count();
+            visible.extend(chars[span.start.min(chars.len())..span.end.min(chars.len())].iter());
+            let end = visible.chars().count();
+            if end > start {
+                push(&mut style, start, end, span.kind);
+            }
+        }
+
+        for (start, end) in crate::editor::wrap(&visible, width) {
+            let text: String = visible.chars().skip(start).take(end - start).collect();
+            let mut clipped = Vec::new();
+            for span in &style {
+                let from = span.start.max(start);
+                let to = span.end.min(end);
+                if to > from {
+                    clipped.push(Span {
+                        start: from - start,
+                        end: to - start,
+                        kind: span.kind,
+                    });
+                }
+            }
+            out.push(Rendered {
+                text,
+                spans: clipped,
+                source_line: line_no,
+            });
+        }
+    }
+
+    out
+}
+
 /// Parse one line. `in_fence` is the fenced-code state coming in; the boolean
 /// returned is the state for the next line.
 pub fn parse_line(line: &str, in_fence: bool) -> (Vec<Span>, bool) {
@@ -367,6 +453,71 @@ mod tests {
     fn unterminated_markers_stay_normal() {
         assert_eq!(kinds("**oops"), vec![Kind::Normal]);
         assert_eq!(kinds("[label]"), vec![Kind::Normal]);
+    }
+
+    fn render_str(input: &str, width: usize) -> Vec<Rendered> {
+        let lines: Vec<String> = input.split('\n').map(|l| l.to_string()).collect();
+        render(&lines, width)
+    }
+
+    #[test]
+    fn reader_strips_headings_and_emphasis_but_keeps_styling() {
+        let out = render_str("# Title\n\nA **strong** and *soft* word.", 78);
+        assert_eq!(out[0].text, "Title");
+        assert_eq!(out[0].spans[0].kind, Kind::Heading);
+
+        let prose = &out[2];
+        assert_eq!(prose.text, "A strong and soft word.");
+        let kinds: Vec<Kind> = prose.spans.iter().map(|s| s.kind).collect();
+        assert!(kinds.contains(&Kind::Strong));
+        assert!(kinds.contains(&Kind::Emphasis));
+        assert!(!kinds.contains(&Kind::Marker), "markers must be gone");
+    }
+
+    #[test]
+    fn reader_drops_fence_delimiters_and_link_targets() {
+        let out = render_str("```rust\nlet x = 1;\n```\n\n[text](https://x.y)", 78);
+        let texts: Vec<&str> = out.iter().map(|r| r.text.as_str()).collect();
+        assert!(!texts.contains(&"```rust"));
+        assert!(texts.contains(&"let x = 1;"));
+        assert!(
+            texts.contains(&"text"),
+            "link text stays, url goes: {texts:?}"
+        );
+        assert!(out[1].spans.iter().all(|s| s.kind == Kind::Code));
+    }
+
+    #[test]
+    fn reader_turns_a_rule_into_a_line() {
+        let out = render_str("---", 20);
+        assert_eq!(out[0].text.chars().count(), 20);
+        assert!(out[0].text.chars().all(|c| c == RULE));
+    }
+
+    #[test]
+    fn reader_wraps_and_clips_spans_to_each_row() {
+        let out = render_str(&"word ".repeat(20), 20);
+        assert!(out.len() > 1);
+        for row in &out {
+            assert!(row.text.chars().count() <= 20);
+            for span in &row.spans {
+                assert!(span.end <= row.text.chars().count());
+                assert!(span.start < span.end);
+            }
+        }
+    }
+
+    #[test]
+    fn reader_keeps_list_markers() {
+        let out = render_str("- one\n- two", 78);
+        assert_eq!(out[0].text, "- one");
+    }
+
+    #[test]
+    fn reader_keeps_blank_lines_so_paragraphs_breathe() {
+        let out = render_str("a\n\nb", 78);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[1].text, "");
     }
 
     #[test]
