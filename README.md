@@ -211,7 +211,7 @@ crates/core      buffer, cursor, soft wrap, undo, markdown spans, file IO
 crates/render    emulated framebuffer, bitmap font, wgpu CRT pass
 crates/sync      WebDAV client, conflict policy, background worker
 crates/app       window, input, frame loop, UI composition
-assets/          IBM VGA 8x16 glyph data, the boot logo
+assets/          bitmap faces, boot logo
 assets/splash…   pixel art, blitted into the emulated framebuffer
 ```
 
