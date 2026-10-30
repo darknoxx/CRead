@@ -26,7 +26,7 @@ impl Default for Prefs {
         Self {
             theme: Theme::BLACK.name.to_string(),
             typewriter: false,
-            scanlines: crt.0,
+            scanlines: false,
             bloom: crt.1,
             font: "classic".to_string(),
         }
@@ -34,8 +34,11 @@ impl Default for Prefs {
 }
 
 /// The renderer's defaults, so preferences and code agree on what "on" means.
+/// Horizontal scanlines are off out of the box: at two device pixels per line
+/// they can only be a hard comb through the glyphs, which reads as a filter.
+/// `scanlines on` opts into them.
 fn cread_crt_defaults() -> (bool, bool) {
-    (true, true)
+    (false, true)
 }
 
 impl Prefs {
@@ -92,7 +95,7 @@ mod tests {
     fn defaults_are_the_black_theme_with_both_effects_on() {
         let p = Prefs::default();
         assert_eq!(p.theme(), Theme::BLACK);
-        assert!(p.scanlines);
+        assert!(!p.scanlines, "scanlines are opt-in");
         assert!(p.bloom);
         assert!(!p.typewriter);
     }

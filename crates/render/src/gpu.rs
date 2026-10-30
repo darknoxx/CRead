@@ -481,13 +481,19 @@ impl Renderer {
         self.queue
             .write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
 
+        // A CRT beam sweeps horizontally, so the glow spreads further sideways
+        // than up and down. Anisotropy is what makes it read as light from a
+        // tube instead of a plain blur.
         let texel = [
             1.0 / self.bloom_size.0.max(1) as f32,
             1.0 / self.bloom_size.1.max(1) as f32,
         ];
-        for (i, dir) in [[1.0, 0.0], [0.0, 1.0]].into_iter().enumerate() {
+        for (i, (dir, spread)) in [([1.0, 0.0], 2.2), ([0.0, 1.0], 0.8)]
+            .into_iter()
+            .enumerate()
+        {
             let bloom = BloomUniforms {
-                texel,
+                texel: [texel[0] * spread, texel[1] * spread],
                 dir,
                 _pad: [0.0; 4],
             };
