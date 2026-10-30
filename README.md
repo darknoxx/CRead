@@ -192,17 +192,17 @@ and prints the result, which is handy for cron or for debugging.
 
 Linux is the target (Wayland and X11 both work). macOS should build with
 `cargo install --path crates/app` and can be started from a shell alias; no app
-bundle needed. GPU-wise, anything Vulkan, Metal or OpenGL works — wgpu picks the adapter and
-prefers the integrated GPU on hybrid laptops to save battery. The startup line
-tells you what you got:
+bundle needed. GPU-wise, anything Vulkan, Metal or OpenGL works — wgpu picks the
+adapter and prefers the integrated GPU on hybrid laptops to save battery. The
+startup line tells you what you got:
 
 ```
-cread: AMD Radeon 780M (Vulkan, IntegratedGpu) · surface Bgra8Unorm · 60 fps
-cread: llvmpipe (LLVM 21.1.8, 256 bits) (Vulkan, Cpu) · surface Bgra8Unorm · 30 fps
+cread: vault /home/you/Dokumente/CRead
+cread: AMD Radeon 780M (Vulkan, IntegratedGpu) · surface Bgra8Unorm
 ```
 
-The second one is a software rasteriser: no GPU involved, which is how the app
-is developed and why that build asks for fewer frames.
+`llvmpipe (Vulkan, Cpu)` instead means there is no GPU driver and Mesa is
+rasterising on the CPU: it still works, it is just how the app is developed.
 
 ## Layout
 
