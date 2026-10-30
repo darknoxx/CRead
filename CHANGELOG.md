@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
 
+- **Inspiro is in main.** The editor has a name, a front door and a loading bar:
+  `A: INSPIRO` on the boot screen, then *where your ideas have room to grow*,
+  then `new`/`open`.
 - The Inspiro logo no longer floats over the help screen, the palette, or the
   boot screen you return to with `welcome`: only the screen that composed it
   blits it.
