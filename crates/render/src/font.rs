@@ -203,9 +203,11 @@ impl Font {
             // Double-strike to the right: the classic way to fake bold in
             // single-bit fonts, and what DOS-era editors actually did.
             Style::Bold => bits | (bits >> 1),
-            // Shear: shift further right as we move down the cell.
+            // Shear: shift further right as we move down the cell. Two steps of
+            // one pixel keep the slant without the staircase gaps that three or
+            // four steps cut into an 8px glyph.
             Style::Italic => {
-                let shift = (row / 4) as u32;
+                let shift = (row / 6) as u32;
                 ((bits as u32) >> shift) as u8
             }
         }
