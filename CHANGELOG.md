@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- The Inspiro logo no longer floats over the help screen, the palette, or the
+  boot screen you return to with `welcome`: only the screen that composed it
+  blits it.
+- The loading bar runs a little longer and is full before the wait ends, so it
+  no longer stops short of the right edge.
+
 ## 0.6.0
 
 - **CRead OS.** The start screen is a boot screen now: a drive list with

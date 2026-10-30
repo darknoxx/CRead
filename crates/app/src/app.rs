@@ -33,7 +33,7 @@ const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
 const CURSOR_BLINK_HZ: f32 = 1.6;
 /// How long the fake loading bar runs. Long enough to read, short enough not to
 /// annoy; any key skips it.
-const LOADING_SECONDS: f32 = 0.8;
+const LOADING_SECONDS: f32 = 1.4;
 /// Scanline drift, in emulated rows per second: a full 480-line screen every
 /// twelve seconds. Fast enough to see, slow enough not to pull the eye.
 const ROLL_SPEED: f32 = 40.0;
@@ -684,11 +684,18 @@ impl App {
     /// Build the cell grid for the current state.
     fn compose(&mut self) {
         let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
+        // Only the screen composed below may blit a logo. Clearing both here is
+        // what keeps the Inspiro artwork from floating over the help, the
+        // palette or the boot screen.
+        self.splash_at = None;
+        self.inspiro_at = None;
         if self.mode == Mode::Loading {
-            self.splash_at = None;
-            self.inspiro_at = None;
             let elapsed = self.loading_started.elapsed().as_secs_f32();
-            let progress = (elapsed / LOADING_SECONDS).powf(0.75).min(1.0);
+            // The meter is full before the wait ends, so the last thing you see
+            // is a complete bar rather than a stalled one.
+            let progress = (elapsed / (LOADING_SECONDS * 0.78))
+                .powf(0.8)
+                .clamp(0.0, 1.0);
             let label = match &self.pending {
                 Some(Pending::Inspiro) => "Loading INSPIRO...",
                 Some(Pending::Document(_)) => "Loading document...",
@@ -806,8 +813,10 @@ impl App {
                 .as_ref()
                 .is_some_and(|s| s.width() / divisor <= max_w && s.height() / divisor <= max_h);
 
+            // An overlay (palette, settings) covers the front door's logo the
+            // same way it covers the boot screen's.
+            let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
             if self.home == Home::Inspiro {
-                self.splash_at = None;
                 let img_rows = match (
                     &self.inspiro_logo,
                     fit_logo(&self.inspiro_logo, max_w, max_h),
@@ -816,11 +825,13 @@ impl App {
                         let block = rows_img + 1 + 3;
                         let top = rows.saturating_sub(block) / 2;
                         let width = (self.inspiro_logo.as_ref().unwrap().width() / divisor) as i32;
-                        self.inspiro_at = Some((
-                            (cols * cread_core::FONT_W) as i32 / 2 - width / 2,
-                            (top * cread_core::FONT_H) as i32,
-                            divisor,
-                        ));
+                        self.inspiro_at = (!overlay_open).then(|| {
+                            (
+                                (cols * cread_core::FONT_W) as i32 / 2 - width / 2,
+                                (top * cread_core::FONT_H) as i32,
+                                divisor,
+                            )
+                        });
                         rows_img
                     }
                     _ => {
@@ -862,7 +873,6 @@ impl App {
             let top = rows.saturating_sub(block) / 2;
             let title_row = top + img_rows + gap;
 
-            let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
             self.splash_at = (img_rows > 0 && !overlay_open).then(|| {
                 let width = self
                     .splash
@@ -2969,4 +2979,44 @@ fn fit_logo(logo: &Option<Splash>, max_w: u32, max_h: u32) -> Option<(u32, u32)>
 
 fn report_word(report: &SyncReport) -> String {
     report.summary()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app() -> App {
+        App::new(Options::default())
+    }
+
+    #[test]
+    fn the_inspiro_logo_belongs_to_its_own_screen_only() {
+        let mut app = app();
+        app.home = Home::Inspiro;
+        app.mode = Mode::Action;
+        app.compose();
+        assert!(app.inspiro_at.is_some(), "front door shows its logo");
+        assert!(app.splash_at.is_none(), "and not the boot logo");
+
+        // Help, the palette and the boot screen all draw over the same grid, so
+        // a stale blit position floats on top of them.
+        app.mode = Mode::Help;
+        app.compose();
+        assert!(app.inspiro_at.is_none());
+        assert!(app.splash_at.is_none());
+
+        app.home = Home::Boot;
+        app.mode = Mode::Action;
+        app.compose();
+        assert!(app.inspiro_at.is_none());
+        assert!(
+            app.splash_at.is_some(),
+            "the boot screen shows the boot logo"
+        );
+
+        // An overlay hides the boot logo while it is open.
+        app.mode = Mode::Palette;
+        app.compose();
+        assert!(app.splash_at.is_none());
+    }
 }
