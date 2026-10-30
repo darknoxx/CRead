@@ -17,6 +17,8 @@ pub enum Command {
     /// `Some(true/false)` sets, `None` toggles.
     Scanlines(Option<bool>),
     Bloom(Option<bool>),
+    /// Let the scanline pattern drift downwards.
+    Roll(Option<bool>),
     Typewriter(Option<bool>),
     /// `Some(name)` picks a face, `None` cycles to the next one.
     Font(Option<String>),
@@ -135,6 +137,12 @@ pub const SPECS: &[Spec] = &[
         summary: "toggle or set the phosphor glow",
     },
     Spec {
+        name: "roll",
+        aliases: &["drift"],
+        argument: "[on|off]",
+        summary: "let the scanline pattern drift downwards",
+    },
+    Spec {
         name: "typewriter",
         aliases: &["tw"],
         argument: "[on|off]",
@@ -143,8 +151,8 @@ pub const SPECS: &[Spec] = &[
     Spec {
         name: "font",
         aliases: &["weight"],
-        argument: "[classic|thin|cga]",
-        summary: "face: classic VGA, thin ISO, cga 8x8 (bare: next)",
+        argument: "[classic|thin]",
+        summary: "face: classic VGA or thin ISO (bare: toggle)",
     },
     Spec {
         name: "fullscreen",
@@ -257,6 +265,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "theme" => Command::Theme(optional(rest)),
         "scanlines" => Command::Scanlines(switch(rest)?),
         "bloom" => Command::Bloom(switch(rest)?),
+        "roll" => Command::Roll(switch(rest)?),
         "typewriter" => Command::Typewriter(switch(rest)?),
         "font" => Command::Font(optional(rest)),
         "fullscreen" => Command::Fullscreen(true),

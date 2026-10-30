@@ -18,11 +18,6 @@ const VGA_GLYPHS: &[u8; 256 * GLYPH_H] = include_bytes!("../../../assets/fonts/i
 /// strokes — 22.7 inked pixels per glyph instead of 33.
 const ISO_GLYPHS: &[u8; 256 * GLYPH_H] = include_bytes!("../../../assets/fonts/ibm_dos_iso8.bin");
 
-/// The original 8x8 BIOS face: half the cell, so twice as many device pixels
-/// per scanline at the same apparent text size. That is what makes a beam
-/// profile possible on a modern display.
-const CGA_GLYPHS: &[u8; 256 * 8] = include_bytes!("../../../assets/fonts/ibm_vga_8x8.bin");
-
 /// Which bitmap face to draw with.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Face {
@@ -31,9 +26,6 @@ pub enum Face {
     Classic,
     /// IBM DOS ISO8: the same size, lighter strokes.
     Thin,
-    /// IBM BIOS 8x8: half the cell height, so the raster holds twice as many
-    /// rows — or, at the same apparent size, twice the scanline resolution.
-    Cga,
 }
 
 impl Face {
@@ -41,15 +33,6 @@ impl Face {
         match self {
             Face::Classic => "classic",
             Face::Thin => "thin",
-            Face::Cga => "cga",
-        }
-    }
-
-    /// Cell size in emulated pixels.
-    pub fn cell(self) -> (u32, u32) {
-        match self {
-            Face::Cga => (8, 8),
-            Face::Classic | Face::Thin => (8, 16),
         }
     }
 
@@ -57,7 +40,6 @@ impl Face {
         match name.trim().to_ascii_lowercase().as_str() {
             "classic" | "vga" | "normal" => Some(Face::Classic),
             "thin" | "iso" | "light" => Some(Face::Thin),
-            "cga" | "bios" | "8x8" => Some(Face::Cga),
             _ => None,
         }
     }
@@ -66,12 +48,7 @@ impl Face {
         match self {
             Face::Classic => VGA_GLYPHS,
             Face::Thin => ISO_GLYPHS,
-            Face::Cga => CGA_GLYPHS,
         }
-    }
-
-    fn rows(self) -> usize {
-        self.cell().1 as usize
     }
 }
 
@@ -161,47 +138,6 @@ const EXTRA_GLYPHS: &[(char, [&str; 16])] = &[
     ]),
 ];
 
-/// The same extras drawn for the 8x8 face.
-#[rustfmt::skip]
-const EXTRA_GLYPHS_8: &[(char, [&str; 8])] = &[
-    ('€', [
-        "........", "...##...", "..#.....", ".####...",
-        "..#.....", ".####...", "...#....", "........",
-    ]),
-    ('„', [
-        "........", "........", "........", "........",
-        "..##.##.", "..##.##.", ".#...#..", "........",
-    ]),
-    ('“', [
-        "..##..##", ".##...##", "........", "........",
-        "........", "........", "........", "........",
-    ]),
-    ('”', [
-        ".##..##.", "..##..##", "........", "........",
-        "........", "........", "........", "........",
-    ]),
-    ('‘', [
-        "...#....", "..#.....", "........", "........",
-        "........", "........", "........", "........",
-    ]),
-    ('’', [
-        "...#....", "....#...", "........", "........",
-        "........", "........", "........", "........",
-    ]),
-    ('–', [
-        "........", "........", "..###...", "........",
-        "........", "........", "........", "........",
-    ]),
-    ('—', [
-        "........", "........", ".#####..", "........",
-        "........", "........", "........", "........",
-    ]),
-    ('…', [
-        "........", "........", "........", "........",
-        "........", "........", ".#..#..#", "........",
-    ]),
-];
-
 const EXTRA_BASE: u16 = 256;
 
 /// Bitmap face with Unicode lookup and style synthesis.
@@ -232,25 +168,15 @@ impl Font {
             slots.entry(ch).or_insert(cp as u16);
         }
 
-        // The hand-drawn extras exist at both cell heights; they are separate
-        // tables because their arrays differ in length.
-        if face.rows() == 8 {
-            for (idx, (ch, rows)) in EXTRA_GLYPHS_8.iter().enumerate() {
-                glyphs.extend_from_slice(&parse_glyph(rows));
-                slots.insert(*ch, EXTRA_BASE + idx as u16);
-            }
-        } else {
-            for (idx, (ch, rows)) in EXTRA_GLYPHS.iter().enumerate() {
-                glyphs.extend_from_slice(&parse_glyph(rows));
-                slots.insert(*ch, EXTRA_BASE + idx as u16);
-            }
+        for (idx, (ch, rows)) in EXTRA_GLYPHS.iter().enumerate() {
+            glyphs.extend_from_slice(&parse_glyph(rows));
+            slots.insert(*ch, EXTRA_BASE + idx as u16);
         }
 
-        let (cell_w, cell_h) = face.cell();
         Self {
             face,
-            cell_w,
-            cell_h,
+            cell_w: GLYPH_W as u32,
+            cell_h: GLYPH_H as u32,
             glyphs,
             slots,
             fallback: b'?' as u16,

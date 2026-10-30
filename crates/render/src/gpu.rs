@@ -20,6 +20,9 @@ pub struct CrtSettings {
     pub bloom: f32,
     /// Overall brightness.
     pub brightness: f32,
+    /// How fast the scanline pattern drifts downwards, in emulated rows per
+    /// second. Zero keeps it still.
+    pub roll: f32,
 }
 
 impl Default for CrtSettings {
@@ -28,6 +31,7 @@ impl Default for CrtSettings {
             scanline: 0.45,
             bloom: 0.45,
             brightness: 1.0,
+            roll: 0.0,
         }
     }
 }
@@ -41,12 +45,14 @@ struct CrtUniforms {
     scanline: f32,
     bloom: f32,
     brightness: f32,
-    /// Keep the buffer at 32 bytes; see the matching WGSL struct.
-    _pad: [f32; 2],
+    time: f32,
+    roll: f32,
+    /// Keep the buffer at 48 bytes; see the matching WGSL struct.
+    _pad: [f32; 4],
 }
 
 const _: () = assert!(
-    std::mem::size_of::<CrtUniforms>() == 32,
+    std::mem::size_of::<CrtUniforms>() == 48,
     "CrtUniforms must stay in sync with the WGSL struct"
 );
 
@@ -469,14 +475,16 @@ impl Renderer {
         );
     }
 
-    fn write_uniforms(&mut self, scale: u32, settings: &CrtSettings) {
+    fn write_uniforms(&mut self, scale: u32, time: f32, settings: &CrtSettings) {
         let uniforms = CrtUniforms {
             vres: [self.tex_size.0 as f32, self.tex_size.1 as f32],
             scale: scale as f32,
             scanline: settings.scanline,
             bloom: settings.bloom,
             brightness: settings.brightness,
-            _pad: [0.0; 2],
+            time,
+            roll: settings.roll,
+            _pad: [0.0; 4],
         };
         self.queue
             .write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
@@ -570,8 +578,13 @@ impl Renderer {
     }
 
     /// Draw and present one frame.
-    pub fn render(&mut self, vp: &Viewport, settings: &CrtSettings) -> Result<FrameStatus, String> {
-        self.write_uniforms(vp.scale, settings);
+    pub fn render(
+        &mut self,
+        vp: &Viewport,
+        time: f32,
+        settings: &CrtSettings,
+    ) -> Result<FrameStatus, String> {
+        self.write_uniforms(vp.scale, time, settings);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
@@ -605,11 +618,12 @@ impl Renderer {
     pub fn render_offscreen(
         &mut self,
         vp: &Viewport,
+        time: f32,
         settings: &CrtSettings,
         width: u32,
         height: u32,
     ) -> Result<(Vec<u8>, u32, u32), String> {
-        self.write_uniforms(vp.scale, settings);
+        self.write_uniforms(vp.scale, time, settings);
 
         let format = self.config.format;
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use cread_core::{
     Editor, Position, Prefs, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
+    resolution::target_line_px_for_scale_factor,
     storage,
 };
 use cread_render::{
@@ -29,6 +30,11 @@ const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
 
 /// Cursor blink, in toggles per second.
 const CURSOR_BLINK_HZ: f32 = 1.6;
+/// Scanline drift, in emulated rows per second: a full 480-line screen every
+/// twelve seconds. Fast enough to see, slow enough not to pull the eye.
+const ROLL_SPEED: f32 = 40.0;
+/// While the raster drifts we need a frame clock again; this is the budget.
+const ANIMATION_FPS: u32 = 30;
 /// How long a status message stays on the line before the mode hint returns.
 const STATUS_TTL: Duration = Duration::from_secs(4);
 
@@ -321,6 +327,7 @@ impl App {
                 } else {
                     0.0
                 },
+                roll: if prefs.roll { ROLL_SPEED } else { 0.0 },
                 ..CrtSettings::default()
             }
         };
@@ -447,18 +454,9 @@ impl App {
         let (w, h) = self.target_phys_size(window);
         let mode = match self.opts.scale {
             Some(scale) => ScaleMode::Fixed(scale),
-            None => {
-                // An 8x8 glyph fills more of its cell than an 8x16 one, so the
-                // same cell height looks bigger. Target the ink height instead,
-                // which keeps the apparent text size when switching faces.
-                let base = match self.font.face() {
-                    Face::Cga => 24.0,
-                    _ => 32.0,
-                };
-                ScaleMode::Auto {
-                    target_line_px: (base * window.scale_factor().max(1.0)).round() as u32,
-                }
-            }
+            None => ScaleMode::Auto {
+                target_line_px: target_line_px_for_scale_factor(window.scale_factor()),
+            },
         };
         let vp = Viewport::compute_for(w, h, mode, self.font.cell_w(), self.font.cell_h());
         if vp != self.vp {
@@ -549,7 +547,7 @@ impl App {
             let ready = self.start.elapsed() >= Duration::from_millis(self.opts.screenshot_delay);
             if !self.screenshot_done && ready {
                 let (w, h) = (vp.phys_w, vp.phys_h);
-                match renderer.render_offscreen(&vp, &crt, w, h) {
+                match renderer.render_offscreen(&vp, time, &crt, w, h) {
                     Ok((data, w, h)) => {
                         if let Err(e) = raster::write_png(&path, w, h, &data) {
                             eprintln!("cread: cannot write {}: {e}", path.display());
@@ -577,7 +575,7 @@ impl App {
         if let Some(window) = self.window.as_ref() {
             window.pre_present_notify();
         }
-        match renderer.render(&vp, &crt) {
+        match renderer.render(&vp, time, &crt) {
             Ok(FrameStatus::Presented) => {}
             Ok(FrameStatus::Reconfigure) => renderer.resize(vp.phys_w, vp.phys_h),
             Ok(FrameStatus::Skipped) => {}
@@ -591,10 +589,15 @@ impl App {
 
         // Nothing animates any more except the cursor, so we do not run a
         // frame clock at all: sleep until the blink is due and redraw then.
-        let phase = (time * CURSOR_BLINK_HZ) as u32;
-        let next_toggle = (phase as f32 + 1.0) / CURSOR_BLINK_HZ;
-        let wait = (next_toggle - time).clamp(0.005, 1.0);
-        self.next_frame = frame_start + Duration::from_secs_f32(wait);
+        if crt.roll > 0.0 && crt.scanline > 0.0 {
+            // The raster moves, so this is the one case that needs a clock.
+            self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
+        } else {
+            let phase = (time * CURSOR_BLINK_HZ) as u32;
+            let next_toggle = (phase as f32 + 1.0) / CURSOR_BLINK_HZ;
+            let wait = (next_toggle - time).clamp(0.005, 1.0);
+            self.next_frame = frame_start + Duration::from_secs_f32(wait);
+        }
     }
 
     /// Build the cell grid for the current state.
@@ -1527,6 +1530,17 @@ impl App {
                 self.dirty = true;
                 Ok(format!("bloom: {}", on_off(on)))
             }
+            Command::Roll(want) => {
+                let on = want.unwrap_or(self.crt.roll <= 0.0);
+                self.crt.roll = if on { ROLL_SPEED } else { 0.0 };
+                if on && self.crt.scanline <= 0.0 {
+                    // Drifting with no lines to drift is a no-op; turn them on.
+                    self.crt.scanline = CrtSettings::default().scanline;
+                }
+                self.save_prefs();
+                self.dirty = true;
+                Ok(format!("scanline roll: {}", on_off(on)))
+            }
             Command::Typewriter(want) => {
                 self.typewriter = want.unwrap_or(!self.typewriter);
                 self.save_prefs();
@@ -1536,11 +1550,10 @@ impl App {
             Command::Font(want) => {
                 let next = match want.as_deref() {
                     Some(name) => Face::by_name(name)
-                        .ok_or_else(|| format!("unknown font: {name} (classic, thin, cga)"))?,
+                        .ok_or_else(|| format!("unknown font: {name} (classic, thin)"))?,
                     None => match self.font.face() {
                         Face::Classic => Face::Thin,
-                        Face::Thin => Face::Cga,
-                        Face::Cga => Face::Classic,
+                        Face::Thin => Face::Classic,
                     },
                 };
                 self.font = Font::with_face(next);
@@ -1671,6 +1684,7 @@ impl App {
         self.prefs.typewriter = self.typewriter;
         self.prefs.scanlines = self.crt.scanline > 0.0;
         self.prefs.bloom = self.crt.bloom > 0.0;
+        self.prefs.roll = self.crt.roll > 0.0;
         if let Err(e) = self.prefs.save() {
             eprintln!("cread: cannot save preferences: {e}");
         }

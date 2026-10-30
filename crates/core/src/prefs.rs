@@ -16,6 +16,8 @@ pub struct Prefs {
     pub typewriter: bool,
     pub scanlines: bool,
     pub bloom: bool,
+    /// Let the scanline pattern drift downwards.
+    pub roll: bool,
     /// "classic" (VGA) or "thin" (ISO), see `cread_render::Face`.
     pub font: String,
 }
@@ -28,6 +30,7 @@ impl Default for Prefs {
             typewriter: false,
             scanlines: false,
             bloom: crt.1,
+            roll: false,
             font: "classic".to_string(),
         }
     }
@@ -109,6 +112,7 @@ mod tests {
             typewriter: true,
             scanlines: false,
             bloom: true,
+            roll: true,
             font: "thin".into(),
         };
         saved.save_to(&path).unwrap();

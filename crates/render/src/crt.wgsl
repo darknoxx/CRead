@@ -11,8 +11,13 @@ struct Crt {
     scanline: f32,
     bloom: f32,
     brightness: f32,
+    // Seconds since start, and the drift speed in emulated rows per second.
+    time: f32,
+    roll: f32,
     _pad0: f32,
     _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -62,15 +67,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // gaussian spot wider than the line pitch, so the gap is never black.
     // Three device pixels per emulated row is the minimum that can show a
     // gradient; at two it collapses to one darker row, which is all we can do.
+    // A slow downward drift makes the raster feel alive; a still pattern reads
+    // as a printed overlay. `roll` is in emulated rows per second.
+    let drift = crt.time * crt.roll;
     var beam: f32;
     if (crt.scale >= 2.5) {
         // A cosine across the row: full brightness at the scanline centre,
         // falling off smoothly towards the gap. The dip depth is controlled by
         // `scanline`, so the look does not change with the scale factor.
-        let d = fract(in.uv.y * vres.y) - 0.5;
+        let d = fract(in.uv.y * vres.y + drift) - 0.5;
         beam = 1.0 - crt.scanline * (1.0 - cos(d * 3.14159265));
     } else {
-        let odd = fract(vp.y * 0.5) * 2.0;
+        let odd = fract(floor(in.uv.y * vres.y + drift) * 0.5) * 2.0;
         beam = 1.0 - 0.5 * odd * crt.scanline;
     }
     color *= beam;
