@@ -990,6 +990,7 @@ mod tests {
                 input: "be",
                 items: &items,
                 selected: 1,
+                note: "no disks - put .dsk files in ~/Dokumente/CRead/Disks",
                 hint: "Enter open",
             },
         );
@@ -1029,6 +1030,7 @@ mod tests {
                 title_row: 4,
                 items: &items,
                 selected: 1,
+                note: "no disks - put .dsk files in ~/Dokumente/CRead/Disks",
                 input: "ne",
                 hint: "arrows select",
                 error: "",
