@@ -1,16 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - **CRead OS.** The start screen is a boot screen now: a drive list with
-  `A: EDITOR`, `B: DOCUMENTS` and every diskette in `<vault>/Disks`. Arrows
+  `A: INSPIRO`, `B: DOCUMENTS` and every diskette in `<vault>/Disks`. Arrows
   select, Enter runs, and the old greeting is still there.
 - **Diskettes** are single plain-text files: a `key=value` header, then files
   introduced by `---FILE <name>`. A data disk opens in a file browser and its
   documents read in the viewer, read-only. A disk that will not parse still
   appears, in red, with the reason.
-- `run [name]` and `dir` for the command line; the drive icon on the boot
-  screen.
+- `run [name]` and `dir` for the command line.
 - **Inspiro.** The editor has a name and its own front door: `A: INSPIRO` on the
   boot screen runs a short fake loading bar, then shows the Inspiro logo,
   *where your ideas have room to grow* and the usual `new`/`open` prompt. Opening
