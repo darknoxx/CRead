@@ -6,7 +6,7 @@
 
 use cread_core::{Cell, Rgb, Screen, Theme};
 
-use crate::font::{Font, GLYPH_H, GLYPH_W};
+use crate::font::Font;
 
 /// RGBA8 image of the emulated machine's video output.
 pub struct Framebuffer {
@@ -84,8 +84,8 @@ impl Framebuffer {
                 };
                 self.draw_cell(
                     cell,
-                    x as i32 * GLYPH_W as i32,
-                    y as i32 * GLYPH_H as i32,
+                    x as i32 * font.cell_w() as i32,
+                    y as i32 * font.cell_h() as i32,
                     theme,
                     font,
                 );
@@ -94,19 +94,20 @@ impl Framebuffer {
     }
 
     fn draw_cell(&mut self, cell: &Cell, x: i32, y: i32, theme: &Theme, font: &Font) {
-        self.fill_rect(x, y, GLYPH_W as u32, GLYPH_H as u32, theme.color(cell.bg));
+        let (cell_w, cell_h) = (font.cell_w(), font.cell_h());
+        self.fill_rect(x, y, cell_w, cell_h, theme.color(cell.bg));
 
         let slot = font.slot(cell.ch);
         if slot == font.slot(' ') {
             return;
         }
         let fg = theme.color(cell.fg);
-        for row in 0..GLYPH_H {
+        for row in 0..cell_h as usize {
             let bits = font.scanline(slot, cell.style, row);
             if bits == 0 {
                 continue;
             }
-            for col in 0..GLYPH_W {
+            for col in 0..cell_w as usize {
                 // Bit 7 is the leftmost pixel, matching the ROM layout.
                 if bits & (0x80 >> col) != 0 {
                     self.put(x + col as i32, y + row as i32, fg);

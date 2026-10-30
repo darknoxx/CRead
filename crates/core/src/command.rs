@@ -143,8 +143,8 @@ pub const SPECS: &[Spec] = &[
     Spec {
         name: "font",
         aliases: &["weight"],
-        argument: "[classic|thin]",
-        summary: "letter weight (no argument: toggle)",
+        argument: "[classic|thin|cga]",
+        summary: "face: classic VGA, thin ISO, cga 8x8 (bare: next)",
     },
     Spec {
         name: "fullscreen",

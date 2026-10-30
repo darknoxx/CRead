@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 use cread_core::{
     Editor, Position, Prefs, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
-    resolution::target_line_px_for_scale_factor,
     storage,
 };
 use cread_render::{
@@ -448,11 +447,20 @@ impl App {
         let (w, h) = self.target_phys_size(window);
         let mode = match self.opts.scale {
             Some(scale) => ScaleMode::Fixed(scale),
-            None => ScaleMode::Auto {
-                target_line_px: target_line_px_for_scale_factor(window.scale_factor()),
-            },
+            None => {
+                // An 8x8 glyph fills more of its cell than an 8x16 one, so the
+                // same cell height looks bigger. Target the ink height instead,
+                // which keeps the apparent text size when switching faces.
+                let base = match self.font.face() {
+                    Face::Cga => 24.0,
+                    _ => 32.0,
+                };
+                ScaleMode::Auto {
+                    target_line_px: (base * window.scale_factor().max(1.0)).round() as u32,
+                }
+            }
         };
-        let vp = Viewport::compute(w, h, mode);
+        let vp = Viewport::compute_for(w, h, mode, self.font.cell_w(), self.font.cell_h());
         if vp != self.vp {
             self.vp = vp;
             if let (Some(vp), Some(renderer)) = (vp, self.renderer.as_mut()) {
@@ -1528,15 +1536,18 @@ impl App {
             Command::Font(want) => {
                 let next = match want.as_deref() {
                     Some(name) => Face::by_name(name)
-                        .ok_or_else(|| format!("unknown font: {name} (classic, thin)"))?,
+                        .ok_or_else(|| format!("unknown font: {name} (classic, thin, cga)"))?,
                     None => match self.font.face() {
                         Face::Classic => Face::Thin,
-                        Face::Thin => Face::Classic,
+                        Face::Thin => Face::Cga,
+                        Face::Cga => Face::Classic,
                     },
                 };
                 self.font = Font::with_face(next);
                 self.prefs.font = next.name().to_string();
                 self.save_prefs();
+                // The cell height feeds the scale heuristic and the grid size.
+                self.recompute_viewport();
                 self.dirty = true;
                 Ok(format!("font: {}", next.name()))
             }
@@ -1681,14 +1692,14 @@ impl App {
         let height = ui::text_height(self.screen.rows());
 
         // Two rows of chrome above the text.
-        let row = (vy / cread_core::FONT_H as f64) as usize;
+        let row = (vy / self.font.cell_h() as f64) as usize;
         let row = row.checked_sub(2)?;
         if row >= height {
             return None;
         }
         // Clicking in the margin clamps to the start or end of the row instead
         // of doing nothing.
-        let col = (vx / cread_core::FONT_W as f64) as usize;
+        let col = (vx / self.font.cell_w() as f64) as usize;
         let col_in_row = col.saturating_sub(margin).min(text_width);
 
         let rows = self.doc.editor.visible_rows(text_width, height);

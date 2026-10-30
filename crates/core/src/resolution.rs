@@ -6,9 +6,9 @@
 //! therefore covers an exact `scale x scale` block of real pixels, which is what
 //! keeps scanlines crisp on any display.
 
-/// Width of one character cell in emulated pixels (IBM VGA 8x16).
+/// Width of one character cell in emulated pixels; every face is 8 wide.
 pub const FONT_W: u32 = 8;
-/// Height of one character cell in emulated pixels (IBM VGA 8x16).
+/// Height of the tallest cell, used as the default when none is given.
 pub const FONT_H: u32 = 16;
 
 /// Smallest raster we are willing to run in, in character cells.
@@ -48,6 +48,10 @@ pub struct Viewport {
     /// Physical offset of the top-left emulated pixel (letterbox border).
     pub offset_x: u32,
     pub offset_y: u32,
+    /// Character cell in emulated pixels; 8x16 for the VGA faces, 8x8 for the
+    /// BIOS one.
+    pub cell_w: u32,
+    pub cell_h: u32,
 }
 
 impl Viewport {
@@ -56,19 +60,32 @@ impl Viewport {
     /// Degenerate surfaces (zero in either axis) yield `None`; the caller should
     /// simply skip rendering in that frame.
     pub fn compute(phys_w: u32, phys_h: u32, mode: ScaleMode) -> Option<Self> {
-        if phys_w < FONT_W * MIN_COLS || phys_h < FONT_H * MIN_ROWS {
+        Self::compute_for(phys_w, phys_h, mode, FONT_W, FONT_H)
+    }
+
+    /// Resolve a viewport for a specific cell size.
+    pub fn compute_for(
+        phys_w: u32,
+        phys_h: u32,
+        mode: ScaleMode,
+        cell_w: u32,
+        cell_h: u32,
+    ) -> Option<Self> {
+        let cell_w = cell_w.max(1);
+        let cell_h = cell_h.max(1);
+        if phys_w < cell_w * MIN_COLS || phys_h < cell_h * MIN_ROWS {
             return None;
         }
 
-        let max_by_w = phys_w / (FONT_W * MIN_COLS);
-        let max_by_h = phys_h / (FONT_H * MIN_ROWS);
+        let max_by_w = phys_w / (cell_w * MIN_COLS);
+        let max_by_h = phys_h / (cell_h * MIN_ROWS);
         let max_scale = max_by_w.min(max_by_h).max(1);
 
         let wanted = match mode {
             ScaleMode::Fixed(s) => s.max(1),
             ScaleMode::Auto { target_line_px } => {
-                // Round to the nearest whole factor; `+ FONT_H / 2` keeps .5 up.
-                ((target_line_px + FONT_H / 2) / FONT_H).max(1)
+                // Round to the nearest whole factor; `+ cell_h / 2` keeps .5 up.
+                ((target_line_px + cell_h / 2) / cell_h).max(1)
             }
         };
 
@@ -85,17 +102,19 @@ impl Viewport {
             // `virt * scale` can be a few pixels short of `phys`; centre it.
             offset_x: (phys_w - virt_w * scale) / 2,
             offset_y: (phys_h - virt_h * scale) / 2,
+            cell_w,
+            cell_h,
         })
     }
 
     /// Text grid width in character cells.
     pub fn cols(&self) -> u32 {
-        self.virt_w / FONT_W
+        self.virt_w / self.cell_w
     }
 
     /// Text grid height in character cells.
     pub fn rows(&self) -> u32 {
-        self.virt_h / FONT_H
+        self.virt_h / self.cell_h
     }
 
     /// Physical size of the upscaled raster, in real pixels.

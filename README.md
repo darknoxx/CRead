@@ -89,7 +89,7 @@ the right tells you what the command does before you commit to it.
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
 | `find [text]` | `search` | search the document (`Ctrl+F`) |
 | `view` | `read` | reading mode: markup stripped, nothing to edit |
-| `font [classic\|thin]` | `weight` | letter weight; bare `font` toggles |
+| `font [classic\|thin\|cga]` | `weight` | typeface; bare `font` cycles |
 | `sync` | | push the vault to WebDAV now |
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
 | `scanlines [on\|off]` | `scan`, `sl` | scanline strength |
@@ -229,9 +229,11 @@ plain unit tests. `cargo test` runs all of them.
 
 ## Credits
 
-Two bitmap faces ship with it: the classic IBM VGA 8x16 and the thinner ISO 9241
-variant from the same pack. `font thin` swaps them at runtime and the choice is
-remembered.
+Three bitmap faces ship with it: the classic IBM VGA 8x16, the thinner ISO 9241
+variant, and the 8x8 BIOS face. `font thin` / `font cga` swap them at runtime
+and the choice is remembered. The 8x8 face halves the cell height, which is the
+only way to get three device pixels per scanline at a small text size — the
+cost is blockier glyphs and 106 instead of 160 columns.
 
 The boot logo (`assets/splash.png`) is blitted at its native size in emulated
 pixels, so it keeps hard edges through the CRT upscale. Monochrome themes tint
