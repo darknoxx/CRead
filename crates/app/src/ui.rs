@@ -1036,8 +1036,8 @@ mod tests {
             },
         );
         let text = rows_as_text(&screen);
-        assert!(text.contains("CRead OS"));
         assert!(text.contains("Welcome to CRead"));
+        assert!(text.contains("no disks"));
         assert!(text.contains("A: EDITOR"));
         assert!(text.contains("C: MAIL"));
         assert!(text.contains("> ne"));
