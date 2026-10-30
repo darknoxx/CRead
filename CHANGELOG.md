@@ -9,6 +9,10 @@
   no longer stops short of the right edge.
 - `open` on Inspiro's front door shows the document list again; the front door
   used to finish composing before the palette was drawn.
+- An empty `new` document no longer leaves its file behind. `new` still reserves
+  `untitled.md` straight away, but leaving the document blank (another `new`,
+  `open`, `welcome`, a disk, or quitting) deletes it again, so the vault does not
+  silt up. A document with a single character, in the buffer or on disk, stays.
 
 ## 0.6.0
 

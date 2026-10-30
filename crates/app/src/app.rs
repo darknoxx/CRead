@@ -241,6 +241,10 @@ struct App {
     splash_at: Option<(i32, i32, u32)>,
     /// Same, for the Inspiro front door.
     inspiro_at: Option<(i32, i32, u32)>,
+    /// The file `new` wrote to reserve a name. Dropped again when the document
+    /// is left without a single character in it, so the vault does not silt up
+    /// with empty `untitled.md` files.
+    scratch: Option<PathBuf>,
     search: Option<Search>,
     last_search: Option<String>,
     /// Reader-mode rows, computed on entering the view and on resize.
@@ -426,6 +430,7 @@ impl App {
                 .ok(),
             splash_at: None,
             inspiro_at: None,
+            scratch: None,
             search: None,
             last_search: None,
             view_rows: Vec::new(),
@@ -1197,6 +1202,7 @@ impl App {
 
     /// Start a fresh file in the vault, named `untitled.md`, `untitled-2.md`, …
     fn new_document(&mut self) -> Result<String, String> {
+        self.discard_scratch();
         let path = self.free_untitled_path();
         self.doc = Document {
             path: None,
@@ -1207,7 +1213,33 @@ impl App {
         };
         self.has_document = true;
         self.save_to(&path)?;
+        self.scratch = Some(path);
         Ok(format!("created {}", self.doc.title()))
+    }
+
+    /// Delete the file `new` reserved if the document is being left empty.
+    ///
+    /// Both the buffer and the file on disk have to be blank: a scratch file
+    /// that autosave filled is somebody's text, and an in-memory document with
+    /// unsaved characters must keep its place on disk.
+    fn discard_scratch(&mut self) -> Option<String> {
+        let path = self.scratch.take()?;
+        let same = self.doc.path.as_deref() == Some(path.as_path());
+        let unsaved = same && !self.doc.editor.text().trim().is_empty();
+        let blank_on_disk = std::fs::read_to_string(&path)
+            .map(|text| text.trim().is_empty())
+            .unwrap_or(false);
+        if unsaved || !blank_on_disk {
+            return None;
+        }
+        std::fs::remove_file(&path).ok()?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.set_status(format!("removed empty {name}"));
+        self.dirty = true;
+        Some(name)
     }
 
     fn save_as(&mut self, name: &str) -> Result<String, String> {
@@ -1251,6 +1283,7 @@ impl App {
     }
 
     fn open_document(&mut self, path: PathBuf) -> Result<(), String> {
+        self.discard_scratch();
         let text =
             storage::load(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
         self.doc = Document {
@@ -1270,6 +1303,8 @@ impl App {
         match self.doc.path.clone().filter(|p| p.is_file()) {
             Some(old) => {
                 std::fs::rename(&old, &target).map_err(|e| format!("rename failed: {e}"))?;
+                // A name of its own means it is no longer a placeholder.
+                self.scratch = None;
                 self.doc.path = Some(target.clone());
                 self.dirty = true;
                 Ok(format!("renamed to {}", self.doc.title()))
@@ -1284,6 +1319,9 @@ impl App {
             return Err("nothing to delete".into());
         };
         std::fs::remove_file(&path).map_err(|e| format!("delete failed: {e}"))?;
+        if self.scratch.as_deref() == Some(path.as_path()) {
+            self.scratch = None;
+        }
         self.doc = Document {
             path: None,
             read_only: false,
@@ -1867,6 +1905,7 @@ impl App {
                     editor: Editor::new(),
                     last_edit: Instant::now(),
                 };
+                self.discard_scratch();
                 self.has_document = false;
                 self.home = Home::Boot;
                 self.disks_dirty = true;
@@ -2379,6 +2418,7 @@ impl App {
         let title = format!("{}:{}", disk.name, file.name);
         let text = file.text.clone();
 
+        self.discard_scratch();
         self.doc = Document {
             path: None,
             read_only: true,
@@ -2961,6 +3001,7 @@ impl ApplicationHandler for App {
         if self.doc.editor.modified() {
             let _ = self.save();
         }
+        self.discard_scratch();
     }
 }
 
@@ -2999,6 +3040,58 @@ mod tests {
             out.push('\n');
         }
         out
+    }
+
+    fn vault(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cread-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn app_in(dir: &Path) -> App {
+        App::new(Options {
+            vault: Some(dir.to_path_buf()),
+            ..Options::default()
+        })
+    }
+
+    #[test]
+    fn an_empty_scratch_document_is_removed_when_it_is_left() {
+        let dir = vault("scratch-empty");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        let path = app.doc.path.clone().unwrap();
+        assert!(path.is_file(), "new reserves a name straight away");
+
+        app.discard_scratch();
+        assert!(!path.exists(), "nothing was written, so nothing stays");
+
+        // The name is free again, so the vault does not fill with untitled-n.
+        app.new_document().unwrap();
+        assert_eq!(app.doc.path.as_deref(), Some(path.as_path()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_scratch_document_that_got_text_stays() {
+        let dir = vault("scratch-used");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        let path = app.doc.path.clone().unwrap();
+
+        // Text only in the buffer: still the user's, keep the reservation.
+        app.doc.editor.insert_text("hello");
+        app.discard_scratch();
+        assert!(path.is_file());
+
+        // Text on disk, empty buffer: autosave wrote something earlier.
+        app.doc.editor = Editor::new();
+        std::fs::write(&path, "hello\n").unwrap();
+        app.discard_scratch();
+        assert!(path.is_file());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
