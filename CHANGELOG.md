@@ -7,6 +7,8 @@
   blits it.
 - The loading bar runs a little longer and is full before the wait ends, so it
   no longer stops short of the right edge.
+- `open` on Inspiro's front door shows the document list again; the front door
+  used to finish composing before the palette was drawn.
 
 ## 0.6.0
 

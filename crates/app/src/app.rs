@@ -850,50 +850,51 @@ impl App {
                     &hint,
                     &error,
                 );
-                self.screen = screen;
-                return;
-            }
-
-            let items = self.boot_rows();
-            let note = if self.disks.is_empty() {
-                format!("no disks - put .dsk files in {}", self.short_disk_dir())
             } else {
-                String::new()
-            };
+                let items = self.boot_rows();
+                let note = if self.disks.is_empty() {
+                    format!("no disks - put .dsk files in {}", self.short_disk_dir())
+                } else {
+                    String::new()
+                };
 
-            // The whole group - logo, greeting, drives - is centred vertically,
-            // like the old welcome screen was; pinning the logo to the top made
-            // it look like a different screen.
-            let img_rows = match (&self.splash, fits) {
-                (Some(splash), true) => (splash.height() / divisor).div_ceil(cread_core::FONT_H),
-                _ => 0,
-            };
-            let gap = u32::from(img_rows > 0);
-            let block = img_rows + gap + 1 + 1 + items.len() as u32 + u32::from(!note.is_empty());
-            let top = rows.saturating_sub(block) / 2;
-            let title_row = top + img_rows + gap;
+                // The whole group - logo, greeting, drives - is centred vertically,
+                // like the old welcome screen was; pinning the logo to the top made
+                // it look like a different screen.
+                let img_rows = match (&self.splash, fits) {
+                    (Some(splash), true) => {
+                        (splash.height() / divisor).div_ceil(cread_core::FONT_H)
+                    }
+                    _ => 0,
+                };
+                let gap = u32::from(img_rows > 0);
+                let block =
+                    img_rows + gap + 1 + 1 + items.len() as u32 + u32::from(!note.is_empty());
+                let top = rows.saturating_sub(block) / 2;
+                let title_row = top + img_rows + gap;
 
-            self.splash_at = (img_rows > 0 && !overlay_open).then(|| {
-                let width = self
-                    .splash
-                    .as_ref()
-                    .map(|s| (s.width() / divisor) as i32)
-                    .unwrap_or(0);
-                let x = (cols * cread_core::FONT_W) as i32 / 2 - width / 2;
-                (x, (top * cread_core::FONT_H) as i32, divisor)
-            });
+                self.splash_at = (img_rows > 0 && !overlay_open).then(|| {
+                    let width = self
+                        .splash
+                        .as_ref()
+                        .map(|s| (s.width() / divisor) as i32)
+                        .unwrap_or(0);
+                    let x = (cols * cread_core::FONT_W) as i32 / 2 - width / 2;
+                    (x, (top * cread_core::FONT_H) as i32, divisor)
+                });
 
-            let view = ui::WelcomeView {
-                show_prompt,
-                title_row,
-                items: &items,
-                selected: self.boot_selected,
-                note: &note,
-                input: &self.command,
-                hint: &hint,
-                error: &error,
-            };
-            ui::draw_welcome(&mut screen, &self.theme, &view);
+                let view = ui::WelcomeView {
+                    show_prompt,
+                    title_row,
+                    items: &items,
+                    selected: self.boot_selected,
+                    note: &note,
+                    input: &self.command,
+                    hint: &hint,
+                    error: &error,
+                };
+                ui::draw_welcome(&mut screen, &self.theme, &view);
+            }
         } else {
             // A document is open: the logo belongs to the start screen only.
             self.splash_at = None;
@@ -2987,6 +2988,35 @@ mod tests {
 
     fn app() -> App {
         App::new(Options::default())
+    }
+
+    fn rows_as_text(screen: &Screen) -> String {
+        let mut out = String::new();
+        for y in 0..screen.rows() {
+            for x in 0..screen.cols() {
+                out.push(screen.get(x, y).unwrap().ch);
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn open_on_the_front_door_shows_the_palette() {
+        let mut app = app();
+        app.home = Home::Inspiro;
+        app.mode = Mode::Action;
+        app.compose();
+        assert!(!rows_as_text(&app.screen).contains("+ new document"));
+
+        // 'open' is a command line away, and the front door composed its own
+        // screen; it used to return from compose before the palette was drawn.
+        app.command = "open".into();
+        app.open_palette();
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("+ new document"), "palette is on screen");
+        assert!(text.contains("Enter open"), "with its hint");
     }
 
     #[test]
