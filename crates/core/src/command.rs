@@ -133,7 +133,7 @@ pub const SPECS: &[Spec] = &[
     Spec {
         name: "scanlines",
         aliases: &["scan", "sl"],
-        argument: "[on|off]",
+        argument: "[on|off] [-r]",
         summary: "toggle or set the scanlines",
     },
     Spec {
