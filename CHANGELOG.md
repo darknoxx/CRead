@@ -1,26 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
-- **Boot logo** on the start screen, tinted to match the theme.
-- **Second typeface.** `font thin` switches to the ISO 9241 face from the same
-  bitmap pack: identical grid, ~31% less ink. `font classic` switches back, and
-  the choice is remembered.
-
-- **Preferences.** Theme, typewriter scrolling and the CRT switches survive a
-  restart (`~/.config/cread/prefs.json`); command-line flags still win.
-- **Incremental search.** `Ctrl+F` or the `find` command, hits highlighted as
-  you type, `F3`/`Shift+F3` to walk them.
-- **Mouse.** Click places the cursor, dragging selects, the wheel scrolls.
-- **Palette.** `Ctrl+R` renames and `Ctrl+D` deletes the highlighted file, and
-  there is a `+ sync now` entry.
+Writing, not fighting the editor.
 
 - **Selection and clipboard.** Shift plus any movement key marks text, `Ctrl+A`
   selects everything, `Ctrl+C`/`Ctrl+X`/`Ctrl+V` talk to the system clipboard,
   and typing replaces the selection.
+- **Mouse.** Click places the cursor, dragging selects, the wheel scrolls.
+- **Incremental search.** `Ctrl+F` or the `find` command opens a `/` prompt.
+  Hits are marked as you type; `F3` and `Shift+F3` walk them.
+- **Preferences.** Theme, typewriter scrolling, the CRT switches and the
+  typeface survive a restart (`~/.config/cread/prefs.json`).
+- **Palette.** `Ctrl+R` renames and `Ctrl+D` deletes the highlighted file, plus
+  a `+ sync now` entry.
+- **Boot logo** on the start screen, tinted to match the theme.
+- **Second typeface.** `font thin` switches to the ISO 9241 face from the same
+  bitmap pack: identical grid, about 31% less ink.
 - **Flicker removed.** It annoyed more than it charmed. With nothing left to
-  animate, the frame clock is gone too: frames are drawn on change and when the
-  cursor blinks, which drops idle CPU from ~12% to ~3% on a software rasteriser.
+  animate the frame clock is gone too, so frames are drawn on change and when
+  the cursor blinks; idle CPU on a software rasteriser drops from ~12% to ~3%.
+- Fixed: holding Up/Down moved the cursor in jumps, because those handlers never
+  scheduled a frame. Fixed: the logo was painted over the file palette.
 
 ## 0.2.0
 
