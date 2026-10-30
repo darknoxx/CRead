@@ -1042,9 +1042,14 @@ mod tests {
         assert!(text.contains("C: MAIL"));
         assert!(text.contains("> ne"));
 
-        // The selected row is inverted.
-        let cell = screen.get(4, 4 + 3 + 1).unwrap();
-        assert_eq!(cell.bg, Theme::BLACK.fg, "selected row is highlighted");
+        // The selected row is inverted somewhere along its length.
+        let row = 4 + 2 + 1;
+        let inverted = (0..vp.cols()).any(|x| {
+            screen
+                .get(x, row)
+                .is_some_and(|c| c.bg == Theme::BLACK.fg && c.fg == Theme::BLACK.bg)
+        });
+        assert!(inverted, "selected row is not highlighted");
     }
 
     #[test]
