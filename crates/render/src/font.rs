@@ -6,8 +6,6 @@
 
 use std::collections::HashMap;
 
-use cread_core::Style;
-
 pub const GLYPH_W: usize = 8;
 pub const GLYPH_H: usize = 16;
 
@@ -205,24 +203,10 @@ impl Font {
         self.slots.contains_key(&ch)
     }
 
-    /// Scanline `row` (0 = top) of a glyph, already synthesised into `style`.
+    /// Scanline `row` (0 = top) of a glyph.
     #[inline]
-    pub fn scanline(&self, slot: u16, style: Style, row: usize) -> u8 {
-        let base = slot as usize * self.cell_h as usize + row;
-        let bits = self.glyphs[base];
-        match style {
-            Style::Normal => bits,
-            // Double-strike to the right: the classic way to fake bold in
-            // single-bit fonts, and what DOS-era editors actually did.
-            Style::Bold => bits | (bits >> 1),
-            // Shear: shift further right as we move down the cell. Two steps of
-            // one pixel keep the slant without the staircase gaps that three or
-            // four steps cut into an 8px glyph.
-            Style::Italic => {
-                let shift = (row / 6) as u32;
-                ((bits as u32) >> shift) as u8
-            }
-        }
+    pub fn scanline(&self, slot: u16, row: usize) -> u8 {
+        self.glyphs[slot as usize * self.cell_h as usize + row]
     }
 }
 
@@ -290,7 +274,7 @@ mod tests {
         let ink = |f: &Font| -> u32 {
             (0..256)
                 .flat_map(|slot| (0..GLYPH_H).map(move |row| (slot as u16, row)))
-                .map(|(slot, row)| f.scanline(slot, Style::Normal, row).count_ones())
+                .map(|(slot, row)| f.scanline(slot, row).count_ones())
                 .sum()
         };
         assert!(
@@ -311,34 +295,8 @@ mod tests {
     #[test]
     fn a_looks_like_an_a() {
         let f = Font::new();
-        let rows: Vec<u8> = (0..GLYPH_H)
-            .map(|r| f.scanline(f.slot('A'), Style::Normal, r))
-            .collect();
+        let rows: Vec<u8> = (0..GLYPH_H).map(|r| f.scanline(f.slot('A'), r)).collect();
         assert_eq!(rows[2], 0b0001_0000, "apex");
         assert_eq!(rows[7], 0b1111_1110, "crossbar");
-    }
-
-    #[test]
-    fn bold_is_wider_than_normal_and_italic_is_sheared() {
-        let f = Font::new();
-        let slot = f.slot('H');
-        let n: Vec<u8> = (0..GLYPH_H)
-            .map(|r| f.scanline(slot, Style::Normal, r))
-            .collect();
-        let b: Vec<u8> = (0..GLYPH_H)
-            .map(|r| f.scanline(slot, Style::Bold, r))
-            .collect();
-        let i: Vec<u8> = (0..GLYPH_H)
-            .map(|r| f.scanline(slot, Style::Italic, r))
-            .collect();
-        assert!(
-            b.iter()
-                .zip(&n)
-                .all(|(bb, nn)| bb & nn == *nn && bb.count_ones() >= nn.count_ones())
-        );
-        assert_ne!(i, n);
-        // The top row of an upright 'H' stays put; lower rows move right.
-        assert_eq!(i[0], n[0]);
-        assert_ne!(i[8], n[8]);
     }
 }

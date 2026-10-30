@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- **Scanlines and their drift are on by default.** The moving raster is what
+  stops the pattern reading as a printed overlay.
+- **No more bold or italic.** A 1-bit face at 8x16 cannot fake weight or slant
+  without losing strokes, so headings, strong and emphasis are distinguished by
+  colour and the dimmed markers instead. The synthesis is gone from the font.
+- The boot logo no longer bleeds through the help screen.
+- The start screen points at `help` for the rest of the commands.
+
 ## 0.4.0
 
 The CRT pass, rebuilt.

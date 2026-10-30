@@ -55,10 +55,10 @@ Your documents are plain Markdown in `~/Documents/CRead`. Autosave
 runs 1.5 seconds after you stop typing, and writes are atomic, so a
 crash cannot leave half a page behind.
 
-Headings are bright, `code` sits on an inverse cell, **strong** text
-gets a double strike and *emphasis* is sheared a little to the right.
-The markers stay visible, only dimmed, so the text never reflows
-while you type.
+Headings and **strong** and *emphasis* are simply coloured — no bold, no
+slant. At eight pixels wide, synthesised weight and shear only ever made the
+glyphs harder to read. The markers stay visible, only dimmed, so the text
+never reflows while you type.
 
 ---
 

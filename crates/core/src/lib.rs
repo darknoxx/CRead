@@ -17,5 +17,5 @@ pub use editor::{Editor, Position, Stats, VisualRow};
 pub use markdown::{Kind, Span};
 pub use prefs::Prefs;
 pub use resolution::{FONT_H, FONT_W, ScaleMode, Viewport};
-pub use screen::{Cell, Screen, Style};
+pub use screen::{Cell, Screen};
 pub use theme::{Rgb, Theme};

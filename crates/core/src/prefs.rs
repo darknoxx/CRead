@@ -28,20 +28,19 @@ impl Default for Prefs {
         Self {
             theme: Theme::DEFAULT.name.to_string(),
             typewriter: false,
-            scanlines: false,
+            scanlines: crt.0,
             bloom: crt.1,
-            roll: false,
+            roll: true,
             font: "classic".to_string(),
         }
     }
 }
 
 /// The renderer's defaults, so preferences and code agree on what "on" means.
-/// Horizontal scanlines are off out of the box: at two device pixels per line
-/// they can only be a hard comb through the glyphs, which reads as a filter.
-/// `scanlines on` opts into them.
+/// Scanlines and their drift are on out of the box: the moving raster is what
+/// stops the pattern reading as a printed overlay.
 fn cread_crt_defaults() -> (bool, bool) {
-    (false, true)
+    (true, true)
 }
 
 impl Prefs {
@@ -95,10 +94,11 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_the_black_theme_with_both_effects_on() {
+    fn defaults_are_paper_with_scanlines_and_roll() {
         let p = Prefs::default();
         assert_eq!(p.theme(), Theme::PAPER);
-        assert!(!p.scanlines, "scanlines are opt-in");
+        assert!(p.scanlines);
+        assert!(p.roll);
         assert!(p.bloom);
         assert!(!p.typewriter);
     }
@@ -112,7 +112,7 @@ mod tests {
             typewriter: true,
             scanlines: false,
             bloom: true,
-            roll: true,
+            roll: false,
             font: "thin".into(),
         };
         saved.save_to(&path).unwrap();

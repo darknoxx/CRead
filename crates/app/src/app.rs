@@ -599,6 +599,7 @@ impl App {
     fn compose(&mut self) {
         let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
         if self.mode == Mode::Help {
+            self.splash_at = None;
             ui::draw_help(&mut screen, &self.theme, self.help_about);
             self.screen = screen;
             return;
@@ -676,7 +677,7 @@ impl App {
                 .splash
                 .as_ref()
                 .is_some_and(|s| s.width() / divisor <= max_w && s.height() / divisor <= max_h);
-            let (title_row, subtitle_row, splash_pos) = match (&self.splash, fits) {
+            let (title_row, subtitle_row, hint_row, splash_pos) = match (&self.splash, fits) {
                 (Some(splash), true) => {
                     let img_rows = (splash.height() / divisor).div_ceil(cread_core::FONT_H);
                     let block = img_rows + 1 + 3;
@@ -684,10 +685,11 @@ impl App {
                     (
                         top + img_rows + 1,
                         top + img_rows + 3,
+                        top + img_rows + 5,
                         Some((top * cread_core::FONT_H, divisor)),
                     )
                 }
-                _ => (rows / 2 - 1, rows / 2 + 1, None),
+                _ => (rows / 2 - 1, rows / 2 + 1, rows / 2 + 4, None),
             };
             // The logo is blitted into the framebuffer after the cell grid, so
             // it would land on top of any overlay drawn into that grid.
@@ -707,6 +709,7 @@ impl App {
                 show_prompt,
                 title_row,
                 subtitle_row,
+                hint_row,
                 &self.command,
                 &hint,
                 &error,

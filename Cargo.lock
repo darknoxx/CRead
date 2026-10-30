@@ -491,7 +491,7 @@ dependencies = [
 
 [[package]]
 name = "cread"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arboard",
  "cread-core",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "cread-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "cread-render"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "cread-core",
@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "cread-sync"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "cread-core",
  "reqwest_dav",

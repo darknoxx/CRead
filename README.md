@@ -116,7 +116,7 @@ obvious thing: click places the cursor, dragging marks, the wheel scrolls.
 ## View mode
 
 `view` renders the document the way a reader sees it: `#`, `**` and backticks
-gone, headings bold, code on an inverse field, links reduced to their text, and
+gone, headings coloured, code on an inverse field, links reduced to their text, and
 `---` as a rule across the column. It is read-only — arrows, `PageUp`/`PageDown`
 and the wheel scroll, `Esc` goes back to the text — and it opens at the line you
 were last editing.

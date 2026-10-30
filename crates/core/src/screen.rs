@@ -1,48 +1,30 @@
 //! The text-mode screen: a `cols x rows` grid of cells, like VGA text memory.
 
-/// Glyph variant. The bitmap font is expanded into these variants at load time.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Style {
-    #[default]
-    Normal,
-    Bold,
-    Italic,
-}
-
-impl Style {
-    /// Index into the font's style dimension.
-    pub const fn index(self) -> u8 {
-        match self {
-            Style::Normal => 0,
-            Style::Bold => 1,
-            Style::Italic => 2,
-        }
-    }
-}
-
 /// One character cell: code point plus a VGA-style foreground/background pair.
+///
+/// There is deliberately no weight or slant: this is a 1-bit face at 8x16 and
+/// synthesised bold and italic only ever made the glyphs harder to read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cell {
     pub ch: char,
     pub fg: u8,
     pub bg: u8,
-    pub style: Style,
 }
 
 impl Cell {
-    pub const fn new(ch: char, fg: u8, bg: u8, style: Style) -> Self {
-        Self { ch, fg, bg, style }
+    pub const fn new(ch: char, fg: u8, bg: u8) -> Self {
+        Self { ch, fg, bg }
     }
 
     /// A blank cell with the given colours.
     pub const fn blank(fg: u8, bg: u8) -> Self {
-        Self::new(' ', fg, bg, Style::Normal)
+        Self::new(' ', fg, bg)
     }
 }
 
 impl Default for Cell {
     fn default() -> Self {
-        Self::new(' ', 7, 0, Style::Normal)
+        Self::new(' ', 7, 0)
     }
 }
 
@@ -115,13 +97,13 @@ impl Screen {
     }
 
     /// Write a string, clipping at the right edge. Returns the next free column.
-    pub fn put_str(&mut self, x: u32, y: u32, text: &str, fg: u8, bg: u8, style: Style) -> u32 {
+    pub fn put_str(&mut self, x: u32, y: u32, text: &str, fg: u8, bg: u8) -> u32 {
         let mut cx = x;
         for ch in text.chars() {
             if cx >= self.cols {
                 break;
             }
-            self.put(cx, y, Cell::new(ch, fg, bg, style));
+            self.put(cx, y, Cell::new(ch, fg, bg));
             cx += 1;
         }
         cx
@@ -129,31 +111,22 @@ impl Screen {
 
     /// Like [`Screen::put_str`] but clips to `width` cells with a `>` marker.
     #[allow(clippy::too_many_arguments)]
-    pub fn put_str_ellipsis(
-        &mut self,
-        x: u32,
-        y: u32,
-        text: &str,
-        width: u32,
-        fg: u8,
-        bg: u8,
-        style: Style,
-    ) {
+    pub fn put_str_ellipsis(&mut self, x: u32, y: u32, text: &str, width: u32, fg: u8, bg: u8) {
         let count = text.chars().count() as u32;
         if count <= width {
-            self.put_str(x, y, text, fg, bg, style);
+            self.put_str(x, y, text, fg, bg);
             return;
         }
         let keep = width.saturating_sub(1);
         let clipped: String = text.chars().take(keep as usize).collect();
-        let end = self.put_str(x, y, &clipped, fg, bg, style);
-        self.put(end, y, Cell::new('>', fg, bg, style));
+        let end = self.put_str(x, y, &clipped, fg, bg);
+        self.put(end, y, Cell::new('>', fg, bg));
     }
 
     /// Horizontal rule made of a repeated character.
     pub fn hline(&mut self, x: u32, y: u32, len: u32, ch: char, fg: u8, bg: u8) {
         for cx in x..x + len {
-            self.put(cx, y, Cell::new(ch, fg, bg, Style::Normal));
+            self.put(cx, y, Cell::new(ch, fg, bg));
         }
     }
 }
@@ -165,7 +138,7 @@ mod tests {
     #[test]
     fn put_str_clips_at_right_edge() {
         let mut s = Screen::new(5, 2);
-        assert_eq!(s.put_str(3, 0, "abcdef", 7, 1, Style::Normal), 5);
+        assert_eq!(s.put_str(3, 0, "abcdef", 7, 1), 5);
         assert_eq!(s.get(4, 0).unwrap().ch, 'b');
         assert_eq!(s.get(0, 0).unwrap().ch, ' ');
     }
@@ -173,7 +146,7 @@ mod tests {
     #[test]
     fn resize_keeps_overlap() {
         let mut s = Screen::new(4, 2);
-        s.put_str(0, 0, "abcd", 7, 1, Style::Normal);
+        s.put_str(0, 0, "abcd", 7, 1);
         s.resize(2, 1);
         assert_eq!(s.get(1, 0).unwrap().ch, 'b');
         assert!(s.get(2, 0).is_none());
@@ -182,7 +155,7 @@ mod tests {
     #[test]
     fn ellipsis_helper_marks_overflow() {
         let mut s = Screen::new(4, 1);
-        s.put_str_ellipsis(0, 0, "abcdefgh", 4, 7, 1, Style::Normal);
+        s.put_str_ellipsis(0, 0, "abcdefgh", 4, 7, 1);
         let text: String = (0..4).map(|x| s.get(x, 0).unwrap().ch).collect();
         assert_eq!(text, "abc>");
     }

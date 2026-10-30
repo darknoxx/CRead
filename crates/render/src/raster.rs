@@ -103,7 +103,7 @@ impl Framebuffer {
         }
         let fg = theme.color(cell.fg);
         for row in 0..cell_h as usize {
-            let bits = font.scanline(slot, cell.style, row);
+            let bits = font.scanline(slot, row);
             if bits == 0 {
                 continue;
             }
@@ -167,7 +167,7 @@ pub fn write_png(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cread_core::{Cell, Style};
+    use cread_core::Cell;
 
     fn solid_theme() -> Theme {
         let mut theme = Theme::DOS_BLUE;
@@ -191,7 +191,7 @@ mod tests {
     fn a_glyph_puts_ink_on_the_right_pixels() {
         let mut fb = Framebuffer::new(8, 16);
         let mut screen = Screen::new(1, 1);
-        screen.put(0, 0, Cell::new('A', 15, 1, Style::Normal));
+        screen.put(0, 0, Cell::new('A', 15, 1));
         fb.draw_screen(&screen, &solid_theme(), &Font::new());
         // 'A' row 2 is "...#...." -> only x=3 is lit.
         for x in 0..8 {
