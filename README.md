@@ -88,6 +88,7 @@ the right tells you what the command does before you commit to it.
 | `rename <name>` | `mv`, `rn` | rename the current document |
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
 | `find [text]` | `search` | search the document (`Ctrl+F`) |
+| `font [classic\|thin]` | `weight` | letter weight; bare `font` toggles |
 | `sync` | | push the vault to WebDAV now |
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
 | `scanlines [on\|off]` | `scan`, `sl` | scanline strength |
@@ -218,6 +219,10 @@ assets/splash…   pixel art, blitted into the emulated framebuffer
 plain unit tests. `cargo test` runs all of them.
 
 ## Credits
+
+Two bitmap faces ship with it: the classic IBM VGA 8x16 and the thinner ISO 9241
+variant from the same pack. `font thin` swaps them at runtime and the choice is
+remembered.
 
 The boot logo (`assets/splash.png`) is blitted at its native size in emulated
 pixels, so it keeps hard edges through the CRT upscale. Monochrome themes tint

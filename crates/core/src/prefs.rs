@@ -16,6 +16,8 @@ pub struct Prefs {
     pub typewriter: bool,
     pub scanlines: bool,
     pub bloom: bool,
+    /// "classic" (VGA) or "thin" (ISO), see `cread_render::Face`.
+    pub font: String,
 }
 
 impl Default for Prefs {
@@ -26,6 +28,7 @@ impl Default for Prefs {
             typewriter: false,
             scanlines: crt.0,
             bloom: crt.1,
+            font: "classic".to_string(),
         }
     }
 }
@@ -103,6 +106,7 @@ mod tests {
             typewriter: true,
             scanlines: false,
             bloom: true,
+            font: "thin".into(),
         };
         saved.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), saved);

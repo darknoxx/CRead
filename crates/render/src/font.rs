@@ -11,8 +11,46 @@ use cread_core::Style;
 pub const GLYPH_W: usize = 8;
 pub const GLYPH_H: usize = 16;
 
-/// Raw CP437 bitmap data, one `u8` per scanline.
-const CP437_GLYPHS: &[u8; 256 * GLYPH_H] = include_bytes!("../../../assets/fonts/ibm_vga_8x16.bin");
+/// The classic VGA face: sturdy strokes, the one everyone remembers.
+const VGA_GLYPHS: &[u8; 256 * GLYPH_H] = include_bytes!("../../../assets/fonts/ibm_vga_8x16.bin");
+
+/// The ISO 9241 variant from the same pack. Same cell, noticeably thinner
+/// strokes — 22.7 inked pixels per glyph instead of 33.
+const ISO_GLYPHS: &[u8; 256 * GLYPH_H] = include_bytes!("../../../assets/fonts/ibm_dos_iso8.bin");
+
+/// Which bitmap face to draw with.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Face {
+    /// IBM VGA 8x16.
+    #[default]
+    Classic,
+    /// IBM DOS ISO8: the same size, lighter strokes.
+    Thin,
+}
+
+impl Face {
+    pub fn name(self) -> &'static str {
+        match self {
+            Face::Classic => "classic",
+            Face::Thin => "thin",
+        }
+    }
+
+    pub fn by_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "classic" | "vga" | "normal" => Some(Face::Classic),
+            "thin" | "iso" | "light" => Some(Face::Thin),
+            _ => None,
+        }
+    }
+
+    fn glyphs(self) -> &'static [u8; 256 * GLYPH_H] {
+        match self {
+            Face::Classic => VGA_GLYPHS,
+            Face::Thin => ISO_GLYPHS,
+        }
+    }
+}
 
 /// CP437 slot for each Unicode scalar. Index == CP437 code.
 ///
@@ -104,6 +142,7 @@ const EXTRA_BASE: u16 = 256;
 
 /// Bitmap face with Unicode lookup and style synthesis.
 pub struct Font {
+    face: Face,
     /// 256 CP437 glyphs followed by the hand-drawn extras, 16 scanlines each.
     glyphs: Vec<u8>,
     slots: HashMap<char, u16>,
@@ -113,7 +152,11 @@ pub struct Font {
 
 impl Font {
     pub fn new() -> Self {
-        let mut glyphs = CP437_GLYPHS.to_vec();
+        Self::with_face(Face::Classic)
+    }
+
+    pub fn with_face(face: Face) -> Self {
+        let mut glyphs = face.glyphs().to_vec();
         let mut slots = HashMap::with_capacity(300);
         for (cp, &ch) in CP437_UNICODE.iter().enumerate() {
             // Skip NUL so a stray control char renders as the fallback instead.
@@ -129,10 +172,15 @@ impl Font {
         }
 
         Self {
+            face,
             glyphs,
             slots,
             fallback: b'?' as u16,
         }
+    }
+
+    pub fn face(&self) -> Face {
+        self.face
     }
 
     /// Glyph slot for a character, falling back to `?`.
@@ -219,6 +267,31 @@ mod tests {
         let f = Font::new();
         assert!(!f.has_glyph('\u{1F600}'));
         assert_eq!(f.slot('\u{1F600}'), f.slot('?'));
+    }
+
+    #[test]
+    fn the_thin_face_uses_less_ink_but_keeps_the_same_grid() {
+        let classic = Font::with_face(Face::Classic);
+        let thin = Font::with_face(Face::Thin);
+        let ink = |f: &Font| -> u32 {
+            (0..256)
+                .flat_map(|slot| (0..GLYPH_H).map(move |row| (slot as u16, row)))
+                .map(|(slot, row)| f.scanline(slot, Style::Normal, row).count_ones())
+                .sum()
+        };
+        assert!(
+            ink(&thin) < ink(&classic) * 9 / 10,
+            "thin should be lighter"
+        );
+        assert_eq!(thin.face(), Face::Thin);
+    }
+
+    #[test]
+    fn faces_resolve_by_name() {
+        assert_eq!(Face::by_name("thin"), Some(Face::Thin));
+        assert_eq!(Face::by_name("ISO"), Some(Face::Thin));
+        assert_eq!(Face::by_name("classic"), Some(Face::Classic));
+        assert_eq!(Face::by_name("nope"), None);
     }
 
     #[test]

@@ -16,6 +16,13 @@ bitmap block). The 4 KB asset here is that bitmap block verbatim.
 The pack is only needed to regenerate the asset. Nothing at build or run time
 depends on it.
 
+## `ibm_dos_iso8.bin`
+
+The ISO 9241 variant from the same pack (`Bm437_IBM_DOS_ISO8.FON`), extracted the
+same way. Same 8x16 cell, same CP437 layout, but drawn with thinner strokes —
+22.7 inked pixels per glyph against 33 for the VGA face. It is what `font thin`
+switches to.
+
 ## Extended glyphs
 
 CP437 has no `€`, no typographic quotes and no en/em dashes, which normal prose

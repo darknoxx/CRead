@@ -11,7 +11,7 @@ use cread_core::{
     storage,
 };
 use cread_render::{
-    CrtSettings, Font, FrameStatus, Framebuffer, Renderer, Splash, SplashStyle, raster,
+    CrtSettings, Face, Font, FrameStatus, Framebuffer, Renderer, Splash, SplashStyle, raster,
 };
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
@@ -331,7 +331,7 @@ impl App {
             window: None,
             renderer: None,
             adapter: String::from("unknown"),
-            font: Font::new(),
+            font: Font::with_face(Face::by_name(&prefs.font).unwrap_or_default()),
             screen: Screen::new(80, 25),
             fb: Framebuffer::new(640, 400),
             vp: None,
@@ -1490,6 +1490,21 @@ impl App {
                 self.dirty = true;
                 Ok(format!("typewriter: {}", on_off(self.typewriter)))
             }
+            Command::Font(want) => {
+                let next = match want.as_deref() {
+                    Some(name) => Face::by_name(name)
+                        .ok_or_else(|| format!("unknown font: {name} (classic, thin)"))?,
+                    None => match self.font.face() {
+                        Face::Classic => Face::Thin,
+                        Face::Thin => Face::Classic,
+                    },
+                };
+                self.font = Font::with_face(next);
+                self.prefs.font = next.name().to_string();
+                self.save_prefs();
+                self.dirty = true;
+                Ok(format!("font: {}", next.name()))
+            }
             Command::Fullscreen(on) => {
                 self.set_fullscreen(on);
                 Ok(if on { "fullscreen" } else { "windowed" }.to_string())
@@ -1598,6 +1613,7 @@ impl App {
     /// Persist the bits of UI state that should survive a restart.
     fn save_prefs(&mut self) {
         self.prefs.set(self.theme);
+        self.prefs.font = self.font.face().name().to_string();
         self.prefs.typewriter = self.typewriter;
         self.prefs.scanlines = self.crt.scanline > 0.0;
         self.prefs.bloom = self.crt.bloom > 0.0;

@@ -3,6 +3,9 @@
 ## Unreleased
 
 - **Boot logo** on the start screen, tinted to match the theme.
+- **Second typeface.** `font thin` switches to the ISO 9241 face from the same
+  bitmap pack: identical grid, ~31% less ink. `font classic` switches back, and
+  the choice is remembered.
 
 - **Preferences.** Theme, typewriter scrolling and the CRT switches survive a
   restart (`~/.config/cread/prefs.json`); command-line flags still win.

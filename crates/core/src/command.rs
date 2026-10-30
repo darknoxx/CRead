@@ -18,6 +18,8 @@ pub enum Command {
     Scanlines(Option<bool>),
     Bloom(Option<bool>),
     Typewriter(Option<bool>),
+    /// `Some(name)` picks a face, `None` cycles to the next one.
+    Font(Option<String>),
     /// `true` = go fullscreen.
     Fullscreen(bool),
     Undo,
@@ -137,6 +139,12 @@ pub const SPECS: &[Spec] = &[
         summary: "toggle or set typewriter scrolling",
     },
     Spec {
+        name: "font",
+        aliases: &["weight"],
+        argument: "[classic|thin]",
+        summary: "letter weight (no argument: toggle)",
+    },
+    Spec {
         name: "fullscreen",
         aliases: &["fs"],
         argument: "",
@@ -242,6 +250,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "scanlines" => Command::Scanlines(switch(rest)?),
         "bloom" => Command::Bloom(switch(rest)?),
         "typewriter" => Command::Typewriter(switch(rest)?),
+        "font" => Command::Font(optional(rest)),
         "fullscreen" => Command::Fullscreen(true),
         "windowed" => Command::Fullscreen(false),
         "undo" => Command::Undo,
