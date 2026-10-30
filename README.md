@@ -56,16 +56,32 @@ cread
 
 ## Two modes
 
-On launch you get a greeting and an empty prompt:
+On launch you get the boot screen: the logo, a greeting and a short drive list.
 
 ```
                              Welcome to CRead
 
-                        type new or open to start
+                       A: INSPIRO     where your ideas have room to grow
+                       B: DOCUMENTS   everything in your vault
+                       E: HELLO       diskette, 3 files
 ```
 
-`new` opens an empty document, `open` shows the vault. Pass a file name on the
-command line and it opens straight away.
+`A:` enters **Inspiro**, the writing terminal: a fake loading bar, then the
+editor's own front door with its logo and a prompt.
+
+```
+                                  [logo]
+
+                     where your ideas have room to grow
+
+                          type new or open to start
+>▌
+```
+
+There `new` opens an empty document and `open` shows the vault, exactly as
+before. Opening a file from `B: DOCUMENTS` goes through the same loader, and any
+key skips it. Pass a file name on the command line and it opens straight away,
+bar and all.
 
 Then you are in **write mode**: the document is live, the block cursor sits in
 the text, and nothing else competes for your attention. `Esc` switches to **action
@@ -117,9 +133,9 @@ obvious thing: click places the cursor, dragging marks, the wheel scrolls.
 
 ## Diskettes
 
-CRead OS is the start screen: a greeting, the drives and a prompt. Two drives
-are built in — `A: EDITOR` and `B: DOCUMENTS` — and everything else comes from
-the `Disks` folder inside your vault:
+CRead OS is the start screen: the logo, a greeting, the drives and a prompt. Two
+drives are built in — `A: INSPIRO` and `B: DOCUMENTS` — and everything else comes
+from the `Disks` folder inside your vault:
 
 ```
 ~/Dokumente/CRead/Disks/MAIL.DSK
@@ -262,6 +278,7 @@ crates/sync      WebDAV client, conflict policy, background worker
 crates/app       window, input, frame loop, UI composition
 assets/          bitmap faces, boot logo
 assets/splash…   pixel art, blitted into the emulated framebuffer
+assets/inspiro…  the same, for Inspiro's front door
 ```
 
 `crates/core` has no GPU, window or network dependency, so the tricky parts are
@@ -273,9 +290,10 @@ Two bitmap faces ship with it: the classic IBM VGA 8x16 and the thinner ISO 9241
 variant from the same pack. `font thin` swaps them at runtime and the choice is
 remembered.
 
-The boot logo (`assets/splash.png`) is blitted at its native size in emulated
-pixels, so it keeps hard edges through the CRT upscale. Monochrome themes tint
-it; the black theme keeps its own grey and teal.
+The boot logo (`assets/splash.png`) and the Inspiro logo (`assets/inspiro.png`)
+are blitted at their native size in emulated pixels, so they keep hard edges
+through the CRT upscale. Themes tint them with the text colour: ink on paper,
+light on the dark schemes.
 
 The character set is the IBM VGA 8x16 ROM font from VileR's *Ultimate Oldschool
 PC Font Pack* (CC BY-SA 4.0, <https://int10h.org/oldschool-pc-fonts/>), reduced to

@@ -11,6 +11,11 @@
   appears, in red, with the reason.
 - `run [name]` and `dir` for the command line; the drive icon on the boot
   screen.
+- **Inspiro.** The editor has a name and its own front door: `A: INSPIRO` on the
+  boot screen runs a short fake loading bar, then shows the Inspiro logo,
+  *where your ideas have room to grow* and the usual `new`/`open` prompt. Opening
+  a document from `B: DOCUMENTS` goes through the same loader, and any key skips
+  it. `welcome` still returns to the boot screen.
 
 ## 0.5.0
 

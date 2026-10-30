@@ -31,6 +31,9 @@ const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
 
 /// Cursor blink, in toggles per second.
 const CURSOR_BLINK_HZ: f32 = 1.6;
+/// How long the fake loading bar runs. Long enough to read, short enough not to
+/// annoy; any key skips it.
+const LOADING_SECONDS: f32 = 0.8;
 /// Scanline drift, in emulated rows per second: a full 480-line screen every
 /// twelve seconds. Fast enough to see, slow enough not to pull the eye.
 const ROLL_SPEED: f32 = 40.0;
@@ -155,6 +158,22 @@ struct DiskEntry {
     error: Option<String>,
 }
 
+/// Which home screen the shell is showing when nothing is open.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Home {
+    /// The boot screen: drives and diskettes.
+    Boot,
+    /// Inspiro's own front door: logo, tagline, new/open.
+    Inspiro,
+}
+
+/// What happens when the loading bar finishes.
+enum Pending {
+    Inspiro,
+    Document(PathBuf),
+    NewDocument,
+}
+
 /// One row of the boot screen.
 #[derive(Clone, Copy)]
 enum BootItem {
@@ -173,6 +192,8 @@ enum Mode {
     View,
     /// Browsing the files on a diskette.
     DiskBrowser,
+    /// A fake loading bar before a program appears.
+    Loading,
     /// A command line at the bottom, like a shell.
     Action,
     /// File picker.
@@ -218,6 +239,8 @@ struct App {
     splash: Option<Splash>,
     /// Where the logo was blitted this frame: x, y and the integer divisor.
     splash_at: Option<(i32, i32, u32)>,
+    /// Same, for the Inspiro front door.
+    inspiro_at: Option<(i32, i32, u32)>,
     search: Option<Search>,
     last_search: Option<String>,
     /// Reader-mode rows, computed on entering the view and on resize.
@@ -235,6 +258,11 @@ struct App {
     clipboard: Option<arboard::Clipboard>,
     /// False on the start screen: no file is open yet.
     has_document: bool,
+    /// Which home screen to show while nothing is open.
+    home: Home,
+    pending: Option<Pending>,
+    loading_started: Instant,
+    inspiro_logo: Option<Splash>,
     mode: Mode,
     palette: Palette,
     form: FormState,
@@ -397,6 +425,7 @@ impl App {
                 .map_err(|e| eprintln!("cread: {e}"))
                 .ok(),
             splash_at: None,
+            inspiro_at: None,
             search: None,
             last_search: None,
             view_rows: Vec::new(),
@@ -407,6 +436,12 @@ impl App {
             follow_cursor: true,
             clipboard: None,
             has_document,
+            home: Home::Boot,
+            pending: None,
+            loading_started: Instant::now(),
+            inspiro_logo: Splash::from_png(include_bytes!("../../../assets/inspiro.png"))
+                .map_err(|e| eprintln!("cread: inspiro logo: {e}"))
+                .ok(),
             mode: if has_document {
                 Mode::Write
             } else {
@@ -522,6 +557,11 @@ impl App {
         self.pump_sync();
         // Status messages are transient: after a moment the line goes back to
         // telling you how to change modes.
+        if self.mode == Mode::Loading
+            && self.loading_started.elapsed().as_secs_f32() >= LOADING_SECONDS
+        {
+            self.finish_loading();
+        }
         if !self.status.is_empty() && self.status_at.elapsed() >= STATUS_TTL {
             self.status.clear();
             self.dirty = true;
@@ -565,6 +605,12 @@ impl App {
                 // paper, light on the dark schemes.
                 let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
                 self.fb.draw_splash(splash, x, y, divisor, &style);
+            }
+            if let (Some(logo), Some((x, y, divisor))) =
+                (self.inspiro_logo.as_ref(), self.inspiro_at)
+            {
+                let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
+                self.fb.draw_splash(logo, x, y, divisor, &style);
             }
             if let Some(renderer) = self.renderer.as_mut() {
                 renderer.upload(&self.fb);
@@ -622,7 +668,9 @@ impl App {
 
         // Nothing animates any more except the cursor, so we do not run a
         // frame clock at all: sleep until the blink is due and redraw then.
-        if crt.roll > 0.0 && crt.scanline > 0.0 {
+        if self.mode == Mode::Loading {
+            self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
+        } else if crt.roll > 0.0 && crt.scanline > 0.0 {
             // The raster moves, so this is the one case that needs a clock.
             self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
         } else {
@@ -636,6 +684,21 @@ impl App {
     /// Build the cell grid for the current state.
     fn compose(&mut self) {
         let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
+        if self.mode == Mode::Loading {
+            self.splash_at = None;
+            self.inspiro_at = None;
+            let elapsed = self.loading_started.elapsed().as_secs_f32();
+            let progress = (elapsed / LOADING_SECONDS).powf(0.75).min(1.0);
+            let label = match &self.pending {
+                Some(Pending::Inspiro) => "Loading INSPIRO...",
+                Some(Pending::Document(_)) => "Loading document...",
+                Some(Pending::NewDocument) => "New document...",
+                None => "Loading...",
+            };
+            ui::draw_loading(&mut screen, &self.theme, label, progress);
+            self.screen = screen;
+            return;
+        }
         if self.mode == Mode::DiskBrowser {
             self.splash_at = None;
             if let Some(entry) = self.disks.get(self.disk_open)
@@ -671,6 +734,8 @@ impl App {
             if self.has_document {
                 // Left empty on purpose: the prompt then shows how to leave.
                 String::new()
+            } else if self.home == Home::Inspiro {
+                "new   open   help for commands".to_string()
             } else {
                 "↑↓ select   Enter run   help for commands".to_string()
             }
@@ -740,6 +805,43 @@ impl App {
                 .splash
                 .as_ref()
                 .is_some_and(|s| s.width() / divisor <= max_w && s.height() / divisor <= max_h);
+
+            if self.home == Home::Inspiro {
+                self.splash_at = None;
+                let img_rows = match (
+                    &self.inspiro_logo,
+                    fit_logo(&self.inspiro_logo, max_w, max_h),
+                ) {
+                    (Some(_), Some((rows_img, divisor))) => {
+                        let block = rows_img + 1 + 3;
+                        let top = rows.saturating_sub(block) / 2;
+                        let width = (self.inspiro_logo.as_ref().unwrap().width() / divisor) as i32;
+                        self.inspiro_at = Some((
+                            (cols * cread_core::FONT_W) as i32 / 2 - width / 2,
+                            (top * cread_core::FONT_H) as i32,
+                            divisor,
+                        ));
+                        rows_img
+                    }
+                    _ => {
+                        self.inspiro_at = None;
+                        0
+                    }
+                };
+                let block = img_rows + 1 + 3;
+                let top = rows.saturating_sub(block) / 2;
+                let title_row = top + img_rows + u32::from(img_rows > 0);
+                ui::draw_inspiro(
+                    &mut screen,
+                    &self.theme,
+                    title_row,
+                    &self.command,
+                    &hint,
+                    &error,
+                );
+                self.screen = screen;
+                return;
+            }
 
             let items = self.boot_rows();
             let note = if self.disks.is_empty() {
@@ -1279,14 +1381,8 @@ impl App {
             return;
         };
         match action {
-            Action::Open(path) => match self.open_document(path.clone()) {
-                Ok(()) => self.set_status(format!("opened {}", path.display())),
-                Err(e) => self.set_status(e),
-            },
-            Action::NewFile => match self.new_document() {
-                Ok(msg) => self.set_status(msg),
-                Err(e) => self.set_status(e),
-            },
+            Action::Open(path) => self.start_loading(Pending::Document(path)),
+            Action::NewFile => self.start_loading(Pending::NewDocument),
             Action::SyncNow => {
                 if self.sync_cfg.enabled && self.sync.is_some() {
                     self.request_sync();
@@ -1296,7 +1392,11 @@ impl App {
                 }
             }
         }
-        self.to_write();
+        // Loading and the browser are their own destinations; anything else
+        // drops back to the document or the home screen.
+        if !matches!(self.mode, Mode::Loading | Mode::DiskBrowser) {
+            self.to_write();
+        }
     }
 
     // ── input ───────────────────────────────────────────────────────────────
@@ -1310,6 +1410,7 @@ impl App {
             Mode::Search => self.on_key_search(event),
             Mode::View => self.on_key_view(event),
             Mode::DiskBrowser => self.on_key_disk_browser(event),
+            Mode::Loading => self.finish_loading(),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -1476,11 +1577,14 @@ impl App {
 
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
-                if self.command.is_empty() {
-                    self.to_write();
-                } else {
+                if !self.command.is_empty() {
                     self.command.clear();
                     self.command_error.clear();
+                } else if !self.has_document && self.home == Home::Inspiro {
+                    self.home = Home::Boot;
+                    self.disks_dirty = true;
+                } else if self.has_document {
+                    self.to_write();
                 }
                 self.poke();
             }
@@ -1492,7 +1596,7 @@ impl App {
                 self.poke();
             }
             Key::Named(NamedKey::ArrowUp) => {
-                if !self.has_document && self.command.is_empty() {
+                if self.home == Home::Boot && !self.has_document && self.command.is_empty() {
                     self.boot_selected = self.boot_selected.saturating_sub(1);
                 } else {
                     self.history_step(-1);
@@ -1500,7 +1604,7 @@ impl App {
                 self.poke();
             }
             Key::Named(NamedKey::ArrowDown) => {
-                if !self.has_document && self.command.is_empty() {
+                if self.home == Home::Boot && !self.has_document && self.command.is_empty() {
                     let last = self.boot_items().len().saturating_sub(1);
                     self.boot_selected = (self.boot_selected + 1).min(last);
                 } else {
@@ -1591,10 +1695,13 @@ impl App {
                 let path = self
                     .find_document(&name)
                     .ok_or_else(|| format!("no such document: {name}"))?;
-                self.open_document(path)?;
-                Ok(format!("opened {}", self.doc.title()))
+                self.start_loading(Pending::Document(path));
+                Ok(String::new())
             }
-            Command::New => self.new_document(),
+            Command::New => {
+                self.start_loading(Pending::NewDocument);
+                Ok(String::new())
+            }
             Command::Rename(name) => self.rename_current(&name),
             Command::Delete => {
                 if self.doc.path.is_none() {
@@ -1750,6 +1857,8 @@ impl App {
                     last_edit: Instant::now(),
                 };
                 self.has_document = false;
+                self.home = Home::Boot;
+                self.disks_dirty = true;
                 self.mode = Mode::Action;
                 self.dirty = true;
                 Ok(String::new())
@@ -2050,6 +2159,50 @@ impl App {
         }
     }
 
+    // ── loading ─────────────────────────────────────────────────────────────
+
+    /// Show the fake progress bar, then do `next`.
+    fn start_loading(&mut self, next: Pending) {
+        self.pending = Some(next);
+        self.loading_started = Instant::now();
+        self.mode = Mode::Loading;
+        self.dirty = true;
+    }
+
+    fn finish_loading(&mut self) {
+        let Some(next) = self.pending.take() else {
+            self.mode = Mode::Action;
+            return;
+        };
+        match next {
+            Pending::Inspiro => {
+                self.home = Home::Inspiro;
+                self.mode = Mode::Action;
+                self.command.clear();
+            }
+            Pending::Document(path) => match self.open_document(path) {
+                Ok(()) => self.mode = Mode::Write,
+                Err(e) => {
+                    self.set_status(e);
+                    self.mode = Mode::Action;
+                }
+            },
+            Pending::NewDocument => match self.new_document() {
+                Ok(msg) => {
+                    if !msg.is_empty() {
+                        self.set_status(msg);
+                    }
+                    self.mode = Mode::Write;
+                }
+                Err(e) => {
+                    self.set_status(e);
+                    self.mode = Mode::Action;
+                }
+            },
+        }
+        self.dirty = true;
+    }
+
     // ── disks and the boot screen ───────────────────────────────────────────
 
     fn disk_dir(&self) -> PathBuf {
@@ -2113,8 +2266,8 @@ impl App {
         let letter = |i: usize| (b'A' + i as u8) as char;
         let mut rows = vec![
             ui::BootItem {
-                label: format!("{}: EDITOR", letter(0)),
-                detail: "the writing terminal".into(),
+                label: format!("{}: INSPIRO", letter(0)),
+                detail: "where your ideas have room to grow".into(),
                 broken: false,
             },
             ui::BootItem {
@@ -2146,15 +2299,16 @@ impl App {
     }
 
     fn boot_activate(&mut self) {
+        // Only the boot screen has a selectable list; on Inspiro's front door
+        // an empty Enter has nothing to run.
+        if self.home != Home::Boot {
+            return;
+        }
         let Some(item) = self.boot_items().get(self.boot_selected).copied() else {
             return;
         };
         match item {
-            BootItem::Editor => {
-                if let Err(e) = self.new_document() {
-                    self.set_status(e);
-                }
-            }
+            BootItem::Editor => self.start_loading(Pending::Inspiro),
             BootItem::Documents => self.open_palette(),
             BootItem::Disk(index) => self.open_disk(index),
         }
@@ -2370,7 +2524,11 @@ impl App {
                 self.doc.editor.set_cursor(*pos);
             }
         }
-        self.to_write();
+        // Loading and the browser are their own destinations; anything else
+        // drops back to the document or the home screen.
+        if !matches!(self.mode, Mode::Loading | Mode::DiskBrowser) {
+            self.to_write();
+        }
     }
 
     /// Esc: put the cursor back where the search started.
@@ -2378,7 +2536,11 @@ impl App {
         if let Some(search) = self.search.take() {
             self.doc.editor.set_cursor(search.origin);
         }
-        self.to_write();
+        // Loading and the browser are their own destinations; anything else
+        // drops back to the document or the home screen.
+        if !matches!(self.mode, Mode::Loading | Mode::DiskBrowser) {
+            self.to_write();
+        }
     }
 
     /// F3 outside search: jump to the next hit of the previous query.
@@ -2698,6 +2860,11 @@ impl ApplicationHandler for App {
                 self.mode = Mode::Help;
             }
             "view" => self.enter_view(),
+            "inspiro" => {
+                self.home = Home::Inspiro;
+                self.mode = Mode::Action;
+            }
+            "loading" => self.start_loading(Pending::Inspiro),
             "disk" => {
                 self.refresh_disks();
                 let name = self.opts.command.clone();
@@ -2784,6 +2951,20 @@ impl ApplicationHandler for App {
             let _ = self.save();
         }
     }
+}
+
+/// Biggest whole divisor whose result fits, as (rows, divisor).
+fn fit_logo(logo: &Option<Splash>, max_w: u32, max_h: u32) -> Option<(u32, u32)> {
+    let splash = logo.as_ref()?;
+    for divisor in 1..=8 {
+        if splash.width() / divisor <= max_w && splash.height() / divisor <= max_h {
+            return Some((
+                (splash.height() / divisor).div_ceil(cread_core::FONT_H),
+                divisor,
+            ));
+        }
+    }
+    None
 }
 
 fn report_word(report: &SyncReport) -> String {

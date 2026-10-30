@@ -289,6 +289,109 @@ fn draw_prompt(
     }
 }
 
+// ── Inspiro front door ──────────────────────────────────────────────────────
+
+/// Inspiro's own home screen: the tagline and the prompt, nothing else.
+pub fn draw_inspiro(
+    screen: &mut Screen,
+    theme: &Theme,
+    title_row: u32,
+    input: &str,
+    hint: &str,
+    error: &str,
+) {
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+    put_centered(
+        screen,
+        title_row,
+        "where your ideas have room to grow",
+        theme.status_dim,
+        theme.bg,
+    );
+    put_centered(
+        screen,
+        title_row + 2,
+        "type new or open to start",
+        theme.accent,
+        theme.bg,
+    );
+    draw_prompt(screen, theme, ">", input, hint, error);
+}
+
+// ── loading ─────────────────────────────────────────────────────────────────
+
+/// The fake loading bar: a boxed meter, because an OS loads things.
+pub fn draw_loading(screen: &mut Screen, theme: &Theme, label: &str, progress: f32) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    let width = cols.saturating_sub(12).clamp(24, 52);
+    let height = 7u32.min(rows.saturating_sub(4)).max(5);
+    let x0 = (cols - width) / 2;
+    let y0 = (rows - height) / 2;
+
+    let (b, d) = (theme.accent, theme.dim);
+    for y in y0..y0 + height {
+        for x in x0..x0 + width {
+            screen.put(x, y, Cell::blank(theme.fg, theme.bg));
+        }
+    }
+    for x in x0 + 1..x0 + width - 1 {
+        screen.put(x, y0, Cell::new('\u{2550}', b, theme.bg));
+        screen.put(x, y0 + height - 1, Cell::new('\u{2550}', b, theme.bg));
+    }
+    for y in y0 + 1..y0 + height - 1 {
+        screen.put(x0, y, Cell::new('\u{2551}', b, theme.bg));
+        screen.put(x0 + width - 1, y, Cell::new('\u{2551}', b, theme.bg));
+    }
+    screen.put(x0, y0, Cell::new('\u{2554}', b, theme.bg));
+    screen.put(x0 + width - 1, y0, Cell::new('\u{2557}', b, theme.bg));
+    screen.put(x0, y0 + height - 1, Cell::new('\u{255a}', b, theme.bg));
+    screen.put(
+        x0 + width - 1,
+        y0 + height - 1,
+        Cell::new('\u{255d}', b, theme.bg),
+    );
+
+    screen.put_str_ellipsis(
+        x0 + 2,
+        y0 + 2,
+        label,
+        width.saturating_sub(4),
+        theme.fg,
+        theme.bg,
+    );
+
+    // The meter itself.
+    let bar_width = width.saturating_sub(10);
+    let filled = ((progress.clamp(0.0, 1.0) * bar_width as f32).round() as u32).min(bar_width);
+    for i in 0..bar_width {
+        let (ch, fg) = if i < filled {
+            ('\u{2588}', theme.accent)
+        } else {
+            ('\u{2591}', d)
+        };
+        screen.put(x0 + 2 + i, y0 + 3, Cell::new(ch, fg, theme.bg));
+    }
+    let percent = format!("{:>3}%", (progress.clamp(0.0, 1.0) * 100.0).round() as u32);
+    screen.put_str(
+        x0 + width.saturating_sub(6),
+        y0 + 3,
+        &percent,
+        theme.fg,
+        theme.bg,
+    );
+
+    put_centered(
+        screen,
+        y0 + height + 1,
+        "any key to skip",
+        theme.status_dim,
+        theme.bg,
+    );
+}
+
 // ── diskette browser ────────────────────────────────────────────────────────
 
 pub struct DiskView<'a> {
