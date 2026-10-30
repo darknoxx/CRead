@@ -210,13 +210,18 @@ crates/core      buffer, cursor, soft wrap, undo, markdown spans, file IO
 crates/render    emulated framebuffer, bitmap font, wgpu CRT pass
 crates/sync      WebDAV client, conflict policy, background worker
 crates/app       window, input, frame loop, UI composition
-assets/fonts     IBM VGA 8x16 glyph data
+assets/          IBM VGA 8x16 glyph data, the boot logo
+assets/splash…   pixel art, blitted into the emulated framebuffer
 ```
 
 `crates/core` has no GPU, window or network dependency, so the tricky parts are
 plain unit tests. `cargo test` runs all of them.
 
 ## Credits
+
+The boot logo (`assets/splash.png`) is blitted at its native size in emulated
+pixels, so it keeps hard edges through the CRT upscale. Monochrome themes tint
+it; the black theme keeps its own grey and teal.
 
 The character set is the IBM VGA 8x16 ROM font from VileR's *Ultimate Oldschool
 PC Font Pack* (CC BY-SA 4.0, <https://int10h.org/oldschool-pc-fonts/>), reduced to

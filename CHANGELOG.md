@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Boot logo** on the start screen, tinted to match the theme.
+
 - **Preferences.** Theme, typewriter scrolling and the CRT switches survive a
   restart (`~/.config/cread/prefs.json`); command-line flags still win.
 - **Incremental search.** `Ctrl+F` or the `find` command, hits highlighted as

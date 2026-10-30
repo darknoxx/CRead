@@ -10,7 +10,9 @@ use cread_core::{
     resolution::target_line_px_for_scale_factor,
     storage,
 };
-use cread_render::{CrtSettings, Font, FrameStatus, Framebuffer, Renderer, raster};
+use cread_render::{
+    CrtSettings, Font, FrameStatus, Framebuffer, Renderer, Splash, SplashStyle, raster,
+};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -176,6 +178,9 @@ struct App {
     typewriter: bool,
 
     doc: Document,
+    splash: Option<Splash>,
+    /// Where the logo was blitted this frame, in framebuffer pixels.
+    splash_at: Option<(i32, i32)>,
     search: Option<Search>,
     last_search: Option<String>,
     /// Last known pointer position in physical pixels.
@@ -341,6 +346,10 @@ impl App {
             mods: ModifiersState::empty(),
             typewriter,
             doc,
+            splash: Splash::from_png(include_bytes!("../../../assets/splash.png"))
+                .map_err(|e| eprintln!("cread: {e}"))
+                .ok(),
+            splash_at: None,
             search: None,
             last_search: None,
             pointer: (0.0, 0.0),
@@ -496,6 +505,19 @@ impl App {
             }
             self.compose();
             self.fb.draw_screen(&self.screen, &self.theme, &self.font);
+            if let (Some(splash), Some((x, y))) = (self.splash.as_ref(), self.splash_at) {
+                // Monochrome themes get the logo tinted to match; the black
+                // theme keeps the artwork's own grey and teal.
+                let style = if self.theme.name == "black" {
+                    SplashStyle::Native
+                } else {
+                    SplashStyle::Tinted {
+                        ink: self.theme.color(self.theme.accent),
+                        invert: self.theme.is_light(),
+                    }
+                };
+                self.fb.draw_splash(splash, x, y, &style);
+            }
             if let Some(renderer) = self.renderer.as_mut() {
                 renderer.upload(&self.fb);
             }
@@ -594,15 +616,39 @@ impl App {
 
         if !self.has_document {
             let show_prompt = matches!(self.mode, Mode::Action | Mode::Search);
+            // With a logo above it the greeting moves down; without one it sits
+            // in the middle of the screen as before.
+            let (title_row, subtitle_row, splash_y) = match &self.splash {
+                Some(splash) if splash.width() <= cols * cread_core::FONT_W => {
+                    let rows_img = splash.height().div_ceil(cread_core::FONT_H);
+                    let block = rows_img + 1 + 3;
+                    let top = rows.saturating_sub(block) / 2;
+                    (
+                        top + rows_img + 1,
+                        top + rows_img + 3,
+                        Some((top * cread_core::FONT_H) as i32),
+                    )
+                }
+                _ => (rows / 2 - 1, rows / 2 + 1, None),
+            };
+            self.splash_at = splash_y.map(|y| {
+                let x = (cols * cread_core::FONT_W) as i32 / 2
+                    - self.splash.as_ref().map(|s| s.width() as i32).unwrap_or(0) / 2;
+                (x, y)
+            });
             ui::draw_welcome(
                 &mut screen,
                 &self.theme,
                 show_prompt,
+                title_row,
+                subtitle_row,
                 &self.command,
                 &hint,
                 &error,
             );
         } else {
+            // A document is open: the logo belongs to the start screen only.
+            self.splash_at = None;
             let (text_width, margin) = ui::layout(cols);
             let height = ui::text_height(rows);
 

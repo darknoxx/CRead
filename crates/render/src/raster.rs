@@ -115,8 +115,17 @@ impl Framebuffer {
         }
     }
 
+    /// Colour of one pixel, for tests.
+    pub fn pixel(&self, x: i32, y: i32) -> Rgb {
+        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+            return [0, 0, 0];
+        }
+        let idx = ((y as u32 * self.width + x as u32) * 4) as usize;
+        [self.data[idx], self.data[idx + 1], self.data[idx + 2]]
+    }
+
     #[inline]
-    fn put(&mut self, x: i32, y: i32, rgb: Rgb) {
+    pub(crate) fn put(&mut self, x: i32, y: i32, rgb: Rgb) {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
             return;
         }

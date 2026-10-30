@@ -217,13 +217,22 @@ fn draw_status_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>, 
     );
     screen.put_str(0, bar, &left, fg, bg, Style::Bold);
 
-    let (right, colour) = if message.is_empty() {
+    let (mut right, colour) = if message.is_empty() {
         ("Esc switch to action mode".to_string(), theme.status_dim)
     } else {
         (message.to_string(), fg)
     };
+    // Narrow windows fall back to a shorter wording rather than dropping it.
+    let left_width = left.chars().count() as u32;
+    if cols.saturating_sub(right.chars().count() as u32 + 1) <= left_width + 1 {
+        right = if message.is_empty() {
+            "Esc: action mode".to_string()
+        } else {
+            right
+        };
+    }
     let x = cols.saturating_sub(right.chars().count() as u32 + 1);
-    if x > left.chars().count() as u32 + 1 {
+    if x > left_width + 1 {
         screen.put_str(x, bar, &right, colour, bg, Style::Normal);
     }
 }
@@ -280,21 +289,22 @@ fn draw_prompt(
 // ── welcome ─────────────────────────────────────────────────────────────────
 
 /// The start screen: a centred greeting with a command prompt at the bottom.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_welcome(
     screen: &mut Screen,
     theme: &Theme,
     show_prompt: bool,
+    title_row: u32,
+    subtitle_row: u32,
     input: &str,
     hint: &str,
     error: &str,
 ) {
     screen.fill(Cell::blank(theme.fg, theme.bg));
 
-    let rows = screen.rows() as i32;
-    let mid = rows / 2;
     put_centered(
         screen,
-        (mid - 1).max(1) as u32,
+        title_row,
         "Welcome to CRead",
         theme.accent,
         theme.bg,
@@ -302,7 +312,7 @@ pub fn draw_welcome(
     );
     put_centered(
         screen,
-        (mid + 1).max(2) as u32,
+        subtitle_row,
         "type new or open to start",
         theme.status_dim,
         theme.bg,
@@ -879,10 +889,13 @@ mod tests {
     fn welcome_is_centred_and_has_a_prompt() {
         let vp = vp(1280, 800);
         let mut screen = Screen::new(vp.cols(), vp.rows());
+        let mid = vp.rows() / 2;
         draw_welcome(
             &mut screen,
             &Theme::BLACK,
             true,
+            mid - 1,
+            mid + 1,
             "ne",
             "new  start a file",
             "",
