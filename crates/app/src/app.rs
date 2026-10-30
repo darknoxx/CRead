@@ -215,9 +215,6 @@ struct App {
     /// Index into `disks` while the browser is open.
     disk_open: usize,
     disk_selected: usize,
-    disk_icon: Option<Splash>,
-    /// Where the drive icon was blitted this frame.
-    disk_at: Option<(i32, i32)>,
     splash: Option<Splash>,
     /// Where the logo was blitted this frame: x, y and the integer divisor.
     splash_at: Option<(i32, i32, u32)>,
@@ -396,10 +393,6 @@ impl App {
             boot_selected: 0,
             disk_open: 0,
             disk_selected: 0,
-            disk_icon: Splash::from_png(include_bytes!("../../../assets/disk.png"))
-                .map_err(|e| eprintln!("cread: disk icon: {e}"))
-                .ok(),
-            disk_at: None,
             splash: Splash::from_png(include_bytes!("../../../assets/splash.png"))
                 .map_err(|e| eprintln!("cread: {e}"))
                 .ok(),
@@ -573,10 +566,6 @@ impl App {
                 let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
                 self.fb.draw_splash(splash, x, y, divisor, &style);
             }
-            if let (Some(icon), Some((x, y))) = (self.disk_icon.as_ref(), self.disk_at) {
-                let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
-                self.fb.draw_splash(icon, x, y, 1, &style);
-            }
             if let Some(renderer) = self.renderer.as_mut() {
                 renderer.upload(&self.fb);
             }
@@ -649,7 +638,6 @@ impl App {
         let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
         if self.mode == Mode::DiskBrowser {
             self.splash_at = None;
-            self.disk_at = None;
             if let Some(entry) = self.disks.get(self.disk_open)
                 && let Some(disk) = &entry.disk
             {
@@ -667,7 +655,6 @@ impl App {
         }
         if self.mode == Mode::Help {
             self.splash_at = None;
-            self.disk_at = None;
             ui::draw_help(&mut screen, &self.theme, self.help_about);
             self.screen = screen;
             return;
@@ -754,51 +741,35 @@ impl App {
                 .as_ref()
                 .is_some_and(|s| s.width() / divisor <= max_w && s.height() / divisor <= max_h);
 
-            let (title_row, splash_pos, logo_right) = match (&self.splash, fits) {
-                (Some(splash), true) => {
-                    let img_rows = (splash.height() / divisor).div_ceil(cread_core::FONT_H);
-                    (
-                        1 + img_rows + 1,
-                        Some((cread_core::FONT_H, divisor)),
-                        (splash.width() / divisor) as i32,
-                    )
-                }
-                _ => (rows / 2 - 3, None, 0),
-            };
-
             let items = self.boot_rows();
             let note = if self.disks.is_empty() {
                 format!("no disks - put .dsk files in {}", self.short_disk_dir())
             } else {
                 String::new()
             };
+
+            // The whole group - logo, greeting, drives - is centred vertically,
+            // like the old welcome screen was; pinning the logo to the top made
+            // it look like a different screen.
+            let img_rows = match (&self.splash, fits) {
+                (Some(splash), true) => (splash.height() / divisor).div_ceil(cread_core::FONT_H),
+                _ => 0,
+            };
+            let gap = u32::from(img_rows > 0);
+            let block = img_rows + gap + 1 + 1 + items.len() as u32 + u32::from(!note.is_empty());
+            let top = rows.saturating_sub(block) / 2;
+            let title_row = top + img_rows + gap;
+
             let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
-            self.splash_at = splash_pos.filter(|_| !overlay_open).map(|(y, divisor)| {
+            self.splash_at = (img_rows > 0 && !overlay_open).then(|| {
                 let width = self
                     .splash
                     .as_ref()
                     .map(|s| (s.width() / divisor) as i32)
                     .unwrap_or(0);
                 let x = (cols * cread_core::FONT_W) as i32 / 2 - width / 2;
-                (x, y as i32, divisor)
+                (x, (top * cread_core::FONT_H) as i32, divisor)
             });
-
-            // The drive sits in the top-right corner, clear of the logo.
-            let raster_w = (cols * cread_core::FONT_W) as i32;
-            let icon_x = raster_w
-                - self
-                    .disk_icon
-                    .as_ref()
-                    .map(|i| i.width() as i32)
-                    .unwrap_or(0)
-                - 8;
-            let logo_x = (raster_w - logo_right) / 2;
-            self.disk_at = match &self.disk_icon {
-                Some(icon) if !overlay_open && icon_x > logo_x + logo_right + 8 => {
-                    Some((icon_x, cread_core::FONT_H as i32))
-                }
-                _ => None,
-            };
 
             let view = ui::WelcomeView {
                 show_prompt,
