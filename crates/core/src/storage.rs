@@ -115,8 +115,18 @@ fn home() -> PathBuf {
 
 /// Where diskettes live: a friendlier place than the config directory, and it
 /// rides along with the WebDAV sync for free.
+///
+/// Both spellings are accepted, because `~/Dokumente/CRead/Disks` looks natural
+/// while `.../disks` is what many people type.
 pub fn disk_dir(vault: &Path) -> PathBuf {
-    vault.join("Disks")
+    let upper = vault.join("Disks");
+    if !upper.exists() {
+        let lower = vault.join("disks");
+        if lower.exists() {
+            return lower;
+        }
+    }
+    upper
 }
 
 /// Every `.dsk` in a directory, sorted, with its parse result.

@@ -438,30 +438,23 @@ pub struct BootItem {
 
 pub struct WelcomeView<'a> {
     pub show_prompt: bool,
-    /// Row of the greeting; the list follows three rows below.
+    /// Row of the greeting; the drive list follows two rows below.
     pub title_row: u32,
     pub items: &'a [BootItem],
     pub selected: usize,
+    /// Shown dimmed under the list, e.g. where the disks live.
+    pub note: &'a str,
     pub input: &'a str,
     pub hint: &'a str,
     pub error: &'a str,
 }
 
-/// The boot screen: a greeting, the drives, and the command prompt.
+/// The boot screen. Same shape as the original welcome screen — centred logo,
+/// centred greeting — with the drives in place of the old hint lines.
 pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) {
     let cols = screen.cols();
     let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
-
-    // Title bar, because this is an operating system now.
-    let (bar_fg, bar_bg) = (theme.status_fg, theme.status_bg);
-    screen.fill_row(0, Cell::blank(bar_fg, bar_bg));
-    screen.put_str(1, 0, &format!(" CRead OS {}", VERSION), bar_fg, bar_bg);
-    let right = format!("{} drives ", view.items.len());
-    let x = cols.saturating_sub(right.chars().count() as u32);
-    if x > 20 {
-        screen.put_str(x, 0, &right, bar_fg, bar_bg);
-    }
 
     put_centered(
         screen,
@@ -471,19 +464,30 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
         theme.bg,
     );
 
-    let label_x = 4;
-    let detail_x = label_x + 14;
+    // The list is a centred block so it sits under the logo like the old
+    // greeting did, instead of hanging off the left edge.
+    const LABEL_W: u32 = 14;
+    let widest = view
+        .items
+        .iter()
+        .map(|item| LABEL_W + item.detail.chars().count() as u32)
+        .max()
+        .unwrap_or(0);
+    let block_w = widest.min(cols.saturating_sub(6));
+    let x0 = (cols.saturating_sub(block_w)) / 2;
+
     for (i, item) in view.items.iter().enumerate() {
-        let y = view.title_row + 3 + i as u32;
+        let y = view.title_row + 2 + i as u32;
         if y >= rows.saturating_sub(3) {
             break;
         }
         let selected = i == view.selected;
         if selected {
-            for x in 1..cols.saturating_sub(1) {
+            for x in x0.saturating_sub(1)..(x0 + block_w + 1).min(cols) {
                 screen.put(x, y, Cell::blank(theme.bg, theme.fg));
             }
         }
+        let bar_bg = if selected { theme.fg } else { theme.bg };
         let (label_fg, detail_fg) = if selected {
             (theme.bg, theme.bg)
         } else if item.broken {
@@ -492,19 +496,29 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
             (theme.accent, theme.dim)
         };
         screen.put_str(
-            label_x,
+            x0,
             y,
-            &item.label,
+            &format!("{:<width$}", item.label, width = LABEL_W as usize),
             label_fg,
-            if selected { theme.fg } else { theme.bg },
+            bar_bg,
         );
         screen.put_str_ellipsis(
-            detail_x,
+            x0 + LABEL_W,
             y,
             &item.detail,
-            cols.saturating_sub(detail_x + 2),
+            block_w.saturating_sub(LABEL_W),
             detail_fg,
-            if selected { theme.fg } else { theme.bg },
+            bar_bg,
+        );
+    }
+
+    if !view.note.is_empty() {
+        put_centered(
+            screen,
+            (view.title_row + 2 + view.items.len() as u32 + 1).min(rows.saturating_sub(3)),
+            view.note,
+            theme.status_dim,
+            theme.bg,
         );
     }
 

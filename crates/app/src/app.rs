@@ -767,6 +767,11 @@ impl App {
             };
 
             let items = self.boot_rows();
+            let note = if self.disks.is_empty() {
+                format!("no disks - put .dsk files in {}", self.short_disk_dir())
+            } else {
+                String::new()
+            };
             let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
             self.splash_at = splash_pos.filter(|_| !overlay_open).map(|(y, divisor)| {
                 let width = self
@@ -800,6 +805,7 @@ impl App {
                 title_row,
                 items: &items,
                 selected: self.boot_selected,
+                note: &note,
                 input: &self.command,
                 hint: &hint,
                 error: &error,
@@ -2077,6 +2083,15 @@ impl App {
 
     fn disk_dir(&self) -> PathBuf {
         storage::disk_dir(&self.vault())
+    }
+
+    /// The disk folder with `~` instead of the home directory.
+    fn short_disk_dir(&self) -> String {
+        let dir = self.disk_dir();
+        match dir.strip_prefix(storage::home_dir()) {
+            Ok(rest) => format!("~/{}", rest.display()),
+            Err(_) => dir.display().to_string(),
+        }
     }
 
     fn refresh_disks(&mut self) {
