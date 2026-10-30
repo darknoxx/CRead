@@ -6,18 +6,20 @@
 struct Crt {
     // Emulated raster size in pixels.
     vres: vec2<f32>,
+    // Device pixels per emulated pixel.
+    scale: f32,
     scanline: f32,
     bloom: f32,
     brightness: f32,
     _pad0: f32,
     _pad1: f32,
-    _pad2: f32,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
 @group(0) @binding(1) var samp_nearest: sampler;
 @group(0) @binding(2) var samp_linear: sampler;
 @group(0) @binding(3) var<uniform> crt: Crt;
+@group(0) @binding(4) var bloom_tex: texture_2d<f32>;
 
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
@@ -52,28 +54,26 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let texel = (vp + vec2<f32>(0.5)) / vres;
     let base = textureSample(src, samp_nearest, texel).rgb;
 
-    // Phosphor bleed. The linear sampler turns the 2x2 texel average into a
-    // cheap blur; we only add it where a neighbour is *brighter* than this
-    // pixel, so flat backgrounds stay flat instead of washing out.
-    let px = 1.0 / vres;
-    var blur = vec3<f32>(0.0);
-    blur += textureSample(src, samp_linear, texel + vec2<f32>(-1.5,  0.0) * px).rgb;
-    blur += textureSample(src, samp_linear, texel + vec2<f32>( 1.5,  0.0) * px).rgb;
-    blur += textureSample(src, samp_linear, texel + vec2<f32>( 0.0, -1.5) * px).rgb;
-    blur += textureSample(src, samp_linear, texel + vec2<f32>( 0.0,  1.5) * px).rgb;
-    blur += textureSample(src, samp_linear, texel + vec2<f32>(-2.5, -2.5) * px).rgb;
-    blur += textureSample(src, samp_linear, texel + vec2<f32>( 2.5, -2.5) * px).rgb;
-    blur += textureSample(src, samp_linear, texel + vec2<f32>(-2.5,  2.5) * px).rgb;
-    blur += textureSample(src, samp_linear, texel + vec2<f32>( 2.5,  2.5) * px).rgb;
-    blur *= 0.125;
+    // Phosphor glow, blurred separately at half resolution so it can be wide.
+    let glow = textureSample(bloom_tex, samp_linear, in.uv).rgb;
+    var color = base + glow * crt.bloom;
 
-    let bleed = max(luma(blur) - luma(base), 0.0);
-    var color = base + blur * bleed * crt.bloom * 1.6;
-
-    // Scanlines: darken every other emulated row. `scale` physical pixels per
-    // emulated pixel means each bar is exactly `scale` pixels tall.
-    let odd = fract(vp.y * 0.5) * 2.0;
-    color *= 1.0 - crt.scanline * 0.55 * odd;
+    // Scanlines as a beam profile rather than a hard shutter. A real CRT has a
+    // gaussian spot wider than the line pitch, so the gap is never black.
+    // Three device pixels per emulated row is the minimum that can show a
+    // gradient; at two it collapses to one darker row, which is all we can do.
+    var beam: f32;
+    if (crt.scale >= 2.5) {
+        // A cosine across the row: full brightness at the scanline centre,
+        // falling off smoothly towards the gap. The dip depth is controlled by
+        // `scanline`, so the look does not change with the scale factor.
+        let d = fract(in.uv.y * vres.y) - 0.5;
+        beam = 1.0 - crt.scanline * (1.0 - cos(d * 3.14159265));
+    } else {
+        let odd = fract(vp.y * 0.5) * 2.0;
+        beam = 1.0 - 0.5 * odd * crt.scanline;
+    }
+    color *= beam;
 
     // Gentle vignette.
     let d = in.uv - vec2<f32>(0.5);

@@ -9,6 +9,7 @@ use winit::window::Window;
 use crate::raster::Framebuffer;
 
 const SHADER: &str = include_str!("crt.wgsl");
+const BLOOM_SHADER: &str = include_str!("bloom.wgsl");
 
 /// Knobs for the CRT effect chain. All values are 0..1 unless noted.
 #[derive(Clone, Copy, Debug)]
@@ -24,8 +25,8 @@ pub struct CrtSettings {
 impl Default for CrtSettings {
     fn default() -> Self {
         Self {
-            scanline: 0.42,
-            bloom: 0.55,
+            scanline: 0.45,
+            bloom: 0.45,
             brightness: 1.0,
         }
     }
@@ -35,16 +36,31 @@ impl Default for CrtSettings {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct CrtUniforms {
     vres: [f32; 2],
+    /// Device pixels per emulated pixel; the beam profile needs it.
+    scale: f32,
     scanline: f32,
     bloom: f32,
     brightness: f32,
     /// Keep the buffer at 32 bytes; see the matching WGSL struct.
-    _pad: [f32; 3],
+    _pad: [f32; 2],
 }
 
 const _: () = assert!(
     std::mem::size_of::<CrtUniforms>() == 32,
     "CrtUniforms must stay in sync with the WGSL struct"
+);
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct BloomUniforms {
+    texel: [f32; 2],
+    dir: [f32; 2],
+    _pad: [f32; 4],
+}
+
+const _: () = assert!(
+    std::mem::size_of::<BloomUniforms>() == 32,
+    "BloomUniforms must stay in sync with the WGSL struct"
 );
 
 /// What happened when we tried to get a frame.
@@ -70,6 +86,14 @@ pub struct Renderer {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
+    bloom_pipeline: wgpu::RenderPipeline,
+    bloom_layout: wgpu::BindGroupLayout,
+    bloom_tex: [wgpu::Texture; 2],
+    bloom_view: [wgpu::TextureView; 2],
+    bloom_size: (u32, u32),
+    bloom_uniforms: [wgpu::Buffer; 2],
+    /// [0] text -> bloom[0] (horizontal), [1] bloom[0] -> bloom[1] (vertical)
+    bloom_bind: [wgpu::BindGroup; 2],
     tex_size: (u32, u32),
     adapter_info: String,
 }
@@ -154,6 +178,16 @@ impl Renderer {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -221,7 +255,108 @@ impl Renderer {
         });
 
         let (texture, view) = create_target(&device, 640, 400);
-        let bind_group = make_bind_group(&device, &layout, &view, &nearest, &linear, &uniforms);
+
+        // Bloom: two blur passes at half resolution, then composited on top.
+        let bloom_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("bloom"),
+            source: wgpu::ShaderSource::Wgsl(BLOOM_SHADER.into()),
+        });
+        let bloom_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("bloom"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bloom_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("bloom"),
+                bind_group_layouts: &[Some(&bloom_layout)],
+                immediate_size: 0,
+            });
+        let bloom_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("bloom"),
+            layout: Some(&bloom_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &bloom_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &bloom_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let bloom_size = bloom_size_for(640, 400);
+        let bloom_tex = [
+            create_bloom_target(&device, bloom_size.0, bloom_size.1),
+            create_bloom_target(&device, bloom_size.0, bloom_size.1),
+        ];
+        let bloom_view = [
+            bloom_tex[0].create_view(&wgpu::TextureViewDescriptor::default()),
+            bloom_tex[1].create_view(&wgpu::TextureViewDescriptor::default()),
+        ];
+        let bloom_uniforms = [
+            make_uniform_buffer(&device, "bloom h"),
+            make_uniform_buffer(&device, "bloom v"),
+        ];
+        let bloom_bind = [
+            make_bloom_bind(&device, &bloom_layout, &view, &linear, &bloom_uniforms[0]),
+            make_bloom_bind(
+                &device,
+                &bloom_layout,
+                &bloom_view[0],
+                &linear,
+                &bloom_uniforms[1],
+            ),
+        ];
+
+        let bind_group = make_bind_group(
+            &device,
+            &layout,
+            &view,
+            &bloom_view[1],
+            &nearest,
+            &linear,
+            &uniforms,
+        );
 
         Ok(Self {
             surface,
@@ -233,6 +368,13 @@ impl Renderer {
             nearest,
             linear,
             uniforms,
+            bloom_pipeline,
+            bloom_layout,
+            bloom_tex,
+            bloom_view,
+            bloom_size,
+            bloom_uniforms,
+            bloom_bind,
             texture,
             view,
             bind_group,
@@ -267,15 +409,43 @@ impl Renderer {
             let (texture, view) = create_target(&self.device, size.0, size.1);
             self.view = view;
             self.texture = texture;
+            self.tex_size = size;
+
+            let bloom_size = bloom_size_for(size.0, size.1);
+            self.bloom_size = bloom_size;
+            self.bloom_tex = [
+                create_bloom_target(&self.device, bloom_size.0, bloom_size.1),
+                create_bloom_target(&self.device, bloom_size.0, bloom_size.1),
+            ];
+            self.bloom_view = [
+                self.bloom_tex[0].create_view(&wgpu::TextureViewDescriptor::default()),
+                self.bloom_tex[1].create_view(&wgpu::TextureViewDescriptor::default()),
+            ];
+            self.bloom_bind = [
+                make_bloom_bind(
+                    &self.device,
+                    &self.bloom_layout,
+                    &self.view,
+                    &self.linear,
+                    &self.bloom_uniforms[0],
+                ),
+                make_bloom_bind(
+                    &self.device,
+                    &self.bloom_layout,
+                    &self.bloom_view[0],
+                    &self.linear,
+                    &self.bloom_uniforms[1],
+                ),
+            ];
             self.bind_group = make_bind_group(
                 &self.device,
                 &self.layout,
                 &self.view,
+                &self.bloom_view[1],
                 &self.nearest,
                 &self.linear,
                 &self.uniforms,
             );
-            self.tex_size = size;
         }
 
         self.queue.write_texture(
@@ -299,16 +469,56 @@ impl Renderer {
         );
     }
 
-    fn write_uniforms(&mut self, settings: &CrtSettings) {
+    fn write_uniforms(&mut self, scale: u32, settings: &CrtSettings) {
         let uniforms = CrtUniforms {
             vres: [self.tex_size.0 as f32, self.tex_size.1 as f32],
+            scale: scale as f32,
             scanline: settings.scanline,
             bloom: settings.bloom,
             brightness: settings.brightness,
-            _pad: [0.0; 3],
+            _pad: [0.0; 2],
         };
         self.queue
             .write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&uniforms));
+
+        let texel = [
+            1.0 / self.bloom_size.0.max(1) as f32,
+            1.0 / self.bloom_size.1.max(1) as f32,
+        ];
+        for (i, dir) in [[1.0, 0.0], [0.0, 1.0]].into_iter().enumerate() {
+            let bloom = BloomUniforms {
+                texel,
+                dir,
+                _pad: [0.0; 4],
+            };
+            self.queue
+                .write_buffer(&self.bloom_uniforms[i], 0, bytemuck::bytes_of(&bloom));
+        }
+    }
+
+    /// Blur the frame into the two bloom targets: horizontal, then vertical.
+    fn encode_bloom(&self, encoder: &mut wgpu::CommandEncoder) {
+        for i in 0..2 {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("bloom"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.bloom_view[i],
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.bloom_pipeline);
+            pass.set_bind_group(0, &self.bloom_bind[i], &[]);
+            pass.draw(0..3, 0..1);
+        }
     }
 
     /// Record the CRT pass into `target` at the viewport rect.
@@ -355,7 +565,7 @@ impl Renderer {
 
     /// Draw and present one frame.
     pub fn render(&mut self, vp: &Viewport, settings: &CrtSettings) -> Result<FrameStatus, String> {
-        self.write_uniforms(settings);
+        self.write_uniforms(vp.scale, settings);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
@@ -376,6 +586,7 @@ impl Renderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("crt") });
 
+        self.encode_bloom(&mut encoder);
         self.encode_crt_pass(&mut encoder, &view, vp);
 
         self.queue.submit(Some(encoder.finish()));
@@ -392,7 +603,7 @@ impl Renderer {
         width: u32,
         height: u32,
     ) -> Result<(Vec<u8>, u32, u32), String> {
-        self.write_uniforms(settings);
+        self.write_uniforms(vp.scale, settings);
 
         let format = self.config.format;
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -426,6 +637,7 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("screenshot"),
             });
+        self.encode_bloom(&mut encoder);
         self.encode_crt_pass(&mut encoder, &view, vp);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
@@ -516,6 +728,7 @@ fn make_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     view: &wgpu::TextureView,
+    bloom: &wgpu::TextureView,
     nearest: &wgpu::Sampler,
     linear: &wgpu::Sampler,
     uniforms: &wgpu::Buffer,
@@ -540,6 +753,69 @@ fn make_bind_group(
                 binding: 3,
                 resource: uniforms.as_entire_binding(),
             },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(bloom),
+            },
         ],
+    })
+}
+
+fn make_bloom_bind(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    view: &wgpu::TextureView,
+    linear: &wgpu::Sampler,
+    uniforms: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("bloom"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(linear),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: uniforms.as_entire_binding(),
+            },
+        ],
+    })
+}
+
+fn make_uniform_buffer(device: &wgpu::Device, label: &str) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: std::mem::size_of::<BloomUniforms>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+/// The glow is computed at half the emulated resolution: wide enough to read as
+/// light rather than as a fringe around every glyph.
+fn bloom_size_for(width: u32, height: u32) -> (u32, u32) {
+    ((width / 2).max(1), (height / 2).max(1))
+}
+
+fn create_bloom_target(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("bloom"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba16Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
     })
 }
