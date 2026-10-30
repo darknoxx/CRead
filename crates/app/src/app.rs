@@ -631,7 +631,10 @@ impl App {
                 }
                 _ => (rows / 2 - 1, rows / 2 + 1, None),
             };
-            self.splash_at = splash_y.map(|y| {
+            // The logo is blitted into the framebuffer after the cell grid, so
+            // it would land on top of any overlay drawn into that grid.
+            let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
+            self.splash_at = splash_y.filter(|_| !overlay_open).map(|y| {
                 let x = (cols * cread_core::FONT_W) as i32 / 2
                     - self.splash.as_ref().map(|s| s.width() as i32).unwrap_or(0) / 2;
                 (x, y)
