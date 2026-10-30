@@ -990,7 +990,6 @@ mod tests {
                 input: "be",
                 items: &items,
                 selected: 1,
-                note: "no disks - put .dsk files in ~/Dokumente/CRead/Disks",
                 hint: "Enter open",
             },
         );
