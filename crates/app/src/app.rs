@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use cread_core::{
     Editor, Position, Prefs, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
+    disk::Disk,
     resolution::target_line_px_for_scale_factor,
     storage,
 };
@@ -49,8 +50,10 @@ pub fn run(opts: Options) -> Result<(), String> {
 
 struct Document {
     path: Option<PathBuf>,
+    /// Opened from a diskette: shown in the reader, never written back.
+    read_only: bool,
     /// Shown when there is no path yet, e.g. the built-in demo document.
-    title_hint: Option<&'static str>,
+    title_hint: Option<String>,
     editor: Editor,
     last_edit: Instant,
 }
@@ -62,7 +65,7 @@ impl Document {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "untitled".into()),
-            None => self.title_hint.unwrap_or("untitled").to_string(),
+            None => self.title_hint.clone().unwrap_or_else(|| "untitled".into()),
         }
     }
 }
@@ -143,6 +146,23 @@ struct Search {
     current: usize,
 }
 
+/// A diskette found in the vault, parsed or not — a broken disk still shows up
+/// on the boot screen so its owner can see what went wrong.
+struct DiskEntry {
+    /// File name without extension, for the label when the disk is broken.
+    stem: String,
+    disk: Option<Disk>,
+    error: Option<String>,
+}
+
+/// One row of the boot screen.
+#[derive(Clone, Copy)]
+enum BootItem {
+    Editor,
+    Documents,
+    Disk(usize),
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// Typing into the document.
@@ -151,6 +171,8 @@ enum Mode {
     Search,
     /// Reader mode: markup stripped, not editable.
     View,
+    /// Browsing the files on a diskette.
+    DiskBrowser,
     /// A command line at the bottom, like a shell.
     Action,
     /// File picker.
@@ -185,6 +207,17 @@ struct App {
     typewriter: bool,
 
     doc: Document,
+    /// Diskettes in `<vault>/Disks`, refreshed when the boot screen appears.
+    disks: Vec<DiskEntry>,
+    /// Set when the boot screen should re-read the disk folder.
+    disks_dirty: bool,
+    boot_selected: usize,
+    /// Index into `disks` while the browser is open.
+    disk_open: usize,
+    disk_selected: usize,
+    disk_icon: Option<Splash>,
+    /// Where the drive icon was blitted this frame.
+    disk_at: Option<(i32, i32)>,
     splash: Option<Splash>,
     /// Where the logo was blitted this frame: x, y and the integer divisor.
     splash_at: Option<(i32, i32, u32)>,
@@ -358,6 +391,15 @@ impl App {
             mods: ModifiersState::empty(),
             typewriter,
             doc,
+            disks: Vec::new(),
+            disks_dirty: true,
+            boot_selected: 0,
+            disk_open: 0,
+            disk_selected: 0,
+            disk_icon: Splash::from_png(include_bytes!("../../../assets/disk.png"))
+                .map_err(|e| eprintln!("cread: disk icon: {e}"))
+                .ok(),
+            disk_at: None,
             splash: Splash::from_png(include_bytes!("../../../assets/splash.png"))
                 .map_err(|e| eprintln!("cread: {e}"))
                 .ok(),
@@ -405,6 +447,7 @@ impl App {
                     return (
                         Document {
                             path: Some(path.clone()),
+                            read_only: false,
                             title_hint: None,
                             editor: Editor::from_text(&text),
                             last_edit: Instant::now(),
@@ -420,7 +463,8 @@ impl App {
             return (
                 Document {
                     path: None,
-                    title_hint: Some("welcome.md"),
+                    read_only: false,
+                    title_hint: Some("welcome.md".into()),
                     editor: Editor::from_text(WELCOME),
                     last_edit: Instant::now(),
                 },
@@ -431,6 +475,7 @@ impl App {
         (
             Document {
                 path: None,
+                read_only: false,
                 title_hint: None,
                 editor: Editor::new(),
                 last_edit: Instant::now(),
@@ -528,6 +573,10 @@ impl App {
                 let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
                 self.fb.draw_splash(splash, x, y, divisor, &style);
             }
+            if let (Some(icon), Some((x, y))) = (self.disk_icon.as_ref(), self.disk_at) {
+                let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
+                self.fb.draw_splash(icon, x, y, 1, &style);
+            }
             if let Some(renderer) = self.renderer.as_mut() {
                 renderer.upload(&self.fb);
             }
@@ -598,8 +647,27 @@ impl App {
     /// Build the cell grid for the current state.
     fn compose(&mut self) {
         let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
+        if self.mode == Mode::DiskBrowser {
+            self.splash_at = None;
+            self.disk_at = None;
+            if let Some(entry) = self.disks.get(self.disk_open)
+                && let Some(disk) = &entry.disk
+            {
+                let files: Vec<String> = disk.files.iter().map(|f| f.name.clone()).collect();
+                let view = ui::DiskView {
+                    title: &format!("{}:", disk.name),
+                    about: &disk.about,
+                    files: &files,
+                    selected: self.disk_selected,
+                };
+                ui::draw_disk(&mut screen, &self.theme, &view);
+            }
+            self.screen = screen;
+            return;
+        }
         if self.mode == Mode::Help {
             self.splash_at = None;
+            self.disk_at = None;
             ui::draw_help(&mut screen, &self.theme, self.help_about);
             self.screen = screen;
             return;
@@ -617,7 +685,7 @@ impl App {
                 // Left empty on purpose: the prompt then shows how to leave.
                 String::new()
             } else {
-                "new  empty document     open  file list".to_string()
+                "↑↓ select   Enter run   help for commands".to_string()
             }
         } else {
             command::complete(&self.command)
@@ -653,16 +721,24 @@ impl App {
                 rows: &self.view_rows,
                 top: self.view_top,
                 words: stats.words,
+                hint: if self.doc.read_only {
+                    "Esc back to the diskette"
+                } else {
+                    "Esc back to write mode"
+                },
             };
             ui::draw_reader(&mut screen, &self.theme, &view);
         } else if !self.has_document {
+            if self.disks_dirty {
+                self.refresh_disks();
+                self.disks_dirty = false;
+            }
             let show_prompt = matches!(self.mode, Mode::Action | Mode::Search);
-            // With a logo above it the greeting moves down; without one it sits
-            // in the middle of the screen as before.
-            // The logo is pixel art: shrink it by a whole factor at most, never
-            // fractionally, and only when the raster genuinely cannot hold it.
+
+            // Pixel art shrinks by a whole factor at most, and only when the
+            // raster genuinely cannot hold it.
             let max_w = cols * cread_core::FONT_W;
-            let max_h = rows.saturating_sub(6) * cread_core::FONT_H;
+            let max_h = rows.saturating_sub(8) * cread_core::FONT_H;
             let mut divisor = 1;
             while let Some(splash) = &self.splash {
                 if splash.width() / divisor <= max_w && splash.height() / divisor <= max_h {
@@ -677,22 +753,20 @@ impl App {
                 .splash
                 .as_ref()
                 .is_some_and(|s| s.width() / divisor <= max_w && s.height() / divisor <= max_h);
-            let (title_row, subtitle_row, hint_row, splash_pos) = match (&self.splash, fits) {
+
+            let (title_row, splash_pos, logo_right) = match (&self.splash, fits) {
                 (Some(splash), true) => {
                     let img_rows = (splash.height() / divisor).div_ceil(cread_core::FONT_H);
-                    let block = img_rows + 1 + 3;
-                    let top = rows.saturating_sub(block) / 2;
                     (
-                        top + img_rows + 1,
-                        top + img_rows + 3,
-                        top + img_rows + 5,
-                        Some((top * cread_core::FONT_H, divisor)),
+                        1 + img_rows + 1,
+                        Some((cread_core::FONT_H, divisor)),
+                        (splash.width() / divisor) as i32,
                     )
                 }
-                _ => (rows / 2 - 1, rows / 2 + 1, rows / 2 + 4, None),
+                _ => (rows / 2 - 3, None, 0),
             };
-            // The logo is blitted into the framebuffer after the cell grid, so
-            // it would land on top of any overlay drawn into that grid.
+
+            let items = self.boot_rows();
             let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
             self.splash_at = splash_pos.filter(|_| !overlay_open).map(|(y, divisor)| {
                 let width = self
@@ -703,17 +777,34 @@ impl App {
                 let x = (cols * cread_core::FONT_W) as i32 / 2 - width / 2;
                 (x, y as i32, divisor)
             });
-            ui::draw_welcome(
-                &mut screen,
-                &self.theme,
+
+            // The drive sits in the top-right corner, clear of the logo.
+            let raster_w = (cols * cread_core::FONT_W) as i32;
+            let icon_x = raster_w
+                - self
+                    .disk_icon
+                    .as_ref()
+                    .map(|i| i.width() as i32)
+                    .unwrap_or(0)
+                - 8;
+            let logo_x = (raster_w - logo_right) / 2;
+            self.disk_at = match &self.disk_icon {
+                Some(icon) if !overlay_open && icon_x > logo_x + logo_right + 8 => {
+                    Some((icon_x, cread_core::FONT_H as i32))
+                }
+                _ => None,
+            };
+
+            let view = ui::WelcomeView {
                 show_prompt,
                 title_row,
-                subtitle_row,
-                hint_row,
-                &self.command,
-                &hint,
-                &error,
-            );
+                items: &items,
+                selected: self.boot_selected,
+                input: &self.command,
+                hint: &hint,
+                error: &error,
+            };
+            ui::draw_welcome(&mut screen, &self.theme, &view);
         } else {
             // A document is open: the logo belongs to the start screen only.
             self.splash_at = None;
@@ -873,7 +964,7 @@ impl App {
         if self.mode != Mode::Write {
             return;
         }
-        if !self.doc.editor.modified() {
+        if self.doc.read_only || !self.doc.editor.modified() {
             return;
         }
         if self.doc.last_edit.elapsed() < AUTOSAVE_DELAY {
@@ -1003,6 +1094,9 @@ impl App {
     }
 
     fn save(&mut self) -> Result<String, String> {
+        if self.doc.read_only {
+            return Err("this came from a diskette - read only".into());
+        }
         let path = match self.doc.path.clone() {
             Some(path) => path,
             None => self.free_untitled_path(),
@@ -1016,6 +1110,7 @@ impl App {
         let path = self.free_untitled_path();
         self.doc = Document {
             path: None,
+            read_only: false,
             title_hint: None,
             editor: Editor::new(),
             last_edit: Instant::now(),
@@ -1070,6 +1165,7 @@ impl App {
             storage::load(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
         self.doc = Document {
             path: Some(path.clone()),
+            read_only: false,
             title_hint: None,
             editor: Editor::from_text(&text),
             last_edit: Instant::now(),
@@ -1100,6 +1196,7 @@ impl App {
         std::fs::remove_file(&path).map_err(|e| format!("delete failed: {e}"))?;
         self.doc = Document {
             path: None,
+            read_only: false,
             title_hint: None,
             editor: Editor::new(),
             last_edit: Instant::now(),
@@ -1167,6 +1264,7 @@ impl App {
         if self.doc.path.as_deref() == Some(path.as_path()) {
             self.doc = Document {
                 path: None,
+                read_only: false,
                 title_hint: None,
                 editor: Editor::new(),
                 last_edit: Instant::now(),
@@ -1234,6 +1332,7 @@ impl App {
             Mode::Write => self.on_key_write(el, event),
             Mode::Search => self.on_key_search(event),
             Mode::View => self.on_key_view(event),
+            Mode::DiskBrowser => self.on_key_disk_browser(event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -1416,11 +1515,20 @@ impl App {
                 self.poke();
             }
             Key::Named(NamedKey::ArrowUp) => {
-                self.history_step(-1);
+                if !self.has_document && self.command.is_empty() {
+                    self.boot_selected = self.boot_selected.saturating_sub(1);
+                } else {
+                    self.history_step(-1);
+                }
                 self.poke();
             }
             Key::Named(NamedKey::ArrowDown) => {
-                self.history_step(1);
+                if !self.has_document && self.command.is_empty() {
+                    let last = self.boot_items().len().saturating_sub(1);
+                    self.boot_selected = (self.boot_selected + 1).min(last);
+                } else {
+                    self.history_step(1);
+                }
                 self.poke();
             }
             Key::Named(NamedKey::Backspace) => {
@@ -1452,7 +1560,11 @@ impl App {
         let command = match command::parse(&line) {
             Ok(command) => command,
             Err(CommandError::Empty) => {
-                self.to_write();
+                if self.has_document {
+                    self.to_write();
+                } else {
+                    self.boot_activate();
+                }
                 return;
             }
             Err(e) => {
@@ -1626,12 +1738,36 @@ impl App {
                 self.start_search(query);
                 Ok(String::new())
             }
+            Command::Run(None) => {
+                self.boot_activate();
+                Ok(String::new())
+            }
+            Command::Run(Some(name)) => self.run_named(&name),
+            Command::Dir => {
+                self.disks_dirty = true;
+                self.refresh_disks();
+                let names: Vec<String> = self
+                    .disks
+                    .iter()
+                    .map(|e| match &e.disk {
+                        Some(d) => d.name.clone(),
+                        None => format!("{} (bad)", e.stem),
+                    })
+                    .collect();
+                Ok(if names.is_empty() {
+                    format!("no disks in {}", self.disk_dir().display())
+                } else {
+                    format!("{} disk(s): {}", names.len(), names.join(", "))
+                })
+            }
             Command::Welcome => {
+                self.disks_dirty = true;
                 if self.has_document && self.doc.editor.modified() {
                     self.save()?;
                 }
                 self.doc = Document {
                     path: None,
+                    read_only: false,
                     title_hint: None,
                     editor: Editor::new(),
                     last_edit: Instant::now(),
@@ -1679,6 +1815,20 @@ impl App {
 
     #[allow(clippy::wrong_self_convention)]
     fn to_write(&mut self) {
+        if self.doc.read_only {
+            self.doc = Document {
+                path: None,
+                read_only: false,
+                title_hint: None,
+                editor: Editor::new(),
+                last_edit: Instant::now(),
+            };
+            self.has_document = false;
+            self.mode = Mode::DiskBrowser;
+            self.command.clear();
+            self.dirty = true;
+            return;
+        }
         self.mode = if self.has_document {
             Mode::Write
         } else {
@@ -1918,6 +2068,200 @@ impl App {
                     }
                 }
                 self.update_search();
+            }
+            _ => {}
+        }
+    }
+
+    // ── disks and the boot screen ───────────────────────────────────────────
+
+    fn disk_dir(&self) -> PathBuf {
+        storage::disk_dir(&self.vault())
+    }
+
+    fn refresh_disks(&mut self) {
+        let dir = self.disk_dir();
+        self.disks = match storage::list_disks(&dir) {
+            Ok(entries) => entries
+                .into_iter()
+                .map(|(path, text)| {
+                    let stem = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    match text
+                        .map_err(|e| e.to_string())
+                        .and_then(|t| Disk::parse(&t).map_err(|e| e.to_string()))
+                    {
+                        Ok(disk) => DiskEntry {
+                            stem,
+                            disk: Some(disk),
+                            error: None,
+                        },
+                        Err(error) => DiskEntry {
+                            stem,
+                            disk: None,
+                            error: Some(error),
+                        },
+                    }
+                })
+                .collect(),
+            Err(e) => {
+                self.set_status(format!("cannot list disks: {e}"));
+                Vec::new()
+            }
+        };
+        if self.boot_selected >= self.boot_items().len() {
+            self.boot_selected = 0;
+        }
+    }
+
+    fn boot_items(&self) -> Vec<BootItem> {
+        let mut items = vec![BootItem::Editor, BootItem::Documents];
+        items.extend((0..self.disks.len()).map(BootItem::Disk));
+        items
+    }
+
+    /// The boot screen list as the UI wants it.
+    fn boot_rows(&self) -> Vec<ui::BootItem> {
+        let letter = |i: usize| (b'A' + i as u8) as char;
+        let mut rows = vec![
+            ui::BootItem {
+                label: format!("{}: EDITOR", letter(0)),
+                detail: "the writing terminal".into(),
+                broken: false,
+            },
+            ui::BootItem {
+                label: format!("{}: DOCUMENTS", letter(1)),
+                detail: "open a file from the vault".into(),
+                broken: false,
+            },
+        ];
+        for (i, entry) in self.disks.iter().enumerate() {
+            let letter = letter(i + 2);
+            match &entry.disk {
+                Some(disk) => rows.push(ui::BootItem {
+                    label: format!("{letter}: {}", disk.name),
+                    detail: if disk.about.is_empty() {
+                        format!("{} file(s)", disk.files.len())
+                    } else {
+                        disk.about.clone()
+                    },
+                    broken: false,
+                }),
+                None => rows.push(ui::BootItem {
+                    label: format!("{letter}: {}", entry.stem.to_uppercase()),
+                    detail: entry.error.clone().unwrap_or_default(),
+                    broken: true,
+                }),
+            }
+        }
+        rows
+    }
+
+    fn boot_activate(&mut self) {
+        let Some(item) = self.boot_items().get(self.boot_selected).copied() else {
+            return;
+        };
+        match item {
+            BootItem::Editor => {
+                if let Err(e) = self.new_document() {
+                    self.set_status(e);
+                }
+            }
+            BootItem::Documents => self.open_palette(),
+            BootItem::Disk(index) => self.open_disk(index),
+        }
+    }
+
+    fn open_disk(&mut self, index: usize) {
+        let Some(entry) = self.disks.get(index) else {
+            return;
+        };
+        if let Some(error) = entry.error.clone() {
+            let stem = entry.stem.clone();
+            self.set_status(format!("{stem}: {error}"));
+            return;
+        }
+        self.disk_open = index;
+        self.disk_selected = 0;
+        self.mode = Mode::DiskBrowser;
+        self.dirty = true;
+    }
+
+    /// Run a disk by name, or one of the built-ins.
+    fn run_named(&mut self, name: &str) -> Result<String, String> {
+        let wanted = name.trim().to_ascii_lowercase();
+        if matches!(wanted.as_str(), "editor" | "a") {
+            self.new_document()?;
+            return Ok(String::new());
+        }
+        if matches!(wanted.as_str(), "documents" | "files" | "b") {
+            self.open_palette();
+            return Ok(String::new());
+        }
+        let index = self
+            .disks
+            .iter()
+            .position(|entry| {
+                entry.stem.eq_ignore_ascii_case(&wanted)
+                    || entry
+                        .disk
+                        .as_ref()
+                        .is_some_and(|d| d.name.eq_ignore_ascii_case(&wanted))
+            })
+            .ok_or_else(|| format!("no disk called {name}"))?;
+        self.open_disk(index);
+        Ok(String::new())
+    }
+
+    fn open_disk_file(&mut self) {
+        let Some(entry) = self.disks.get(self.disk_open) else {
+            return;
+        };
+        let Some(disk) = &entry.disk else {
+            return;
+        };
+        let Some(file) = disk.files.get(self.disk_selected) else {
+            return;
+        };
+        let title = format!("{}:{}", disk.name, file.name);
+        let text = file.text.clone();
+
+        self.doc = Document {
+            path: None,
+            read_only: true,
+            title_hint: Some(title),
+            editor: Editor::from_text(&text),
+            last_edit: Instant::now(),
+        };
+        self.has_document = true;
+        self.enter_view();
+    }
+
+    fn on_key_disk_browser(&mut self, event: KeyEvent) {
+        let count = self
+            .disks
+            .get(self.disk_open)
+            .and_then(|d| d.disk.as_ref())
+            .map(|d| d.files.len())
+            .unwrap_or(0);
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.mode = Mode::Action;
+                self.disks_dirty = true;
+                self.dirty = true;
+            }
+            Key::Named(NamedKey::Enter) | Key::Named(NamedKey::Space) => self.open_disk_file(),
+            Key::Named(NamedKey::ArrowDown) => {
+                if self.disk_selected + 1 < count {
+                    self.disk_selected += 1;
+                }
+                self.poke();
+            }
+            Key::Named(NamedKey::ArrowUp) => {
+                self.disk_selected = self.disk_selected.saturating_sub(1);
+                self.poke();
             }
             _ => {}
         }
@@ -2368,6 +2712,21 @@ impl ApplicationHandler for App {
                 self.mode = Mode::Help;
             }
             "view" => self.enter_view(),
+            "disk" => {
+                self.refresh_disks();
+                let name = self.opts.command.clone();
+                if let Err(e) = self.run_named(&name) {
+                    eprintln!("cread: {e}");
+                }
+            }
+            "diskfile" => {
+                self.refresh_disks();
+                let name = self.opts.command.clone();
+                match self.run_named(&name) {
+                    Ok(_) => self.open_disk_file(),
+                    Err(e) => eprintln!("cread: {e}"),
+                }
+            }
             "search" => {
                 let query = self.opts.command.clone();
                 self.start_search((!query.is_empty()).then_some(query));

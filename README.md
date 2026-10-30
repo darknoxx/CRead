@@ -90,6 +90,8 @@ the right tells you what the command does before you commit to it.
 | `find [text]` | `search` | search the document (`Ctrl+F`) |
 | `view` | `read` | reading mode: markup stripped, nothing to edit |
 | `welcome` | `home` | back to the start screen |
+| `run [name]` | `exec` | run a diskette (bare: whatever the boot screen has selected) |
+| `dir` | `disks` | list the diskettes in the drive folder |
 | `font [classic\|thin\|cga]` | `weight` | typeface; bare `font` cycles |
 | `sync` | | push the vault to WebDAV now |
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
@@ -112,6 +114,43 @@ most a sentence.
 usual `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work with the system clipboard. Marked text
 is drawn inverted, and typing or `Backspace` replaces it. The mouse does the
 obvious thing: click places the cursor, dragging marks, the wheel scrolls.
+
+## Diskettes
+
+CRead OS is the start screen: a greeting, the drives and a prompt. Two drives
+are built in — `A: EDITOR` and `B: DOCUMENTS` — and everything else comes from
+the `Disks` folder inside your vault:
+
+```
+~/Dokumente/CRead/Disks/MAIL.DSK
+```
+
+A diskette is a single plain-text file, so it can be read with `type`, mailed
+around, or kept in git. The format:
+
+```
+CRead Disk 1
+name=MAIL
+api=1
+about=Postfach und Nachrichten
+author=you
+
+---FILE README.TXT
+Willkommen in der Post.
+---FILE INBOX/1.TXT
+Hallo.
+```
+
+Line one is the magic. Then `key=value` lines (`name` is required, `api` is the
+container version), then files introduced by `---FILE <name>`. A diskette that
+will not parse still shows up on the boot screen, in red, with the reason — you
+can see that something is wrong without digging.
+
+Data diskettes are read-only: opening a file shows it in the reader, and `Esc`
+takes you back to the disk. Code diskettes (a payload that actually runs) are
+the next step; the container is designed to carry them.
+
+`examples/disks/HELLO.DSK` is a working sample.
 
 ## View mode
 

@@ -289,6 +289,75 @@ fn draw_prompt(
     }
 }
 
+// ── diskette browser ────────────────────────────────────────────────────────
+
+pub struct DiskView<'a> {
+    pub title: &'a str,
+    pub about: &'a str,
+    pub files: &'a [String],
+    pub selected: usize,
+}
+
+/// The contents of the diskette in the drive.
+pub fn draw_disk(screen: &mut Screen, theme: &Theme, view: &DiskView<'_>) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    let (bar_fg, bar_bg) = (theme.status_fg, theme.status_bg);
+    screen.fill_row(0, Cell::blank(bar_fg, bar_bg));
+    screen.put_str(1, 0, &format!(" {} ", view.title), bar_fg, bar_bg);
+    let right = format!("{} files ", view.files.len());
+    let x = cols.saturating_sub(right.chars().count() as u32);
+    if x > 20 {
+        screen.put_str(x, 0, &right, bar_fg, bar_bg);
+    }
+
+    if !view.about.is_empty() {
+        screen.put_str_ellipsis(
+            2,
+            2,
+            view.about,
+            cols.saturating_sub(4),
+            theme.status_dim,
+            theme.bg,
+        );
+    }
+
+    let first = 4u32;
+    let height = rows.saturating_sub(first + 2) as usize;
+    let offset = view.selected.saturating_sub(height.saturating_sub(1));
+    for (i, name) in view.files.iter().enumerate().skip(offset).take(height) {
+        let y = first + (i - offset) as u32;
+        let selected = i == view.selected;
+        if selected {
+            for x in 1..cols.saturating_sub(1) {
+                screen.put(x, y, Cell::blank(theme.bg, theme.fg));
+            }
+        }
+        let (fg, bg) = if selected {
+            (theme.bg, theme.fg)
+        } else {
+            (theme.fg, theme.bg)
+        };
+        screen.put_str(2, y, ">", theme.accent, bg);
+        screen.put_str_ellipsis(4, y, name, cols.saturating_sub(6), fg, bg);
+    }
+
+    if view.files.is_empty() {
+        screen.put_str(2, first, "this disk has no files", theme.dim, theme.bg);
+    }
+
+    let bar = rows.saturating_sub(1);
+    screen.fill_row(bar, Cell::blank(bar_fg, bar_bg));
+    screen.put_str(0, bar, " Esc eject ", bar_fg, bar_bg);
+    let hint = "Enter open ";
+    let x = cols.saturating_sub(hint.chars().count() as u32);
+    if x > 20 {
+        screen.put_str(x, bar, hint, bar_fg, bar_bg);
+    }
+}
+
 // ── reader (view mode) ──────────────────────────────────────────────────────
 
 pub struct ReaderView<'a> {
@@ -299,6 +368,8 @@ pub struct ReaderView<'a> {
     /// Index of the first visible row.
     pub top: usize,
     pub words: usize,
+    /// What leaving this view does — differs for diskettes.
+    pub hint: &'a str,
 }
 
 /// The document with the markup taken out: what the thing actually says.
@@ -348,7 +419,7 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
     );
     screen.put_str(0, bar, &left, fg, bg);
 
-    let right = "Esc back to write mode";
+    let right = view.hint;
     let x = cols.saturating_sub(right.chars().count() as u32 + 1);
     if x > left.chars().count() as u32 + 1 {
         screen.put_str(x, bar, right, theme.status_dim, bg);
@@ -358,44 +429,87 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
 // ── welcome ─────────────────────────────────────────────────────────────────
 
 /// The start screen: a centred greeting with a command prompt at the bottom.
-#[allow(clippy::too_many_arguments)]
-pub fn draw_welcome(
-    screen: &mut Screen,
-    theme: &Theme,
-    show_prompt: bool,
-    title_row: u32,
-    subtitle_row: u32,
-    hint_row: u32,
-    input: &str,
-    hint: &str,
-    error: &str,
-) {
+pub struct BootItem {
+    pub label: String,
+    pub detail: String,
+    /// Shown in the error colour: a disk that would not parse.
+    pub broken: bool,
+}
+
+pub struct WelcomeView<'a> {
+    pub show_prompt: bool,
+    /// Row of the greeting; the list follows three rows below.
+    pub title_row: u32,
+    pub items: &'a [BootItem],
+    pub selected: usize,
+    pub input: &'a str,
+    pub hint: &'a str,
+    pub error: &'a str,
+}
+
+/// The boot screen: a greeting, the drives, and the command prompt.
+pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) {
+    let cols = screen.cols();
+    let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    // Title bar, because this is an operating system now.
+    let (bar_fg, bar_bg) = (theme.status_fg, theme.status_bg);
+    screen.fill_row(0, Cell::blank(bar_fg, bar_bg));
+    screen.put_str(1, 0, &format!(" CRead OS {}", VERSION), bar_fg, bar_bg);
+    let right = format!("{} drives ", view.items.len());
+    let x = cols.saturating_sub(right.chars().count() as u32);
+    if x > 20 {
+        screen.put_str(x, 0, &right, bar_fg, bar_bg);
+    }
 
     put_centered(
         screen,
-        title_row,
+        view.title_row,
         "Welcome to CRead",
         theme.accent,
         theme.bg,
     );
-    put_centered(
-        screen,
-        subtitle_row,
-        "type new or open to start",
-        theme.status_dim,
-        theme.bg,
-    );
-    put_centered(
-        screen,
-        hint_row,
-        "for useful commands type help",
-        theme.status_dim,
-        theme.bg,
-    );
 
-    if show_prompt {
-        draw_prompt(screen, theme, ">", input, hint, error);
+    let label_x = 4;
+    let detail_x = label_x + 14;
+    for (i, item) in view.items.iter().enumerate() {
+        let y = view.title_row + 3 + i as u32;
+        if y >= rows.saturating_sub(3) {
+            break;
+        }
+        let selected = i == view.selected;
+        if selected {
+            for x in 1..cols.saturating_sub(1) {
+                screen.put(x, y, Cell::blank(theme.bg, theme.fg));
+            }
+        }
+        let (label_fg, detail_fg) = if selected {
+            (theme.bg, theme.bg)
+        } else if item.broken {
+            (theme.error, theme.error)
+        } else {
+            (theme.accent, theme.dim)
+        };
+        screen.put_str(
+            label_x,
+            y,
+            &item.label,
+            label_fg,
+            if selected { theme.fg } else { theme.bg },
+        );
+        screen.put_str_ellipsis(
+            detail_x,
+            y,
+            &item.detail,
+            cols.saturating_sub(detail_x + 2),
+            detail_fg,
+            if selected { theme.fg } else { theme.bg },
+        );
+    }
+
+    if view.show_prompt {
+        draw_prompt(screen, theme, ">", view.input, view.hint, view.error);
     }
 }
 
@@ -873,45 +987,49 @@ mod tests {
     }
 
     #[test]
-    fn welcome_is_centred_and_has_a_prompt() {
+    fn welcome_shows_the_drives_and_the_prompt() {
         let vp = vp(1280, 800);
         let mut screen = Screen::new(vp.cols(), vp.rows());
-        let mid = vp.rows() / 2;
+        let items = vec![
+            BootItem {
+                label: "A: EDITOR".into(),
+                detail: "the writing terminal".into(),
+                broken: false,
+            },
+            BootItem {
+                label: "C: MAIL".into(),
+                detail: "Postfach".into(),
+                broken: false,
+            },
+            BootItem {
+                label: "D: BROKEN".into(),
+                detail: "not a CRead disk".into(),
+                broken: true,
+            },
+        ];
         draw_welcome(
             &mut screen,
             &Theme::BLACK,
-            true,
-            mid - 1,
-            mid + 1,
-            mid + 3,
-            "ne",
-            "new  start a file",
-            "",
+            &WelcomeView {
+                show_prompt: true,
+                title_row: 4,
+                items: &items,
+                selected: 1,
+                input: "ne",
+                hint: "arrows select",
+                error: "",
+            },
         );
         let text = rows_as_text(&screen);
+        assert!(text.contains("CRead OS"));
         assert!(text.contains("Welcome to CRead"));
-        assert!(text.contains("type new or open to start"));
-        assert!(text.contains("for useful commands type help"));
+        assert!(text.contains("A: EDITOR"));
+        assert!(text.contains("C: MAIL"));
         assert!(text.contains("> ne"));
 
-        // Centred means both lines share a midpoint, not a left edge.
-        let line = |y: u32| -> String {
-            (0..vp.cols())
-                .map(|x| screen.get(x, y).unwrap().ch)
-                .collect::<String>()
-        };
-        let centre = |text: &str, y: u32| -> u32 {
-            let start = line(y).find(text).expect("line missing") as u32;
-            start + text.chars().count() as u32 / 2
-        };
-        let mid = vp.rows() / 2;
-        let title = centre("Welcome to CRead", mid - 1);
-        let sub = centre("type new or open to start", mid + 1);
-        assert!(
-            title.abs_diff(sub) <= 1,
-            "greeting is not centred: {title} vs {sub}"
-        );
-        assert!(title.abs_diff(vp.cols() / 2) <= 2, "not near the middle");
+        // The selected row is inverted.
+        let cell = screen.get(4, 4 + 3 + 1).unwrap();
+        assert_eq!(cell.bg, Theme::BLACK.fg, "selected row is highlighted");
     }
 
     #[test]

@@ -34,6 +34,11 @@ pub enum Command {
     Find(Option<String>),
     /// Toggle reader mode.
     View,
+    /// Run a diskette by name; bare `run` runs what the boot screen has
+    /// selected.
+    Run(Option<String>),
+    /// List the diskettes in the drive folder.
+    Dir,
     /// Back to the start screen.
     Welcome,
     Settings,
@@ -197,6 +202,18 @@ pub const SPECS: &[Spec] = &[
         summary: "search the document (Ctrl+F, F3 for the next hit)",
     },
     Spec {
+        name: "run",
+        aliases: &["exec"],
+        argument: "[name]",
+        summary: "run a diskette (bare: the one selected on the boot screen)",
+    },
+    Spec {
+        name: "dir",
+        aliases: &["disks"],
+        argument: "",
+        summary: "list the diskettes in the drive folder",
+    },
+    Spec {
         name: "welcome",
         aliases: &["home"],
         argument: "",
@@ -299,6 +316,8 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "redo" => Command::Redo,
         "view" => Command::View,
         "find" => Command::Find(optional(rest)),
+        "run" => Command::Run(optional(rest)),
+        "dir" => Command::Dir,
         "welcome" => Command::Welcome,
         "settings" => Command::Settings,
         "help" => Command::Help,

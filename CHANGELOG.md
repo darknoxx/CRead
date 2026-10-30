@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **CRead OS.** The start screen is a boot screen now: a drive list with
+  `A: EDITOR`, `B: DOCUMENTS` and every diskette in `<vault>/Disks`. Arrows
+  select, Enter runs, and the old greeting is still there.
+- **Diskettes** are single plain-text files: a `key=value` header, then files
+  introduced by `---FILE <name>`. A data disk opens in a file browser and its
+  documents read in the viewer, read-only. A disk that will not parse still
+  appears, in red, with the reason.
+- `run [name]` and `dir` for the command line; the drive icon on the boot
+  screen.
+
 ## 0.5.0
 
 - **Scanlines and their drift are on by default.** The moving raster is what

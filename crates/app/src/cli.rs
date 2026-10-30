@@ -145,7 +145,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             "--show" => {
                 let v = args.next().ok_or("--show needs a value")?;
                 if ![
-                    "editor", "welcome", "action", "search", "view", "palette", "settings", "help",
+                    "editor", "welcome", "action", "search", "view", "disk", "diskfile", "palette",
+                    "settings", "help",
                 ]
                 .contains(&v.as_str())
                 {

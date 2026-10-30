@@ -4,6 +4,7 @@
 //! tricky parts (layout, wrapping, undo, sync bookkeeping) unit-testable.
 
 pub mod command;
+pub mod disk;
 pub mod editor;
 pub mod markdown;
 pub mod prefs;
@@ -13,6 +14,7 @@ pub mod storage;
 pub mod theme;
 
 pub use command::{Command, CommandError};
+pub use disk::{Disk, DiskError, DiskFile};
 pub use editor::{Editor, Position, Stats, VisualRow};
 pub use markdown::{Kind, Span};
 pub use prefs::Prefs;

@@ -113,6 +113,35 @@ fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Where diskettes live: a friendlier place than the config directory, and it
+/// rides along with the WebDAV sync for free.
+pub fn disk_dir(vault: &Path) -> PathBuf {
+    vault.join("Disks")
+}
+
+/// Every `.dsk` in a directory, sorted, with its parse result.
+pub fn list_disks(dir: &Path) -> io::Result<Vec<(PathBuf, Result<String, String>)>> {
+    let mut out = Vec::new();
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(out),
+        Err(e) => return Err(e),
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        let is_disk = path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("dsk"))
+            .unwrap_or(false);
+        if !is_disk || !path.is_file() {
+            continue;
+        }
+        out.push((path.clone(), load(&path).map_err(|e| e.to_string())));
+    }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
 /// First free `untitled[-n].md` in a directory.
 pub fn free_untitled(dir: &Path) -> PathBuf {
     let mut path = dir.join("untitled.md");
