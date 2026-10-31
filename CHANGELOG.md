@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.14.1
+
+- **WebDAV syncs the whole vault, not only the Markdown.** Pictures and the
+  cartridges in `Roms` were left out, so the ROM folder arrived on the server
+  empty. The tree is mirrored now — subfolders included, empty ones too, so
+  files dropped in from another machine come back on the next round. Downloads
+  are written byte for byte instead of as text.
+
+## 0.14.0
+
+- **SETTINGS is a row on the boot screen.** WebDAV syncs the whole vault —
+  documents, pictures and ROMs — so it belongs to the machine, not to the
+  editor. The new screen also holds the theme, the bitmap face, window or
+  fullscreen, and the version. One list, one place, reachable with `settings`
+  from any prompt; before, `settings` opened the WebDAV form directly.
+- SOFTWARE and SETTINGS share one menu screen: a name, what it is, and a value
+  on the right.
+
+## 0.13.0
+
+- **Pocketboi**, a Game Boy in the machine: cartridges live in `Roms` inside the
+  vault, the screen is drawn into the raster with a bezel, and the controls are
+  `Space`/`C`, `Enter`/right `Ctrl` and left `Ctrl`. `P` cycles the palette.
+- The emulator runs on its own thread at 59.7275 Hz, so sound no longer depends
+  on how fast the screen is drawn, and `mizu-core` is vendored with a list of
+  patches in `vendor/README.md`.
+- **Gamepads** work: `gilrs`, with east as B, south as A, and the left stick
+  doubling the D-pad.
+- **Sound follows the system's output device** (PipeWire, then PulseAudio, then
+  `default`), never a hardware device.
+
 ## 0.12.1
 
 - **Sound follows the system's output device.** Both the game and the music

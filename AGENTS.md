@@ -120,8 +120,14 @@ the preferences); by default a document only reaches disk through `save`,
 that fires on its own.
 
 **Local files win.** Sync never overwrites a both-sides change: the remote copy
-is parked as `name.conflict-<unix>.md` and the local text stays. Nothing is ever
-deleted on the server.
+is parked next to the local file as `name.conflict-<unix>.<ext>` and the local
+version stays. Nothing is ever deleted on the server.
+
+**Sync mirrors the vault, not the documents.** Everything under the vault root
+goes up — `Roms`, `Pictures`, folders you make yourself — with the tree
+recreated on the server; only hidden entries (the sync index lives in
+`.cread-sync`) stay local. Downloads are written byte for byte
+(`storage::save_bytes_atomic`), because a cartridge is not UTF-8.
 
 ## Conventions
 

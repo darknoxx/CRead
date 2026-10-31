@@ -346,7 +346,12 @@ on a German desktop, `~/Documents/CRead` in English. Override it with `--vault D
 or `CREAD_VAULT`. Writes are atomic: temp file, fsync, rename. A
 crash leaves either the old file or the new one, never half a page.
 
-WebDAV sync mirrors that folder. Run `settings` in action mode and fill in:
+WebDAV sync mirrors that folder — the whole vault, not just the notes in it:
+documents, the `Pictures` folder, the cartridges in `Roms`, and any folder you
+make yourself. The tree is recreated on the server, empty folders included, so a
+ROM you drop into the server from your desktop shows up in Pocketboi on the next
+round. Hidden entries (and the sync index) stay local. Run `settings` in action
+mode and fill in:
 
 | Field | Example |
 | --- | --- |
@@ -367,7 +372,7 @@ conflict rule is the whole point:
 | unchanged | unchanged | nothing |
 | changed | unchanged | upload |
 | unchanged | changed | download |
-| changed | changed | **keep both** — local text stays, the remote version is saved as `name.conflict-<unix>.md` |
+| changed | changed | **keep both** — local file stays, the remote version is saved as `name.conflict-<unix>.md` |
 
 Nothing is ever deleted on the server. `cread --sync-once` runs a single round
 and prints the result, which is handy for cron or for debugging.

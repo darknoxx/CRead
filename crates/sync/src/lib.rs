@@ -228,6 +228,40 @@ fn name_of_href(href: &str) -> String {
     decode_segment(last)
 }
 
+/// Everything in the vault that belongs to the user: relative paths with `/`
+/// separators, hidden entries (the sync index lives in one) skipped.
+fn walk(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        let relative = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        if path.is_dir() {
+            out.push((format!("{relative}/"), path.clone()));
+            walk(&path, &relative, out);
+        } else if path.is_file() {
+            out.push((relative, path));
+        }
+    }
+}
+
+/// The whole vault: files and folders, folders marked by a trailing slash.
+fn vault_tree(vault: &Path) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    walk(vault, "", &mut out);
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
 /// Run one full sync round. Blocking; call from the worker thread.
 pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     if !cfg.is_configured() {
@@ -238,22 +272,29 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
 
     // Make sure the target collection exists; servers answer 404 otherwise.
     ensure_remote_dir(&client, &remote_dir).await;
-    let remote = list_remote(&client, &remote_dir).await?;
-    let local_files = storage::list_documents(vault).unwrap_or_default();
+    let base = base_path(&cfg.url);
+    let remote = list_remote_tree(&client, &remote_dir, &base).await?;
+    let tree = vault_tree(vault);
     let mut index = Index::load(vault);
     let mut report = Report::default();
     let mut touched_remote = false;
 
-    for path in &local_files {
-        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+    // Folders first, so an empty one still exists on the server and can be
+    // filled from the other side.
+    for (name, _) in tree.iter().filter(|(name, _)| name.ends_with('/')) {
+        let Some(path) = remote_dir_for(&remote_dir, name) else {
             continue;
         };
+        ensure_remote_dir(&client, &path).await;
+    }
+
+    for (name, path) in tree.iter().filter(|(name, _)| !name.ends_with('/')) {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
         };
         let local_hash = hash(&bytes);
-        let entry = index.files.get(&name).cloned();
-        let remote_version = remote.get(&name).cloned();
+        let entry = index.files.get(name).cloned();
+        let remote_version = remote.get(name).cloned();
 
         let local_changed = entry.as_ref().map(|e| e.hash != local_hash).unwrap_or(true);
         let remote_changed = match (&entry, &remote_version) {
@@ -264,7 +305,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
             (None, None) => false,
         };
 
-        let remote_path = join_remote(&remote_dir, &name);
+        let remote_path = join_remote(&remote_dir, name);
         match plan(local_changed, remote_changed) {
             Plan::Nothing => report.skipped += 1,
 
@@ -275,12 +316,12 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                     .map_err(|e| format!("upload {name} failed: {e}"))?;
                 touched_remote = true;
                 report.uploaded += 1;
-                set_hash(&mut index, &name, local_hash);
+                set_hash(&mut index, name, local_hash);
             }
 
             Plan::Download => {
-                let body = download(&client, &remote_path, &name).await?;
-                storage::save_atomic(path, &String::from_utf8_lossy(&body))
+                let body = download(&client, &remote_path, name).await?;
+                storage::save_bytes_atomic(path, &body)
                     .map_err(|e| format!("writing {name} failed: {e}"))?;
                 index.files.insert(
                     name.clone(),
@@ -293,7 +334,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
             }
 
             Plan::Conflict => {
-                let body = download(&client, &remote_path, &name).await?;
+                let body = download(&client, &remote_path, name).await?;
                 if body == bytes {
                     // Same content on both sides: a first sync, not a conflict.
                     index.files.insert(
@@ -307,8 +348,8 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                     continue;
                 }
 
-                let conflict = conflict_path(vault, &name);
-                storage::save_atomic(&conflict, &String::from_utf8_lossy(&body))
+                let conflict = conflict_path(vault, name);
+                storage::save_bytes_atomic(&conflict, &body)
                     .map_err(|e| format!("writing conflict copy failed: {e}"))?;
 
                 // Local text keeps the original name; the other version lives
@@ -319,7 +360,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                     .map_err(|e| format!("upload {name} failed: {e}"))?;
                 touched_remote = true;
                 report.conflicts += 1;
-                set_hash(&mut index, &name, local_hash);
+                set_hash(&mut index, name, local_hash);
             }
         }
     }
@@ -328,13 +369,13 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     // session. Unknown names are pulled down; names we knew about are left alone
     // because a missing local file means the user deleted it here.
     for name in remote.keys() {
-        if index.files.contains_key(name) || local_exists(&local_files, name) {
+        if index.files.contains_key(name) || local_exists(&tree, name) {
             continue;
         }
         let remote_path = join_remote(&remote_dir, name);
         let body = download(&client, &remote_path, name).await?;
         let target = vault.join(name);
-        storage::save_atomic(&target, &String::from_utf8_lossy(&body))
+        storage::save_bytes_atomic(&target, &body)
             .map_err(|e| format!("writing {name} failed: {e}"))?;
         index.files.insert(
             name.clone(),
@@ -349,7 +390,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     // One extra PROPFIND so the stored versions match the server, whether or not
     // we pushed anything. Cheap, and it keeps the next round quiet.
     if (touched_remote || report.downloaded > 0)
-        && let Ok(fresh) = list_remote(&client, &remote_dir).await
+        && let Ok(fresh) = list_remote_tree(&client, &remote_dir, &base).await
     {
         for (name, version) in fresh {
             if let Some(entry) = index.files.get_mut(&name) {
@@ -358,9 +399,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
         }
     }
 
-    index
-        .files
-        .retain(|name, _| local_exists(&local_files, name));
+    index.files.retain(|name, _| local_exists(&tree, name));
     index
         .save(vault)
         .map_err(|e| format!("cannot write sync index: {e}"))?;
@@ -390,21 +429,102 @@ async fn ensure_remote_dir(client: &Client, dir: &str) {
     }
 }
 
-async fn list_remote(
+/// Every file under the remote folder, keyed by its path relative to it.
+async fn list_remote_tree(
     client: &Client,
     remote_dir: &str,
+    base: &str,
 ) -> Result<BTreeMap<String, String>, String> {
-    let listing = client
-        .list(remote_dir, Depth::Number(1))
-        .await
-        .map_err(|e| format!("listing {remote_dir:?} failed: {e}"))?;
-    Ok(listing
-        .into_iter()
-        .filter_map(|entity| match entity {
-            ListEntity::File(file) => Some((name_of_href(&file.href), version_of(&file))),
-            ListEntity::Folder(_) => None,
-        })
-        .collect())
+    let mut out = BTreeMap::new();
+    list_into(client, remote_dir, base, "", &mut out).await?;
+    Ok(out)
+}
+
+/// The path part of the endpoint URL: `https://host/dav/files/me` -> `/dav/files/me`.
+/// Needed to tell a listing's own collection from a child with the same name.
+fn base_path(url: &str) -> String {
+    let after = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+    let path = match after.find('/') {
+        Some(index) => &after[index..],
+        None => "",
+    };
+    path.trim_end_matches('/').to_string()
+}
+
+/// PROPFIND with Depth 1 returns the folder itself as the first entry. It has
+/// to be skipped, or every listing recurses into its own parent forever.
+fn is_self(href: &str, remote_dir: &str, base: &str) -> bool {
+    let trimmed = href.split(['?', '#']).next().unwrap_or(href);
+    let decoded = decode_segment(trimmed);
+    let decoded = if decoded.starts_with("http") {
+        base_path(&decoded)
+    } else {
+        decoded
+    };
+    let rest = decoded
+        .trim_end_matches('/')
+        .strip_prefix(base)
+        .unwrap_or(decoded.trim_end_matches('/'));
+    rest.trim_matches('/') == decode_segment(remote_dir).trim_matches('/')
+}
+
+fn list_into<'a>(
+    client: &'a Client,
+    remote_dir: &'a str,
+    base: &'a str,
+    prefix: &'a str,
+    out: &'a mut BTreeMap<String, String>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + 'a>> {
+    Box::pin(async move {
+        let listing = client
+            .list(remote_dir, Depth::Number(1))
+            .await
+            .map_err(|e| format!("listing {remote_dir:?} failed: {e}"))?;
+        for entity in listing {
+            let href = match &entity {
+                ListEntity::File(file) => file.href.clone(),
+                ListEntity::Folder(folder) => folder.href.clone(),
+            };
+            if is_self(&href, remote_dir, base) {
+                continue;
+            }
+            let (name, file) = match entity {
+                ListEntity::File(file) => (name_of_href(&file.href), Some(file)),
+                ListEntity::Folder(folder) => (name_of_href(&folder.href), None),
+            };
+            let relative = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            match file {
+                Some(file) => {
+                    out.insert(relative, version_of(&file));
+                }
+                None => {
+                    let child = format!("{remote_dir}/{}", encode_segment(&name));
+                    list_into(client, &child, base, &relative, out).await?;
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
+/// The encoded remote path of a relative vault name (which may contain `/`).
+fn remote_dir_for(remote_dir: &str, name: &str) -> Option<String> {
+    let relative = name.trim_end_matches('/');
+    if relative.is_empty() {
+        return None;
+    }
+    let mut path = remote_dir.to_string();
+    for segment in relative.split('/') {
+        if !path.is_empty() {
+            path.push('/');
+        }
+        path.push_str(&encode_segment(segment));
+    }
+    Some(path)
 }
 
 async fn download(client: &Client, path: &str, name: &str) -> Result<Vec<u8>, String> {
@@ -423,12 +543,8 @@ fn set_hash(index: &mut Index, name: &str, hash: String) {
     index.files.entry(name.to_string()).or_default().hash = hash;
 }
 
-fn local_exists(files: &[PathBuf], name: &str) -> bool {
-    files.iter().any(|p| {
-        p.file_name()
-            .map(|n| n.to_string_lossy() == name)
-            .unwrap_or(false)
-    })
+fn local_exists(files: &[(String, PathBuf)], name: &str) -> bool {
+    files.iter().any(|(have, _)| have == name)
 }
 
 fn version_of(file: &ListFile) -> String {
@@ -443,10 +559,18 @@ fn version_from(tag: Option<&str>, mtime: &str) -> String {
 }
 
 fn join_remote(remote_dir: &str, name: &str) -> String {
+    // A vault name may be nested ("Roms/game.gb"): every segment is encoded on
+    // its own, the slashes between them are separators and must stay slashes.
+    let encoded: String = name
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(encode_segment)
+        .collect::<Vec<_>>()
+        .join("/");
     if remote_dir.is_empty() {
-        encode_segment(name)
+        encoded
     } else {
-        format!("{remote_dir}/{}", encode_segment(name))
+        format!("{remote_dir}/{encoded}")
     }
 }
 
@@ -463,6 +587,50 @@ fn conflict_path(vault: &Path, name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_vault_walk_sees_pictures_and_cartridges_and_skips_hidden_entries() {
+        let vault = std::env::temp_dir().join(format!("cread-sync-walk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vault);
+        std::fs::create_dir_all(vault.join("Roms")).unwrap();
+        std::fs::create_dir_all(vault.join("Pictures")).unwrap();
+        std::fs::create_dir_all(vault.join(".cread-sync")).unwrap();
+        std::fs::write(vault.join("note.md"), b"# hi").unwrap();
+        std::fs::write(vault.join("Roms/game.gb"), [0u8; 32]).unwrap();
+        std::fs::write(vault.join("Pictures/a.png"), [0u8; 8]).unwrap();
+        std::fs::write(vault.join(".cread-sync/index.json"), b"{}").unwrap();
+        std::fs::write(vault.join(".hidden"), b"x").unwrap();
+
+        let names: Vec<String> = vault_tree(&vault)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "Pictures/",
+                "Pictures/a.png",
+                "Roms/",
+                "Roms/game.gb",
+                "note.md"
+            ],
+            "folders keep a trailing slash, hidden entries are not ours"
+        );
+        let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn nested_names_become_encoded_remote_paths() {
+        let root = "dav/cread";
+        assert_eq!(
+            remote_dir_for(root, "Roms/").as_deref(),
+            Some("dav/cread/Roms")
+        );
+        assert_eq!(
+            join_remote(root, "Roms/über gb.gb"),
+            "dav/cread/Roms/%C3%BCber%20gb.gb"
+        );
+    }
 
     #[test]
     fn the_conflict_matrix_is_total_and_boring() {

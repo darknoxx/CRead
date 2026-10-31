@@ -17,6 +17,12 @@ pub fn load(path: &Path) -> io::Result<String> {
 /// target. On any POSIX filesystem the rename is atomic, so a crash leaves
 /// either the old file or the new one.
 pub fn save_atomic(path: &Path, text: &str) -> io::Result<()> {
+    save_bytes_atomic(path, text.as_bytes())
+}
+
+/// The same, for anything that is not text: pictures, cartridges, what else
+/// ends up in the vault.
+pub fn save_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
 
@@ -30,7 +36,7 @@ pub fn save_atomic(path: &Path, text: &str) -> io::Result<()> {
 
     {
         let mut file = fs::File::create(&tmp)?;
-        file.write_all(text.as_bytes())?;
+        file.write_all(bytes)?;
         file.sync_all()?;
     }
 
