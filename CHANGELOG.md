@@ -1,11 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 - **Softhand.** The first program with pixels: a 16-colour paint program with
   pencil, eraser, line, rect, fill and pick, eight undo steps, and pictures saved
-  as PNG in `<vault>/Pictures`. Its front door looks like Inspiro's, and it runs
-  from a program diskette.
+  as PNG in `<vault>/Pictures`. Its front door looks like Inspiro's. It is
+  installed with CRead and needs no diskette.
 - **A boot screen with a shelf.** The vault is `A: DOCUMENTS`, then a rule, then
   the modules: `B: INSPIRO` and `C: SOFTHAND`, with diskettes after them. The
   arrow keys step over the rule.
