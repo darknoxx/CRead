@@ -81,6 +81,10 @@ pub struct Pocketboi {
     game: Option<Game>,
     sound: Option<Sound>,
     sound_failed: bool,
+    /// The shell's page and ink, so the module does not paint a black box of
+    /// its own over a paper screen.
+    paper: u8,
+    ink: u8,
 }
 
 impl Pocketboi {
@@ -95,6 +99,8 @@ impl Pocketboi {
             game: None,
             sound: None,
             sound_failed: false,
+            paper: 0,
+            ink: 15,
             dir,
         };
         boi.rescan();
@@ -184,9 +190,9 @@ impl Pocketboi {
                 let samples = buffers.all().to_vec();
                 sound.push(&samples);
             }
-            paint(&game.gb, raster);
+            paint(&game.gb, raster, self.paper);
         }
-        draw_legend(screen);
+        draw_legend(screen, self.ink);
     }
 
     fn status(&self) -> String {
@@ -243,8 +249,9 @@ fn is_cartridge(path: &Path) -> bool {
 }
 
 /// The frame, four shades deep, blown up by two and centred.
-fn paint(gb: &GameBoy, raster: &mut Raster) {
-    raster.fill(0);
+fn paint(gb: &GameBoy, raster: &mut Raster, paper: u8) {
+    // The shell already filled the raster with the page colour; leave it.
+    let _ = paper;
     let frame = gb.screen_buffer();
     let width = raster.width();
     let x0 = (width.saturating_sub(GB_W * ZOOM)) / 2;
@@ -334,6 +341,11 @@ impl Program for Pocketboi {
         Outcome::Continue
     }
 
+    fn palette(&mut self, background: u8, ink: u8) {
+        self.paper = background;
+        self.ink = ink;
+    }
+
     fn wants_frames(&self) -> bool {
         self.game.as_ref().is_some_and(|game| game.fault.is_none())
     }
@@ -345,7 +357,6 @@ impl Program for Pocketboi {
             self.run(screen, raster);
             return;
         }
-        raster.fill(0);
         draw_shelf(screen, self);
     }
 }
@@ -354,18 +365,19 @@ impl Program for Pocketboi {
 ///
 /// The keys are chosen to sit in the same place on every layout: Space is a
 /// thumb, C is next to it, and the two Controls are the small buttons.
-fn draw_legend(screen: &mut Screen) {
+fn draw_legend(screen: &mut Screen, ink: u8) {
     let line = "arrows move    C B    Space A    Enter/R-Ctrl start    L-Ctrl select";
     let width = line.chars().count() as u32;
     let x = screen.cols().saturating_sub(width) / 2;
-    screen.put_str(x, 22, line, 15, 0);
+    screen.put_str(x, 22, line, ink, Cell::BG_TRANSPARENT);
 }
 
 fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
     let cols = screen.cols();
-    screen.put_str(2, 1, "P O C K E T B O I", 1, 0);
+    let (paper, ink) = (boi.paper, boi.ink);
+    screen.put_str(2, 1, "P O C K E T B O I", ink, paper);
     let dir = boi.dir.display().to_string();
-    screen.put_str_ellipsis(2, 3, &dir, cols.saturating_sub(4), 7, 0);
+    screen.put_str_ellipsis(2, 3, &dir, cols.saturating_sub(4), ink, paper);
 
     let first = 5;
     let last = screen.rows().saturating_sub(2);
@@ -375,10 +387,10 @@ fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
             break;
         }
         let selected = i == boi.selected;
-        let (fg, bg) = if selected { (0, 15) } else { (15, 0) };
+        let (fg, bg) = if selected { (paper, ink) } else { (ink, paper) };
         if selected {
             for x in 1..cols.saturating_sub(1) {
-                screen.put(x, y, Cell::blank(0, 15));
+                screen.put(x, y, Cell::blank(paper, ink));
             }
         }
         let mark = if entry.folder { '\u{25ba}' } else { ' ' };
@@ -389,16 +401,16 @@ fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
             4,
             first,
             "no cartridges yet - drop .gb or .gbc files in this folder",
-            7,
-            0,
+            ink,
+            paper,
         );
     }
     let bar = screen.rows().saturating_sub(1);
-    screen.fill_row(bar, Cell::blank(15, 0));
-    screen.put_str(0, bar, " Enter play  ", 15, 0);
+    screen.fill_row(bar, Cell::blank(ink, paper));
+    screen.put_str(0, bar, " Enter play  ", ink, paper);
     let right = "Backspace up  Esc commands ";
     let x = cols.saturating_sub(right.chars().count() as u32);
-    screen.put_str(x, bar, right, 15, 0);
+    screen.put_str(x, bar, right, ink, paper);
 }
 
 #[cfg(test)]
@@ -478,14 +490,17 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_screen_paints_black_and_the_game_area_is_centred() {
+    fn the_shelf_leaves_the_page_colour_alone() {
         let mut raster = Raster::new(640, 384);
         raster.fill(15);
-        // No game: the shelf fills the raster with black.
+        // No game: the module draws text cells, not a black box.
         let mut boi = Pocketboi::new(&temp("paint"));
+        boi.palette(15, 0);
         let mut screen = Screen::new(80, 25);
         boi.draw(&mut screen, &mut raster);
-        assert_eq!(raster.get(0, 0), Some(0));
-        assert_eq!(raster.get(639, 383), Some(0));
+        assert_eq!(raster.get(0, 0), Some(15), "still the page");
+        assert_eq!(raster.get(639, 383), Some(15));
+        // The title row carries ink the shell can see.
+        assert!(screen.get(2, 1).is_some_and(|c| c.ch != '\0'));
     }
 }

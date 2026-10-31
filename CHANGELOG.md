@@ -6,7 +6,10 @@
   (`mizu-core`, MIT, vendored and patched — see `vendor/README.md`). Cartridges
   come from `<vault>/Roms`; the module lists folders and `.gb`/`.gbc` files, maps
   the 160x144 screen to four shades and doubles it, prints the key legend under
-  the screen and plays the APU on its own audio stream. The buttons are `Space`
+  the screen — on the page, not in a black box — and plays the APU on its own
+  audio stream. The raster now starts as the theme's page colour and cells can
+  carry ink without a background, so a program can sit on the page like the
+  rest of the interface. The buttons are `Space`
   (A), `C` (B), `Enter`/right `Ctrl` (Start) and left `Ctrl` (Select) — chosen to
   land in the same place on QWERTY, QWERTZ and AZERTY. It is the first module that animates:
   the shell runs a frame clock while a cartridge is loaded, and a panic in the

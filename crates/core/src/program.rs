@@ -122,6 +122,12 @@ pub trait Program {
         None
     }
 
+    /// The shell's page and ink, as indices into the fixed palette, so a
+    /// program can sit on the page instead of in its own black box.
+    fn palette(&mut self, background: u8, ink: u8) {
+        let _ = (background, ink);
+    }
+
     /// Whether this program has an undo/redo to offer. The shell's `undo`
     /// command asks before it says anything.
     fn undo(&mut self) -> bool {

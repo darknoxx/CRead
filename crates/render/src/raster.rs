@@ -139,7 +139,9 @@ impl Framebuffer {
 
     fn draw_cell(&mut self, cell: &Cell, x: i32, y: i32, theme: &Theme, font: &Font) {
         let (cell_w, cell_h) = (font.cell_w(), font.cell_h());
-        self.fill_rect(x, y, cell_w, cell_h, theme.color(cell.bg));
+        if cell.has_background() {
+            self.fill_rect(x, y, cell_w, cell_h, theme.color(cell.bg));
+        }
 
         let slot = font.slot(cell.ch);
         if slot == font.slot(' ') {
@@ -236,6 +238,23 @@ mod tests {
             let lit = fb.data()[idx] == 255;
             assert_eq!(lit, x == 3, "x={x}");
         }
+    }
+
+    #[test]
+    fn an_ink_cell_leaves_the_pixels_around_the_glyph_alone() {
+        let mut fb = Framebuffer::new(16, 16);
+        let mut raster = Raster::new(16, 16);
+        raster.fill(4); // red
+        let mut screen = Screen::new(2, 1);
+        screen.fill(Cell::TRANSPARENT);
+        screen.put(0, 0, Cell::ink('A', 15));
+
+        fb.draw_program(&screen, &raster, &solid_theme(), &Font::new());
+
+        // The glyph itself is white, its cell background is still the picture.
+        assert_eq!(fb.pixel(0, 0), [170, 0, 0]);
+        assert_eq!(fb.pixel(3, 2), [255, 255, 255]);
+        assert_eq!(fb.pixel(7, 15), [170, 0, 0]);
     }
 
     #[test]

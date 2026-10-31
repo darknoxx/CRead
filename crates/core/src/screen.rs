@@ -25,8 +25,21 @@ impl Cell {
     /// Programs fill the grid with this and then put their menus on top.
     pub const TRANSPARENT: Cell = Self::new('\0', 0, 0);
 
+    /// Background value meaning "do not paint one": the glyph goes on top of
+    /// whatever the pixel layer has there.
+    pub const BG_TRANSPARENT: u8 = 0x10;
+
     pub const fn is_transparent(&self) -> bool {
         self.ch == '\0'
+    }
+
+    /// A glyph on no background at all: ink over a picture.
+    pub const fn ink(ch: char, fg: u8) -> Self {
+        Self::new(ch, fg, Self::BG_TRANSPARENT)
+    }
+
+    pub const fn has_background(&self) -> bool {
+        self.bg != Self::BG_TRANSPARENT
     }
 }
 
