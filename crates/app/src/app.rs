@@ -2650,7 +2650,7 @@ impl App {
                 self.dirty = true;
                 Ok(String::new())
             }
-            Command::Tool(_) | Command::Size(_) | Command::Colour(_) => {
+            Command::Tool(_) | Command::Size(_) | Command::Colour(_) | Command::Mute => {
                 let Some(program) = self.program.as_mut() else {
                     return Err("only a program has tools".into());
                 };

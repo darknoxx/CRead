@@ -136,8 +136,19 @@ fn pad_button(button: Button) -> Option<JoypadButton> {
 /// The machine's speaker, in the shell's own audio device.
 struct Sound {
     _stream: OutputStream,
-    _sink: Sink,
+    sink: Sink,
     input: Arc<SourcesQueueInput>,
+    /// The device's own rate. We convert to it ourselves, so rodio has no
+    /// reason to resample our chunks one by one.
+    rate: u32,
+    /// Input samples per output sample (88.2 kHz over the device rate).
+    step: f64,
+    /// Where the next output sample sits in the incoming stream, carried from
+    /// one frame to the next so the seam is continuous.
+    pos: f64,
+    /// The last sample of the previous frame, for the same reason.
+    tail: f32,
+    muted: bool,
 }
 
 /// Open the output the way a desktop expects it.
@@ -184,20 +195,50 @@ impl Sound {
         let sink = Sink::connect_new(stream.mixer());
         sink.set_volume(0.6);
         sink.append(output);
+        let rate = stream.config().sample_rate();
         Some(Self {
             _stream: stream,
-            _sink: sink,
+            sink,
             input,
+            rate,
+            step: SAMPLE_RATE as f64 / rate as f64,
+            pos: 0.0,
+            tail: 0.0,
+            muted: false,
         })
     }
 
-    /// One frame of Game Boy audio.
-    fn push(&self, samples: &[f32]) {
-        if samples.is_empty() {
+    fn set_muted(&mut self, muted: bool) {
+        self.muted = muted;
+        self.sink.set_volume(if muted { 0.0 } else { 0.6 });
+    }
+
+    /// One frame of Game Boy audio, resampled to the device's rate.
+    ///
+    /// The resampling is ours and carries its phase across frames: handing
+    /// rodio a fresh 88.2 kHz buffer every 16 ms made it resample each chunk
+    /// from scratch, and the seams were audible as a fine crackle.
+    fn push(&mut self, input: &[f32]) {
+        if input.is_empty() || self.muted {
             return;
         }
-        self.input
-            .append(SamplesBuffer::new(1, SAMPLE_RATE, samples.to_vec()));
+        let mut src = Vec::with_capacity(input.len() + 1);
+        src.push(self.tail);
+        src.extend_from_slice(input);
+        let last = src.len() - 1;
+        let mut pos = self.pos;
+        let mut out = Vec::with_capacity((last as f64 / self.step) as usize + 2);
+        while pos < last as f64 {
+            let i = pos.floor() as usize;
+            let frac = (pos - i as f64) as f32;
+            out.push(src[i] + (src[i + 1] - src[i]) * frac);
+            pos += self.step;
+        }
+        self.pos = pos - last as f64;
+        self.tail = src[last];
+        if !out.is_empty() {
+            self.input.append(SamplesBuffer::new(1, self.rate, out));
+        }
     }
 }
 
@@ -208,6 +249,9 @@ pub struct Pocketboi {
     game: Option<Game>,
     sound: Option<Sound>,
     sound_failed: bool,
+    /// Silence, kept here as well so it survives the sound being closed and
+    /// stays testable without a device.
+    muted: bool,
     pad: Option<Pad>,
     pad_failed: bool,
     /// The shell's page and ink, so the module does not paint a black box of
@@ -230,6 +274,7 @@ impl Pocketboi {
             game: None,
             sound: None,
             sound_failed: false,
+            muted: false,
             pad: None,
             pad_failed: false,
             paper: 0,
@@ -304,6 +349,9 @@ impl Pocketboi {
         if self.sound.is_none() && !self.sound_failed {
             self.sound = Sound::open();
             self.sound_failed = self.sound.is_none();
+            if let Some(sound) = self.sound.as_mut() {
+                sound.set_muted(self.muted);
+            }
         }
         if self.pad.is_none() && !self.pad_failed {
             self.pad = Pad::open();
@@ -326,9 +374,8 @@ impl Pocketboi {
                     Err(_) => game.fault = Some("the emulator crashed".into()),
                 }
             }
-            if let Some(sound) = self.sound.as_ref() {
-                let buffers = game.gb.audio_buffers();
-                let samples = buffers.all().to_vec();
+            if let Some(sound) = self.sound.as_mut() {
+                let samples = game.gb.audio_buffers().all().to_vec();
                 sound.push(&samples);
             }
             paint(&game.gb, raster, PALETTES[self.palette].1, self.ink);
@@ -338,12 +385,17 @@ impl Pocketboi {
     }
 
     fn status(&self) -> String {
-        match &self.game {
+        let base = match &self.game {
             Some(game) => match &game.fault {
                 Some(fault) => format!("{} — stopped: {fault}", game.title),
                 None => game.title.clone(),
             },
             None => "insert a cartridge".into(),
+        };
+        if self.muted {
+            format!("{base} · muted")
+        } else {
+            base
         }
     }
 }
@@ -396,7 +448,8 @@ fn paint(gb: &GameBoy, raster: &mut Raster, shades: [u8; 4], ink: u8) {
     let frame = gb.screen_buffer();
     let width = raster.width();
     let x0 = (width.saturating_sub(GB_W * ZOOM)) / 2;
-    let y0 = (raster.height().saturating_sub(GB_H * ZOOM)) / 2;
+    // Slightly above the middle: the key legend needs a row of its own below.
+    let y0 = (raster.height().saturating_sub(GB_H * ZOOM)) / 2 - 12;
     // A case around the glass: four pixels of air, then a two-pixel bezel.
     let left = x0 as i32 - 6;
     let top = y0 as i32 - 6;
@@ -502,6 +555,19 @@ impl Program for Pocketboi {
         self.ink = ink;
     }
 
+    fn command(&mut self, command: &cread_core::Command) -> Result<String, String> {
+        match command {
+            cread_core::Command::Mute => {
+                self.muted = !self.muted;
+                if let Some(sound) = self.sound.as_mut() {
+                    sound.set_muted(self.muted);
+                }
+                Ok(if self.muted { "muted" } else { "sound on" }.into())
+            }
+            _ => Err("POCKETBOI does not know that command".into()),
+        }
+    }
+
     fn exit(&mut self) -> bool {
         // Back to the shelf first; the shell only gets the screen once the
         // cartridge is out.
@@ -536,7 +602,7 @@ fn draw_legend(screen: &mut Screen, ink: u8, pad: bool) {
     let line = "arrows move    C B    Space A    Enter/R-Ctrl start    L-Ctrl select";
     let width = line.chars().count() as u32;
     let x = screen.cols().saturating_sub(width) / 2;
-    screen.put_str(x, 22, line, ink, Cell::BG_TRANSPARENT);
+    screen.put_str(x, 21, line, ink, Cell::BG_TRANSPARENT);
 
     if pad {
         let line = "Gamepad recognized! Lean back and relax.";
@@ -669,21 +735,32 @@ mod tests {
     }
 
     #[test]
+    fn mute_toggles_and_says_so() {
+        let mut boi = Pocketboi::new(&temp("mute"));
+        assert!(!boi.status().contains("muted"));
+        assert_eq!(boi.command(&cread_core::Command::Mute).unwrap(), "muted");
+        assert!(boi.status().contains("muted"));
+        assert_eq!(boi.command(&cread_core::Command::Mute).unwrap(), "sound on");
+        assert!(!boi.status().contains("muted"));
+    }
+
+    #[test]
     fn a_pad_gets_a_line_of_its_own_under_the_keys() {
         let mut screen = Screen::new(80, 25);
         draw_legend(&mut screen, 0, true);
-        let text: Vec<String> = (22..24)
+        let text: Vec<String> = (21..24)
             .map(|y| (0..80).map(|x| screen.get(x, y).unwrap().ch).collect())
             .collect();
         assert!(text[0].contains("Space A"), "{:?}", text[0]);
-        assert!(text[1].contains("Gamepad recognized!"), "{:?}", text[1]);
+        assert!(text[1].trim().is_empty(), "a row of air: {:?}", text[1]);
+        assert!(text[2].contains("Gamepad recognized!"), "{:?}", text[2]);
 
         let mut screen = Screen::new(80, 25);
         draw_legend(&mut screen, 0, false);
-        let text: Vec<String> = (22..24)
+        let text: Vec<String> = (21..24)
             .map(|y| (0..80).map(|x| screen.get(x, y).unwrap().ch).collect())
             .collect();
-        assert!(!text[1].contains("Gamepad"), "no pad, no line");
+        assert!(!text[2].contains("Gamepad"), "no pad, no line");
     }
 
     #[test]

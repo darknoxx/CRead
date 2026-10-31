@@ -42,6 +42,8 @@ pub enum Command {
     Size(Option<u32>),
     /// Palette index inside a program.
     Colour(Option<u8>),
+    /// Silence the running program's sound.
+    Mute,
     /// Toggle reader mode.
     View,
     /// Open the install screen.
@@ -305,6 +307,13 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Program],
     },
     Spec {
+        name: "mute",
+        aliases: &["silence"],
+        argument: "",
+        summary: "silence the running program",
+        scopes: &[Scope::Program],
+    },
+    Spec {
         name: "software",
         aliases: &["install", "modules"],
         argument: "",
@@ -456,6 +465,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
                 expected: "a number from 1 to 16",
             })?),
         }),
+        "mute" => Command::Mute,
         "colour" => Command::Colour(match optional(rest) {
             None => None,
             Some(text) => Some(text.parse().map_err(|_| CommandError::BadValue {
