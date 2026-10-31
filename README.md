@@ -69,16 +69,17 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
 ```
                              Welcome to CRead
 
-                       A: INSPIRO     where your ideas have room to grow
+                       A: INSPIRO     where your ideas have room to grow.
                        B: SOFTHAND    16 colors, endless possibilities.
                        C: RIFF        a Soundtrack for your life.
                        ─────────────────────────────────────────
-                       DOCUMENTS      open a file from the vault
                        SOFTWARE       install and remove modules
+                       DOCUMENTS      open a file from the vault
 ```
 
-The letters are the modules. Below the rule sit the vault and the shelf, which
-are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
+The letters are the modules, handed out in the order you installed them: install
+Riff before Softhand and Riff becomes `B`. Below the rule sit the shelf and the
+vault, which are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
 **Softhand** (paint) and **Riff** (music) sit in the shelf until you switch them
 on there. Every module opens with a fake loading bar before its own front door
 appears.
@@ -86,7 +87,7 @@ appears.
 ```
                                   [logo]
 
-                     where your ideas have room to grow
+                     where your ideas have room to grow.
 
                           type new or open to start
 >▌
@@ -162,7 +163,7 @@ vault is `A:`, the modules follow, and the last row opens the shelf:
 ```
 SOFTWARE                                  install and remove modules
   ┌──────────────────────────────────────────────────────────┐
-  │ ► INSPIRO   where your ideas have room to grow      system│
+  │ ► INSPIRO   where your ideas have room to grow.     system│
   │   SOFTHAND  16 colors, endless possibilities.     install │
   │   RIFF      a Soundtrack for your life.           install │
   └──────────────────────────────────────────────────────────┘

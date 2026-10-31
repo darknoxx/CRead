@@ -3434,7 +3434,7 @@ impl App {
     fn software_rows(&self) -> Vec<ui::SoftwareItem> {
         let mut rows = vec![ui::SoftwareItem {
             name: "INSPIRO".into(),
-            tagline: "where your ideas have room to grow".into(),
+            tagline: "where your ideas have room to grow.".into(),
             state: ui::SoftwareState::System,
         }];
         for program in PROGRAMS {
@@ -3531,17 +3531,17 @@ impl App {
     // ── the boot screen ─────────────────────────────────────────────────────
 
     fn boot_items(&self) -> Vec<BootItem> {
-        // Modules carry drive letters; the vault and the shelf do not, and sit
-        // below the rule.
+        // Modules carry drive letters, in the order they were installed; the
+        // vault and the shelf are not drives and sit below the rule.
         let mut items = vec![BootItem::Inspiro];
-        for (index, program) in PROGRAMS.iter().enumerate() {
-            if self.is_installed(program.id) {
+        for id in &self.prefs.installed {
+            if let Some(index) = PROGRAMS.iter().position(|program| program.id == id) {
                 items.push(BootItem::Program(index));
             }
         }
         items.push(BootItem::Rule);
-        items.push(BootItem::Documents);
         items.push(BootItem::Software);
+        items.push(BootItem::Documents);
         items
     }
 
@@ -3553,10 +3553,13 @@ impl App {
             &mut rows,
             &mut letter,
             "INSPIRO".into(),
-            "where your ideas have room to grow".into(),
+            "where your ideas have room to grow.".into(),
             false,
         );
-        for program in PROGRAMS.iter().filter(|p| self.is_installed(p.id)) {
+        for id in &self.prefs.installed {
+            let Some(program) = PROGRAMS.iter().find(|program| program.id == id) else {
+                continue;
+            };
             push_boot_row(
                 &mut rows,
                 &mut letter,
@@ -3567,15 +3570,15 @@ impl App {
         }
         rows.push(ui::BootItem::rule());
         rows.push(ui::BootItem {
-            label: "DOCUMENTS".into(),
-            detail: "open a file from the vault".into(),
+            label: "SOFTWARE".into(),
+            detail: "install and remove modules".into(),
             broken: false,
             rule: false,
             bare: true,
         });
         rows.push(ui::BootItem {
-            label: "SOFTWARE".into(),
-            detail: "install and remove modules".into(),
+            label: "DOCUMENTS".into(),
+            detail: "open a file from the vault".into(),
             broken: false,
             rule: false,
             bare: true,
@@ -4292,7 +4295,11 @@ mod tests {
     use super::*;
 
     fn app() -> App {
-        App::new(Options::default())
+        let mut app = App::new(Options::default());
+        // The developer's own preferences live on this machine; a test wants a
+        // fresh shelf.
+        app.prefs.installed.clear();
+        app
     }
 
     fn rows_as_text(screen: &Screen) -> String {
@@ -4314,10 +4321,12 @@ mod tests {
     }
 
     fn app_in(dir: &Path) -> App {
-        App::new(Options {
+        let mut app = App::new(Options {
             vault: Some(dir.to_path_buf()),
             ..Options::default()
-        })
+        });
+        app.prefs.installed.clear();
+        app
     }
 
     #[test]
@@ -4521,7 +4530,7 @@ mod tests {
         };
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "", "DOCUMENTS", "SOFTWARE"]
+            vec!["A: INSPIRO", "", "SOFTWARE", "DOCUMENTS"]
         );
 
         // Row 0 is Inspiro, the system: it refuses to go.
@@ -4541,7 +4550,7 @@ mod tests {
         assert_eq!(app.prefs.installed, vec!["softhand"]);
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "B: SOFTHAND", "", "DOCUMENTS", "SOFTWARE"]
+            vec!["A: INSPIRO", "B: SOFTHAND", "", "SOFTWARE", "DOCUMENTS"]
         );
 
         // And removing it takes the row away again.
@@ -4552,7 +4561,28 @@ mod tests {
         assert_eq!(app.prefs.installed.len(), 0);
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "", "DOCUMENTS", "SOFTWARE"]
+            vec!["A: INSPIRO", "", "SOFTWARE", "DOCUMENTS"]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn drive_letters_follow_the_order_modules_were_installed() {
+        let dir = vault("letters");
+        let mut app = app_in(&dir);
+        // Riff first, then Softhand: Riff is B, Softhand is C.
+        app.prefs.installed = vec!["riff".into(), "softhand".into()];
+        let labels: Vec<String> = app.boot_rows().into_iter().map(|row| row.label).collect();
+        assert_eq!(
+            labels,
+            vec![
+                "A: INSPIRO",
+                "B: RIFF",
+                "C: SOFTHAND",
+                "",
+                "SOFTWARE",
+                "DOCUMENTS"
+            ]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4579,9 +4609,9 @@ mod tests {
         let mut app = app_in(&dir);
         assert_eq!(app.boot_selected, 0, "starts on INSPIRO");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 2, "over the rule, onto DOCUMENTS");
+        assert_eq!(app.boot_selected, 2, "over the rule, onto SOFTWARE");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 3, "onto SOFTWARE");
+        assert_eq!(app.boot_selected, 3, "onto DOCUMENTS");
         app.boot_step(1);
         assert_eq!(app.boot_selected, 3, "the end is the end");
         app.boot_step(-1);

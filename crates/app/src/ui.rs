@@ -938,10 +938,7 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
         let (x, label) = if item.bare {
             // `A: NAME` is nine cells of drive before the text; a row without a
             // letter lines up with the names instead.
-            (
-                x0 + LABEL_W.saturating_sub(item.label.chars().count() as u32 + 1),
-                item.label.as_str(),
-            )
+            (x0, item.label.as_str())
         } else {
             (x0, item.label.as_str())
         };
