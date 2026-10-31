@@ -3543,6 +3543,9 @@ impl App {
                 items.push(BootItem::Program(index));
             }
         }
+        if !self.disks.is_empty() {
+            items.push(BootItem::Rule);
+        }
         items.extend((0..self.disks.len()).map(BootItem::Disk));
         items
     }
@@ -3575,6 +3578,11 @@ impl App {
                 program.tagline.into(),
                 false,
             );
+        }
+        // The shelf for what is actually mounted: diskettes sit below it, so
+        // the row above the line is the machine and the rows below are media.
+        if !self.disks.is_empty() {
+            rows.push(ui::BootItem::rule());
         }
         for entry in &self.disks {
             match &entry.disk {
@@ -4746,12 +4754,20 @@ mod tests {
         let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
         assert_eq!(
             labels,
-            vec!["A: DOCUMENTS", "", "B: INSPIRO", "C: SOFTHAND", "D: HELLO"]
+            vec![
+                "A: DOCUMENTS",
+                "",
+                "B: INSPIRO",
+                "C: SOFTHAND",
+                "",
+                "D: HELLO"
+            ]
         );
         assert!(
             rows[1].rule,
             "the rule separates the vault from the modules"
         );
+        assert!(rows[4].rule, "and one separates the modules from the disks");
         assert!(rows[2].detail.contains("your ideas"));
         assert!(rows[3].detail.contains("16 colors"));
         assert!(!rows[3].broken, "SOFTHAND is installed, no diskette needed");

@@ -71,7 +71,9 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        ─────────────────────────────────────────
                        B: INSPIRO     where your ideas have room to grow
                        C: SOFTHAND    16 colors, endless possibilities.
-                       D: HELLO       a sample diskette
+                       ─────────────────────────────────────────
+                       D: RIFF        a Soundtrack for your life.
+                       E: HELLO       a sample diskette
 ```
 
 `A:` is the vault itself. Below the rule are the modules: `B:` is **Inspiro**,
