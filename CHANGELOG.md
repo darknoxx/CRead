@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **The launch is a small boot.** Flicker, beep, `Starting CRead OS...` bar,
+  a second sync of the monitor, then the boot screen. Two seconds in all, any
+  key skips it.
+
 ## 0.8.0
 
 - **The screen warms up.** On launch the picture stutters three times over nine
