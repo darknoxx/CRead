@@ -324,6 +324,11 @@ pub const PROGRAMS: &[ProgramInfo] = &[
         entry: "RIFF",
         tagline: "a Soundtrack for your life.",
     },
+    ProgramInfo {
+        id: "pocketboi",
+        entry: "POCKETBOI",
+        tagline: "get gaming, my friend!",
+    },
 ];
 
 /// The home screen a program opens onto.
@@ -786,6 +791,15 @@ impl App {
             self.dirty = true;
         }
 
+        // A running cartridge redraws every frame; nothing else does.
+        if self
+            .program
+            .as_ref()
+            .is_some_and(|program| program.wants_frames())
+        {
+            self.dirty = true;
+        }
+
         if let Some(started) = self.boot_at {
             if started.elapsed().as_secs_f32() >= BOOT_SECONDS {
                 // The bar is full: the speaker says so, then the picture
@@ -897,7 +911,13 @@ impl App {
 
         // Nothing animates any more except the cursor, so we do not run a
         // frame clock at all: sleep until the blink is due and redraw then.
-        if self.boot_at.is_some() || self.mode == Mode::Loading {
+        if self.boot_at.is_some()
+            || self.mode == Mode::Loading
+            || self
+                .program
+                .as_ref()
+                .is_some_and(|program| program.wants_frames())
+        {
             self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
         } else if crt.roll > 0.0 && crt.scanline > 0.0 {
             // The raster moves, so this is the one case that needs a full clock.
@@ -1858,6 +1878,17 @@ impl App {
     // ── input ───────────────────────────────────────────────────────────────
 
     fn on_key(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
+        if event.state == ElementState::Released {
+            // A game pad needs the key going up again; everything else ignores it.
+            if self.mode == Mode::Program
+                && !self.program_prompt
+                && let Some(key) = self.program_key(&event)
+                && let Some(program) = self.program.as_mut()
+            {
+                program.key_released(key);
+            }
+            return;
+        }
         if event.state != ElementState::Pressed {
             return;
         }
@@ -2935,6 +2966,15 @@ impl App {
                 self.command.clear();
             }
             Pending::Program(index) => {
+                let id = PROGRAMS.get(index).map(|p| p.id).unwrap_or_default();
+                if id == "pocketboi" {
+                    self.program = Some(Box::new(cread_pocketboi::Pocketboi::new(&self.vault())));
+                    self.mode = Mode::Program;
+                    self.program_prompt = false;
+                    self.command.clear();
+                    self.dirty = true;
+                    return;
+                }
                 self.home = program_home(index);
                 // A disc is still in the tray: Riff opens on the player, not on
                 // the front door it was left from.
@@ -4110,6 +4150,21 @@ impl ApplicationHandler for App {
                 }
             }
             "riffinsert" => self.open_explorer(),
+            "pocketboi" => {
+                self.program = Some(Box::new(cread_pocketboi::Pocketboi::new(&self.vault())));
+                self.mode = Mode::Program;
+            }
+            other if other.starts_with("pocketboi:") => {
+                let rom = PathBuf::from(&other["pocketboi:".len()..]);
+                let mut boi = cread_pocketboi::Pocketboi::new(&self.vault());
+                match boi.play(&rom) {
+                    Ok(()) => {
+                        self.program = Some(Box::new(boi));
+                        self.mode = Mode::Program;
+                    }
+                    Err(e) => eprintln!("cread: {e}"),
+                }
+            }
             "picture" => {
                 self.new_picture();
                 if !self.opts.command.is_empty() {

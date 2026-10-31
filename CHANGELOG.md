@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Pocketboi.** A Game Boy and Game Boy Color on the raster, running Mizu
+  (`mizu-core`, MIT, vendored and patched — see `vendor/README.md`). Cartridges
+  come from `<vault>/Roms`; the module lists folders and `.gb`/`.gbc` files, maps
+  the 160x144 screen to four shades and doubles it, and gives the pad to the
+  arrow keys, `Z`/`X`, `Enter` and `Space`. It is the first module that animates:
+  the shell runs a frame clock while a cartridge is loaded, and a panic in the
+  emulator costs the game, not the application.
+
 ## 0.11.0
 
 - **SOFTWARE replaces the diskettes.** The boot screen lists the modules first,

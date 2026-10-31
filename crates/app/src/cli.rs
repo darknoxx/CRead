@@ -170,11 +170,15 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "riffinsert",
                     "loading",
                     "software",
+                    "pocketboi",
                     "palette",
                     "settings",
                     "help",
                 ];
-                if !known.contains(&v.as_str()) && !v.starts_with("picture:") {
+                if !known.contains(&v.as_str())
+                    && !v.starts_with("picture:")
+                    && !v.starts_with("pocketboi:")
+                {
                     return Err(format!("unknown view: {v}"));
                 }
                 opts.show = v;

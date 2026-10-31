@@ -98,6 +98,13 @@ because `riff ...` must work from any prompt. Riff is a disk program
 program that needs to keep running while another one is in front belongs here,
 not in `crates/programs`.
 
+**Vendored dependencies are patched with a reason.** `vendor/` holds a copy of a
+crate we build against, wired in with `[patch.crates-io]`, plus a README listing
+every change and why. Today that is `mizu-core` (Pocketboi's emulator), patched
+to stop printing to stdout, to survive an illegal opcode, and to keep a corrupt
+save state from panicking. Do not add a vendor copy without that README, and
+re-apply the patches instead of dropping them on upgrade.
+
 **Two surfaces, one raster.** A program draws pixels into `Raster` (16 fixed
 colours, 640x368) and text into the `Screen` on top; cells can be transparent so
 menus sit over a picture. The framebuffer only ever sees one composited image,

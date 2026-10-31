@@ -72,6 +72,7 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        A: INSPIRO     where your ideas have room to grow.
                        B: SOFTHAND    16 colors, endless possibilities.
                        C: RIFF        a Soundtrack for your life.
+                       D: POCKETBOI   get gaming, my friend!
                        ─────────────────────────────────────────
                        SOFTWARE       install and remove modules
                        DOCUMENTS      open a file from the vault
@@ -166,6 +167,7 @@ SOFTWARE                                  install and remove modules
   │ ► INSPIRO   where your ideas have room to grow.     system│
   │   SOFTHAND  16 colors, endless possibilities.     install │
   │   RIFF      a Soundtrack for your life.           install │
+  │   POCKETBOI get gaming, my friend!                install │
   └──────────────────────────────────────────────────────────┘
 ```
 
@@ -258,6 +260,24 @@ The sound lives in the shell, not in the program: that is why it keeps playing
 while you are writing in Inspiro or painting in Softhand — and why their status
 line carries `♪ 01 Aufwachen · 00:42`, so you always know what is running. When
 the bar is too narrow for both, the hint gives way to the track.
+
+## Pocketboi
+
+Pocketboi is a Game Boy on the same raster as everything else. It runs
+[Mizu](https://github.com/Amjad50/mizu), a GB/GBC emulator in Rust, vendored
+under `vendor/mizu-core` with a handful of patches (see `vendor/README.md`): the
+upstream code printed to stdout during normal play and panicked on an illegal
+opcode.
+
+Cartridges live in `<vault>/Roms` — drop `.gb` and `.gbc` files there and the
+module lists them, folders included. `Enter` plays, `Backspace` goes up a folder.
+
+The machine's 160x144 screen is reduced to four shades and blown up by two, so it
+sits centred in the 640x384 raster. Keys: arrows are the pad, `Z` is B, `X` is A,
+`Enter` is Start, `Space` is Select. `Esc` opens the command line; the cartridge
+saves its battery RAM next to the ROM when you leave.
+
+Nothing is shipped with it: the ROMs are yours to bring.
 
 ## How the picture is built
 

@@ -12,6 +12,7 @@ arboard = "3.7.0"
 cread-core.workspace = true
 cread-render.workspace = true
 cread-softhand.workspace = true
+cread-pocketboi.workspace = true
 cread-sync.workspace = true
 pollster = "1.0.1"
 rodio = "0.21"

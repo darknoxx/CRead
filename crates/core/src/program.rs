@@ -84,6 +84,18 @@ pub trait Program {
 
     fn key(&mut self, key: KeyPress) -> Outcome;
 
+    /// The same key going up again. Programs with held buttons (a game pad)
+    /// need this; a text UI can leave it alone.
+    fn key_released(&mut self, key: KeyPress) {
+        let _ = key;
+    }
+
+    /// True while the program needs a frame every tick: a running emulator,
+    /// an animation. A still screen leaves it false.
+    fn wants_frames(&self) -> bool {
+        false
+    }
+
     fn pointer(&mut self, event: PointerEvent) -> Outcome;
 
     fn draw(&mut self, screen: &mut Screen, raster: &mut Raster);

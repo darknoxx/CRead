@@ -6,6 +6,7 @@ members = [
     "crates/sync",
     "crates/app",
     "crates/programs/softhand",
+    "crates/programs/pocketboi",
 ]
 
 [workspace.package]
@@ -19,6 +20,7 @@ cread-core = { path = "crates/core" }
 cread-render = { path = "crates/render" }
 cread-sync = { path = "crates/sync" }
 cread-softhand = { path = "crates/programs/softhand" }
+cread-pocketboi = { path = "crates/programs/pocketboi" }
 
 [profile.release]
 opt-level = 3
@@ -31,3 +33,9 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# Mizu is vendored with three small patches (see vendor/README.md): a debug
+# print in the CPU loop, a panic on illegal opcodes, and an assert while
+# loading save states.
+[patch.crates-io]
+mizu-core = { path = "vendor/mizu-core" }
