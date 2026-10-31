@@ -47,6 +47,9 @@ const STATUS_TTL: Duration = Duration::from_secs(4);
 /// The CRT warming up: a few stutters, then the picture holds. Short enough
 /// that it reads as power-on rather than as a wait.
 const BOOT_SECONDS: f32 = 0.9;
+/// When the speaker says the machine is alive. Not at the very end: the beep
+/// belongs to the last flashes, not after the picture already sits still.
+const BOOT_BEEP_AT: f32 = 0.5;
 /// (from second, brightness) — a monitor looking for a signal.
 const BOOT_STEPS: &[(f32, f32)] = &[
     (0.00, 0.0),
@@ -394,6 +397,8 @@ struct App {
     help_all: bool,
     /// Set while the CRT is still flickering on.
     boot_at: Option<Instant>,
+    /// The warm-up's beep has been played.
+    boot_beeped: bool,
     /// The startup beep, mirrored from the preferences.
     beep_on: bool,
 
@@ -589,6 +594,7 @@ impl App {
             help_selected: 0,
             help_all: false,
             boot_at: None,
+            boot_beeped: false,
             beep_on,
             sync_cfg,
             sync: None,
@@ -717,13 +723,14 @@ impl App {
 
         let mut crt = self.crt;
         if let Some(started) = self.boot_at {
-            match boot_brightness(started.elapsed().as_secs_f32()) {
+            let elapsed = started.elapsed().as_secs_f32();
+            if !self.boot_beeped && elapsed >= BOOT_BEEP_AT {
+                self.boot_beeped = true;
+                self.beep();
+            }
+            match boot_brightness(elapsed) {
                 Some(level) => crt.brightness *= level,
-                None => {
-                    // Settled: the picture stays, the speaker says it is ready.
-                    self.boot_at = None;
-                    self.beep();
-                }
+                None => self.boot_at = None,
             }
         }
         if self.theme.is_light() {
@@ -3507,6 +3514,7 @@ impl ApplicationHandler for App {
         // so it can be looked at.
         if self.opts.boot || self.opts.screenshot.is_none() {
             self.boot_at = Some(Instant::now());
+            self.boot_beeped = false;
         }
 
         if self.sync_cfg.enabled {
