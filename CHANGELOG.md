@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 - **Riff.** A music player with a transport, a playlist and a volume, playing the
   XDG music folder (MP3, FLAC, OGG, WAV). It ships on a diskette
