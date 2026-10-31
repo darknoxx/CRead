@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1
+
+- **The sample diskettes are in the release tarball.** `disks/RIFF.DSK` and
+  `disks/HELLO.DSK` ship next to the binary, so a fresh download can actually
+  mount Riff instead of wondering why the row is missing.
+
 ## 0.10.0
 
 - **Riff.** A music player with a transport, a playlist and a volume, playing the

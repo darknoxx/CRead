@@ -40,6 +40,9 @@ Every push to `main` builds a ready-to-run Linux binary in CI:
 1. Open the **Actions** tab and pick the newest *Release build* run.
 2. Download the `cread-linux-x86_64` artifact.
 3. `tar xzf cread-linux-x86_64.tar.gz && ./cread`
+4. `mkdir -p ~/Dokumente/CRead/Disks && cp disks/*.dsk ~/Dokumente/CRead/Disks/`
+   — the tarball ships the sample diskettes, and without `RIFF.DSK` the music
+   player never appears on the boot screen.
 
 Tagged releases also publish the tarball on the
 [Releases](https://github.com/darknoxx/CRead/releases) page, which is the
