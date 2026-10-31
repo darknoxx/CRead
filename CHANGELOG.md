@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
 
 - **The screen warms up.** On launch the picture stutters three times over nine
   tenths of a second, like a CRT looking for a signal, then the PC speaker beeps
