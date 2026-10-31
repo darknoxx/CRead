@@ -69,17 +69,16 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
 ```
                              Welcome to CRead
 
-                       A: DOCUMENTS   open a file from the vault
+                       A: INSPIRO     where your ideas have room to grow
+                       B: SOFTHAND    16 colors, endless possibilities.
+                       C: RIFF        a Soundtrack for your life.
                        ─────────────────────────────────────────
-                       B: INSPIRO     where your ideas have room to grow
-                       C: SOFTHAND    16 colors, endless possibilities.
-                       D: RIFF        a Soundtrack for your life.
-                       ─────────────────────────────────────────
-                       SOFTWARE      install and remove modules
+                       DOCUMENTS      open a file from the vault
+                       SOFTWARE       install and remove modules
 ```
 
-`A:` is the vault itself. Below the rule are the modules, and below the second
-rule is `SOFTWARE`. A fresh install has only **Inspiro**, the writing terminal;
+The letters are the modules. Below the rule sit the vault and the shelf, which
+are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
 **Softhand** (paint) and **Riff** (music) sit in the shelf until you switch them
 on there. Every module opens with a fake loading bar before its own front door
 appears.

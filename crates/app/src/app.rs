@@ -3531,13 +3531,16 @@ impl App {
     // ── the boot screen ─────────────────────────────────────────────────────
 
     fn boot_items(&self) -> Vec<BootItem> {
-        let mut items = vec![BootItem::Documents, BootItem::Rule, BootItem::Inspiro];
+        // Modules carry drive letters; the vault and the shelf do not, and sit
+        // below the rule.
+        let mut items = vec![BootItem::Inspiro];
         for (index, program) in PROGRAMS.iter().enumerate() {
             if self.is_installed(program.id) {
                 items.push(BootItem::Program(index));
             }
         }
         items.push(BootItem::Rule);
+        items.push(BootItem::Documents);
         items.push(BootItem::Software);
         items
     }
@@ -3546,14 +3549,6 @@ impl App {
     fn boot_rows(&self) -> Vec<ui::BootItem> {
         let mut rows = Vec::new();
         let mut letter = b'A';
-        push_boot_row(
-            &mut rows,
-            &mut letter,
-            "DOCUMENTS".into(),
-            "open a file from the vault".into(),
-            false,
-        );
-        rows.push(ui::BootItem::rule());
         push_boot_row(
             &mut rows,
             &mut letter,
@@ -3571,6 +3566,13 @@ impl App {
             );
         }
         rows.push(ui::BootItem::rule());
+        rows.push(ui::BootItem {
+            label: "DOCUMENTS".into(),
+            detail: "open a file from the vault".into(),
+            broken: false,
+            rule: false,
+            bare: true,
+        });
         rows.push(ui::BootItem {
             label: "SOFTWARE".into(),
             detail: "install and remove modules".into(),
@@ -4519,7 +4521,7 @@ mod tests {
         };
         assert_eq!(
             labels(&app),
-            vec!["A: DOCUMENTS", "", "B: INSPIRO", "", "SOFTWARE"]
+            vec!["A: INSPIRO", "", "DOCUMENTS", "SOFTWARE"]
         );
 
         // Row 0 is Inspiro, the system: it refuses to go.
@@ -4539,14 +4541,7 @@ mod tests {
         assert_eq!(app.prefs.installed, vec!["softhand"]);
         assert_eq!(
             labels(&app),
-            vec![
-                "A: DOCUMENTS",
-                "",
-                "B: INSPIRO",
-                "C: SOFTHAND",
-                "",
-                "SOFTWARE"
-            ]
+            vec!["A: INSPIRO", "B: SOFTHAND", "", "DOCUMENTS", "SOFTWARE"]
         );
 
         // And removing it takes the row away again.
@@ -4557,7 +4552,7 @@ mod tests {
         assert_eq!(app.prefs.installed.len(), 0);
         assert_eq!(
             labels(&app),
-            vec!["A: DOCUMENTS", "", "B: INSPIRO", "", "SOFTWARE"]
+            vec!["A: INSPIRO", "", "DOCUMENTS", "SOFTWARE"]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4582,17 +4577,17 @@ mod tests {
     fn the_arrow_keys_skip_the_rule() {
         let dir = vault("boot-nav");
         let mut app = app_in(&dir);
-        assert_eq!(app.boot_selected, 0, "starts on DOCUMENTS");
+        assert_eq!(app.boot_selected, 0, "starts on INSPIRO");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 2, "over the rule, onto INSPIRO");
+        assert_eq!(app.boot_selected, 2, "over the rule, onto DOCUMENTS");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 4, "over the second rule, onto SOFTWARE");
+        assert_eq!(app.boot_selected, 3, "onto SOFTWARE");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 4, "the end is the end");
+        assert_eq!(app.boot_selected, 3, "the end is the end");
         app.boot_step(-1);
-        assert_eq!(app.boot_selected, 2, "back over the rule");
+        assert_eq!(app.boot_selected, 2);
         app.boot_step(-1);
-        assert_eq!(app.boot_selected, 0, "back over the first");
+        assert_eq!(app.boot_selected, 0, "back over the rule");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
