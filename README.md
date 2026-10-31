@@ -25,7 +25,7 @@ ultrawide.
 ## Build and run
 
 Requires Rust (2024 edition) and, on Linux, the usual Wayland/X11 development
-headers.
+headers plus ALSA for the music player (`libasound2-dev` on Debian/Ubuntu).
 
 ```bash
 cargo build --release
@@ -124,6 +124,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | `exit` | `welcome`, `home` | back to the boot screen |
 | `run [name]` | `exec` | run a diskette (bare: whatever the boot screen has selected) |
 | `eject [drive]` | `unmount` | take a diskette out until CRead restarts |
+| `riff <command>` | `music` | the music player: play, stop, next, volume, … |
 | `dir` | `disks` | list the diskettes in the drive folder |
 | `beep [on\|off]` | `bell` | the startup beep; bare `beep` toggles |
 | `font [classic\|thin]` | `weight` | typeface; bare `font` cycles |
@@ -251,6 +252,45 @@ and `colour` report what is set, and `help` lists exactly this vocabulary.
 Undo keeps the last eight full-canvas snapshots — a paint program without undo
 is a trap, and 240 KB per step is nothing.
 
+## Riff
+
+Riff is the music player and the first module that ships on a diskette:
+`examples/disks/RIFF.DSK` in `Disks` puts `D: RIFF` on the boot screen, and
+`eject D` takes it away again.
+
+It plays the XDG music folder (`~/Musik` or `~/Music`), not a folder of its own:
+`i` opens the browser, Enter walks into a folder, Enter on a track plays it, and
+`i` inside a folder inserts the whole album. Nothing is loaded automatically, so
+the list is what you chose. MP3, FLAC, OGG and WAV.
+
+```
+R I F F                                    a Soundtrack for your life.
+ ┌──────────────────────────────────────────────────────────────┐
+ │ ♫ 01 Aufwachen                                               │
+ │   Morgenlicht  ·  1 of 3                                     │
+ │   00:42 ████████████████░░░░░░░░░░░░░░░░░░░░       03:51     │
+ └──────────────────────────────────────────────────────────────┘
+        ◄◄      ►      ■      ►►            vol ████████░░
+```
+
+`Space` pauses, the left and right arrows change track, up/down is the volume, `i`
+inserts, `r` toggles shuffle, `Esc` opens the command line. Everything there also
+works as a command, from **any** prompt, even before Riff was opened once:
+
+| Command | What it does |
+| --- | --- |
+| `riff play [track]` | resume, or start the list (optionally a named track) |
+| `riff stop` | silence it |
+| `riff pause` | play/pause |
+| `riff next` / `riff prev` | walk the list |
+| `riff random [on\|off]` | shuffle |
+| `riff volume [0-100]` | loudness, remembered |
+| `riff insert` | the music browser (inside Riff) |
+| `riff status` | what is playing, in the status line |
+
+The sound lives in the shell, not in the program: that is why it keeps playing
+while you are writing in Inspiro or painting in Softhand.
+
 ## How the picture is built
 
 The emulated resolution is never scaled fractionally. For a physical surface of
@@ -349,6 +389,7 @@ assets/          bitmap faces, boot logo
 assets/splash…   pixel art, blitted into the emulated framebuffer
 assets/inspiro…  the same, for Inspiro's front door
 assets/softhand… and for Softhand's
+assets/riff…     and for Riff's
 ```
 
 `crates/core` has no GPU, window or network dependency, so the tricky parts are

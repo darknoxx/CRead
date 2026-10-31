@@ -151,8 +151,23 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             "--show" => {
                 let v = args.next().ok_or("--show needs a value")?;
                 let known = [
-                    "editor", "welcome", "action", "search", "view", "inspiro", "softhand",
-                    "picture", "pictures", "loading", "disk", "diskfile", "palette", "settings",
+                    "editor",
+                    "welcome",
+                    "action",
+                    "search",
+                    "view",
+                    "inspiro",
+                    "softhand",
+                    "picture",
+                    "pictures",
+                    "riff",
+                    "riffplay",
+                    "riffinsert",
+                    "loading",
+                    "disk",
+                    "diskfile",
+                    "palette",
+                    "settings",
                     "help",
                 ];
                 if !known.contains(&v.as_str()) && !v.starts_with("picture:") {

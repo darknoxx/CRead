@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use cread_core::{
     Editor, KeyPress, Position, Prefs, Raster, ScaleMode, Screen, Stats, Theme, Viewport,
-    command::{self, Command, CommandError},
+    command::{self, Command, CommandError, RiffAction},
     disk::Disk,
-    picture,
+    music, picture,
     program::{Outcome, PointerEvent, PointerKind, Program},
     resolution::target_line_px_for_scale_factor,
     storage,
@@ -196,6 +196,38 @@ struct Search {
     current: usize,
 }
 
+/// What Riff is doing. Owned by the shell, so the music outlives the screen.
+struct RiffState {
+    playlist: music::Playlist,
+    /// A track is loaded and not paused.
+    playing: bool,
+    /// Folder or file the playlist was inserted from.
+    source: String,
+    /// The music folder browser, while it is open.
+    explorer: Option<Explorer>,
+    /// Last whole second drawn, so the counter does not redraw at 60 fps.
+    second: u64,
+}
+
+impl RiffState {
+    fn new() -> Self {
+        Self {
+            playlist: music::Playlist::default(),
+            playing: false,
+            source: String::new(),
+            explorer: None,
+            second: 0,
+        }
+    }
+}
+
+/// The insert browser: one folder at a time, folders first.
+struct Explorer {
+    dir: PathBuf,
+    entries: Vec<music::Entry>,
+    selected: usize,
+}
+
 /// A diskette found in the vault, parsed or not — a broken disk still shows up
 /// on the boot screen so its owner can see what went wrong.
 struct DiskEntry {
@@ -216,6 +248,8 @@ enum Home {
     Inspiro,
     /// Softhand's front door: same shape, its own logo and tagline.
     SoftHand,
+    /// Riff's front door.
+    Riff,
 }
 
 /// What happens when the loading bar finishes.
@@ -271,6 +305,10 @@ enum Mode {
     Help,
     /// A program owns the screen.
     Program,
+    /// Riff playing, or its front door.
+    Riff,
+    /// The music folder browser.
+    RiffInsert,
 }
 
 /// A program compiled into this build.
@@ -285,12 +323,20 @@ pub struct ProgramInfo {
     pub installed: bool,
 }
 
-pub const PROGRAMS: &[ProgramInfo] = &[ProgramInfo {
-    id: "softhand",
-    entry: "SOFTHAND",
-    tagline: "16 colors, endless possibilities.",
-    installed: true,
-}];
+pub const PROGRAMS: &[ProgramInfo] = &[
+    ProgramInfo {
+        id: "softhand",
+        entry: "SOFTHAND",
+        tagline: "16 colors, endless possibilities.",
+        installed: true,
+    },
+    ProgramInfo {
+        id: "riff",
+        entry: "RIFF",
+        tagline: "a Soundtrack for your life.",
+        installed: false,
+    },
+];
 
 fn program_index_by_id(id: &str) -> Option<usize> {
     PROGRAMS.iter().position(|program| program.id == id)
@@ -300,6 +346,7 @@ fn program_index_by_id(id: &str) -> Option<usize> {
 fn program_home(index: usize) -> Home {
     match PROGRAMS.get(index).map(|program| program.id) {
         Some("softhand") => Home::SoftHand,
+        Some("riff") => Home::Riff,
         _ => Home::Boot,
     }
 }
@@ -390,6 +437,8 @@ struct App {
     softhand_logo: Option<Splash>,
     /// Where the Softhand logo sits this frame.
     softhand_at: Option<(i32, i32, u32)>,
+    riff_logo: Option<Splash>,
+    riff_at: Option<(i32, i32, u32)>,
     /// The running program, if any.
     program: Option<Box<dyn Program>>,
     /// Pixel layer handed to programs.
@@ -423,6 +472,11 @@ struct App {
     help_all: bool,
     /// The launch bar, while it runs.
     boot_at: Option<Instant>,
+    /// The music output, opened on first use.
+    audio: Option<crate::audio::Audio>,
+    riff: RiffState,
+    /// Loudness, mirrored from the preferences.
+    volume: u8,
     /// The startup beep, mirrored from the preferences.
     beep_on: bool,
     /// Write the document while typing; off unless asked for.
@@ -544,6 +598,7 @@ impl App {
         let typewriter = prefs.typewriter;
         let beep_on = prefs.beep;
         let autosave = prefs.autosave;
+        let volume = prefs.volume;
         let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
         Self {
@@ -598,6 +653,10 @@ impl App {
                 .map_err(|e| eprintln!("cread: softhand logo: {e}"))
                 .ok(),
             softhand_at: None,
+            riff_logo: Splash::from_png(include_bytes!("../../../assets/riff.png"))
+                .map_err(|e| eprintln!("cread: riff logo: {e}"))
+                .ok(),
+            riff_at: None,
             program: None,
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
             picture_path: None,
@@ -622,6 +681,9 @@ impl App {
             help_selected: 0,
             help_all: false,
             boot_at: None,
+            audio: None,
+            riff: RiffState::new(),
+            volume,
             beep_on,
             autosave,
             sync_cfg,
@@ -733,6 +795,7 @@ impl App {
             self.dirty = true;
         }
         self.autosave_if_due();
+        self.riff_tick();
 
         let Some(vp) = self.vp else {
             return;
@@ -800,6 +863,10 @@ impl App {
                 let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
                 self.fb.draw_splash(logo, x, y, divisor, &style);
             }
+            if let (Some(logo), Some((x, y, divisor))) = (self.riff_logo.as_ref(), self.riff_at) {
+                let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
+                self.fb.draw_splash(logo, x, y, divisor, &style);
+            }
             if let Some(renderer) = self.renderer.as_mut() {
                 renderer.upload(&self.fb);
             }
@@ -858,6 +925,9 @@ impl App {
         // frame clock at all: sleep until the blink is due and redraw then.
         if self.boot_at.is_some() || self.mode == Mode::Loading {
             self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
+        } else if self.riff.playing {
+            // The tape counter and the end of a track: twice a second is enough.
+            self.next_frame = frame_start + Duration::from_millis(500);
         } else if crt.roll > 0.0 && crt.scanline > 0.0 {
             // The raster moves, so this is the one case that needs a clock.
             self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
@@ -878,6 +948,86 @@ impl App {
         self.splash_at = None;
         self.inspiro_at = None;
         self.softhand_at = None;
+        self.riff_at = None;
+        if self.mode == Mode::RiffInsert {
+            if let Some(explorer) = self.riff.explorer.as_ref() {
+                let entries: Vec<(String, bool)> = explorer
+                    .entries
+                    .iter()
+                    .map(|entry| (entry.name.clone(), entry.folder))
+                    .collect();
+                let rows_free = screen.rows().saturating_sub(6) as usize;
+                let top = explorer
+                    .selected
+                    .saturating_sub(rows_free.saturating_sub(1));
+                let dir = explorer.dir.display().to_string();
+                let view = ui::ExplorerView {
+                    dir: &dir,
+                    entries: &entries,
+                    selected: explorer.selected,
+                    top,
+                };
+                ui::draw_explorer(&mut screen, &self.theme, &view);
+            }
+            self.screen = screen;
+            return;
+        }
+        if self.mode == Mode::Riff {
+            let (title, album) = match self.riff.playlist.current() {
+                Some(track) => (track.title.clone(), track.album.clone()),
+                None => (String::new(), String::new()),
+            };
+            let (position, length) = self
+                .audio
+                .as_ref()
+                .map(|audio| (audio.position(), audio.length()))
+                .unwrap_or_default();
+            let paused = self.audio.as_ref().is_some_and(|audio| audio.is_paused());
+            let (at, of) = self.riff.playlist.position();
+            let counter = if of == 0 {
+                String::new()
+            } else {
+                format!("{at} of {of}")
+            };
+            let current = self.riff.playlist.current_index();
+            let tracks = self.riff.playlist.tracks();
+            let start = current.unwrap_or(0).saturating_sub(3);
+            let lines: Vec<(String, bool)> = tracks
+                .iter()
+                .enumerate()
+                .skip(start)
+                .take(8)
+                .map(|(index, track)| (track.title.clone(), Some(index) == current))
+                .collect();
+            let note = if title.is_empty() {
+                "no disc inserted - press i to insert music"
+            } else {
+                ""
+            };
+            let elapsed = crate::audio::clock(position);
+            let total = crate::audio::clock(length);
+            let view = ui::RiffView {
+                title: &title,
+                album: &album,
+                progress: if length.is_zero() {
+                    0.0
+                } else {
+                    position.as_secs_f32() / length.as_secs_f32()
+                },
+                elapsed: &elapsed,
+                total: &total,
+                counter: &counter,
+                playing: self.riff.playing,
+                paused,
+                shuffle: self.riff.playlist.shuffle(),
+                volume: self.volume,
+                lines: &lines,
+                note,
+            };
+            ui::draw_riff(&mut screen, &self.theme, &view);
+            self.screen = screen;
+            return;
+        }
         if let Some(started) = self.boot_at {
             let progress = boot_progress(started.elapsed().as_secs_f32());
             let blink = ((started.elapsed().as_secs_f32() * 2.5) as u32).is_multiple_of(2);
@@ -959,6 +1109,8 @@ impl App {
             } else if self.has_document {
                 // Left empty on purpose: the prompt then shows how to leave.
                 String::new()
+            } else if self.home == Home::Riff {
+                "riff insert   riff play   help for commands".to_string()
             } else if matches!(self.home, Home::SoftHand | Home::Inspiro) {
                 "new   open   help for commands".to_string()
             } else {
@@ -1067,6 +1219,27 @@ impl App {
                     &hint,
                     &error,
                 );
+            } else if self.home == Home::Riff {
+                let title_row = match front_door_layout(&self.riff_logo, max_w, max_h, cols, rows) {
+                    Some((x, y, divisor, img_rows)) => {
+                        self.riff_at = (!overlay_open).then_some((x, y, divisor));
+                        rows.saturating_sub(img_rows + 1 + 3) / 2 + img_rows + 1
+                    }
+                    None => {
+                        self.riff_at = None;
+                        rows.saturating_sub(3) / 2
+                    }
+                };
+                ui::draw_front_door(
+                    &mut screen,
+                    &self.theme,
+                    title_row,
+                    "a Soundtrack for your life.",
+                    "type riff insert to load music",
+                    &self.command,
+                    &hint,
+                    &error,
+                );
             } else if self.home == Home::SoftHand {
                 let title_row =
                     match front_door_layout(&self.softhand_logo, max_w, max_h, cols, rows) {
@@ -1084,6 +1257,7 @@ impl App {
                     &self.theme,
                     title_row,
                     "16 colors, endless possibilities.",
+                    "type new or open to start",
                     &self.command,
                     &hint,
                     &error,
@@ -1710,6 +1884,8 @@ impl App {
             Mode::DiskBrowser => self.on_key_disk_browser(event),
             Mode::Loading => self.finish_loading(),
             Mode::Program => self.on_key_program(el, event),
+            Mode::Riff => self.on_key_riff(el, event),
+            Mode::RiffInsert => self.on_key_riff_insert(event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -2003,6 +2179,96 @@ impl App {
         }
     }
 
+    /// Riff's own keys: space, arrows, and a few letters.
+    fn on_key_riff(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
+        if self.program_prompt {
+            if matches!(&event.logical_key, Key::Named(NamedKey::Escape)) && self.command.is_empty()
+            {
+                self.program_prompt = false;
+                self.poke();
+                return;
+            }
+            self.on_key_action(el, event);
+            return;
+        }
+        let outcome = match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.program_prompt = true;
+                self.command.clear();
+                self.command_error.clear();
+                self.poke();
+                return;
+            }
+            Key::Named(NamedKey::Space) => Some(self.run_riff(RiffAction::Pause)),
+            Key::Named(NamedKey::ArrowLeft) => Some(self.run_riff(RiffAction::Prev)),
+            Key::Named(NamedKey::ArrowRight) => Some(self.run_riff(RiffAction::Next)),
+            Key::Named(NamedKey::ArrowUp) => {
+                self.volume_step(5);
+                None
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                self.volume_step(-5);
+                None
+            }
+            Key::Character(text) if text.eq_ignore_ascii_case("i") => {
+                Some(self.run_riff(RiffAction::Insert))
+            }
+            Key::Character(text) if text.eq_ignore_ascii_case("s") => {
+                Some(self.run_riff(RiffAction::Stop))
+            }
+            Key::Character(text) if text.eq_ignore_ascii_case("r") => {
+                Some(self.run_riff(RiffAction::Random(None)))
+            }
+            _ => None,
+        };
+        match outcome {
+            Some(Ok(message)) if !message.is_empty() => self.set_status(message),
+            Some(Err(e)) => self.set_status(e),
+            _ => {}
+        }
+        self.poke();
+    }
+
+    /// The insert browser: arrows, enter, backspace, i.
+    fn on_key_riff_insert(&mut self, event: KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.riff.explorer = None;
+                self.close_explorer_into_player();
+            }
+            Key::Named(NamedKey::Enter) => {
+                if let Err(e) = self.explorer_enter() {
+                    self.set_status(e);
+                }
+            }
+            Key::Named(NamedKey::ArrowUp) => self.explorer_move(-1),
+            Key::Named(NamedKey::ArrowDown) => self.explorer_move(1),
+            Key::Named(NamedKey::Backspace) | Key::Named(NamedKey::ArrowLeft) => {
+                let parent = self
+                    .riff
+                    .explorer
+                    .as_ref()
+                    .and_then(|explorer| explorer.dir.parent().map(|p| p.to_path_buf()));
+                if let Some(parent) = parent {
+                    let entries = music::entries(&parent);
+                    if let Some(explorer) = self.riff.explorer.as_mut() {
+                        explorer.dir = parent;
+                        explorer.entries = entries;
+                        explorer.selected = 0;
+                    }
+                    self.poke();
+                }
+            }
+            Key::Character(text) if text.eq_ignore_ascii_case("i") => {
+                if let Err(e) = self.explorer_insert_folder() {
+                    self.set_status(e);
+                }
+            }
+            _ => {}
+        }
+        self.poke();
+    }
+
     /// Translate a winit key into the program's vocabulary.
     fn program_key(&self, event: &KeyEvent) -> Option<KeyPress> {
         let ctrl = self.mods.control_key() || self.mods.super_key();
@@ -2105,7 +2371,7 @@ impl App {
                 }
                 // A program's prompt closes again after a command, so you are
                 // back to drawing without another keypress.
-                if self.mode == Mode::Program {
+                if matches!(self.mode, Mode::Program | Mode::Riff) {
                     self.program_prompt = false;
                 }
             }
@@ -2310,6 +2576,7 @@ impl App {
                 Ok(String::new())
             }
             Command::Eject(target) => self.eject(target),
+            Command::Riff(action) => self.run_riff(action),
             Command::Run(None) => {
                 self.boot_activate();
                 Ok(String::new())
@@ -2398,6 +2665,23 @@ impl App {
 
     #[allow(clippy::wrong_self_convention)]
     fn to_write(&mut self) {
+        if matches!(self.mode, Mode::RiffInsert) {
+            self.riff.explorer = None;
+            self.mode = Mode::Riff;
+            self.program_prompt = false;
+            self.dirty = true;
+            return;
+        }
+        if self.mode == Mode::Riff
+            || (!self.has_document && self.home == Home::Riff && self.mode == Mode::Action)
+        {
+            self.mode = Mode::Riff;
+            self.program_prompt = false;
+            self.command.clear();
+            self.command_error.clear();
+            self.dirty = true;
+            return;
+        }
         if self.program.is_some() {
             self.mode = Mode::Program;
             self.program_prompt = false;
@@ -2843,6 +3127,310 @@ impl App {
         self.program.is_some() || (!self.has_document && self.home == Home::SoftHand)
     }
 
+    // ── riff ────────────────────────────────────────────────────────────────
+
+    /// The output device, opened the first time music is asked for.
+    fn audio(&mut self) -> Result<&mut crate::audio::Audio, String> {
+        if self.audio.is_none() {
+            self.audio = Some(crate::audio::Audio::open(self.volume)?);
+        }
+        Ok(self.audio.as_mut().expect("just opened"))
+    }
+
+    /// Start whatever the playlist points at.
+    fn riff_start_current(&mut self) -> Result<String, String> {
+        let Some(track) = self.riff.playlist.current().cloned() else {
+            return Err("no music inserted".into());
+        };
+        let volume = self.volume;
+        {
+            let audio = self.audio()?;
+            audio.set_volume(volume);
+            audio.play(&track.path)?;
+        }
+        self.riff.playing = true;
+        Ok(format!("\u{266b} {}", track.title))
+    }
+
+    /// Fill an empty playlist from the folder or file inserted last time.
+    fn riff_ensure_loaded(&mut self) -> Result<(), String> {
+        if !self.riff.playlist.is_empty() {
+            return Ok(());
+        }
+        let last = self.prefs.riff_last.clone();
+        if last.is_empty() {
+            return Err("no music - open Riff and insert a folder".into());
+        }
+        let path = PathBuf::from(&last);
+        if !path.exists() {
+            return Err(format!("the inserted music is gone: {last}"));
+        }
+        let tracks = if path.is_dir() {
+            music::tracks_in(&path)
+        } else {
+            vec![music::Track::from_path(path.clone())]
+        };
+        if tracks.is_empty() {
+            return Err(format!("no music in {last}"));
+        }
+        self.riff.playlist = music::Playlist::load(tracks, 0);
+        self.riff.playlist.set_shuffle(self.prefs.riff_random);
+        self.riff.source = last;
+        Ok(())
+    }
+
+    /// Put a folder or a single file into the player and start it at `index`.
+    fn riff_load(&mut self, source: &Path, index: usize) -> Result<String, String> {
+        let tracks = if source.is_dir() {
+            music::tracks_in(source)
+        } else {
+            vec![music::Track::from_path(source.to_path_buf())]
+        };
+        if tracks.is_empty() {
+            return Err(format!("no music in {}", source.display()));
+        }
+        self.riff.playlist = music::Playlist::load(tracks, index);
+        self.riff.playlist.set_shuffle(self.prefs.riff_random);
+        self.riff.source = source.display().to_string();
+        self.prefs.riff_last = self.riff.source.clone();
+        self.save_prefs();
+        self.riff_start_current()
+    }
+
+    fn run_riff(&mut self, action: RiffAction) -> Result<String, String> {
+        match action {
+            RiffAction::Insert => {
+                if !self.riff_is_front() {
+                    return Err("open Riff to insert a disc".into());
+                }
+                self.open_explorer();
+                Ok(String::new())
+            }
+            RiffAction::Status => Ok(self.riff_status()),
+            RiffAction::Volume(want) => {
+                let next = want.unwrap_or(self.volume);
+                self.set_volume(next);
+                Ok(format!("volume {}", self.volume))
+            }
+            RiffAction::Random(want) => {
+                let on = want.unwrap_or(!self.riff.playlist.shuffle());
+                self.riff.playlist.set_shuffle(on);
+                self.prefs.riff_random = on;
+                self.save_prefs();
+                Ok(if on {
+                    "random on".into()
+                } else {
+                    "random off".to_string()
+                })
+            }
+            RiffAction::Pause => {
+                let Some(audio) = self.audio.as_mut() else {
+                    return Err("nothing playing".into());
+                };
+                if audio.finished() {
+                    return Err("nothing playing".into());
+                }
+                if audio.is_paused() {
+                    audio.resume();
+                    self.riff.playing = true;
+                    Ok("playing".into())
+                } else {
+                    audio.pause();
+                    self.riff.playing = false;
+                    Ok("paused".into())
+                }
+            }
+            RiffAction::Stop => {
+                if let Some(audio) = self.audio.as_mut() {
+                    audio.stop();
+                }
+                self.riff.playing = false;
+                Ok("stopped".into())
+            }
+            RiffAction::Play(name) => {
+                self.riff_ensure_loaded()?;
+                if let Some(name) = name {
+                    let needle = name.to_lowercase();
+                    let found = self
+                        .riff
+                        .playlist
+                        .tracks()
+                        .iter()
+                        .position(|track| track.title.to_lowercase().contains(&needle))
+                        .ok_or_else(|| format!("no track called {name}"))?;
+                    self.riff.playlist.select(found);
+                    return self.riff_start_current();
+                }
+                let idle = self
+                    .audio
+                    .as_ref()
+                    .map(|audio| audio.finished() || audio.is_paused())
+                    .unwrap_or(true);
+                if self.riff.playing && !idle {
+                    return Ok("already playing".into());
+                }
+                self.riff_start_current()
+            }
+            step @ (RiffAction::Next | RiffAction::Prev) => {
+                self.riff_ensure_loaded()?;
+                let forward = matches!(step, RiffAction::Next);
+                let moved = if forward {
+                    self.riff.playlist.next()
+                } else {
+                    self.riff.playlist.prev()
+                };
+                if !moved {
+                    return Err(if forward {
+                        "end of the disc".into()
+                    } else {
+                        "start of the disc".into()
+                    });
+                }
+                self.riff_start_current()
+            }
+        }
+    }
+
+    fn riff_status(&self) -> String {
+        match self.riff.playlist.current() {
+            Some(track) => {
+                let (at, of) = self.riff.playlist.position();
+                let state = if self.riff.playing {
+                    "playing"
+                } else {
+                    "paused"
+                };
+                format!("\u{266b} {} ({at} of {of}) - {state}", track.title)
+            }
+            None => "riff: no disc inserted".into(),
+        }
+    }
+
+    fn set_volume(&mut self, volume: u8) {
+        self.volume = volume.min(100);
+        if let Some(audio) = self.audio.as_mut() {
+            audio.set_volume(self.volume);
+        }
+        self.prefs.volume = self.volume;
+        self.save_prefs();
+        self.dirty = true;
+    }
+
+    fn volume_step(&mut self, by: i32) {
+        let next = (self.volume as i32 + by).clamp(0, 100) as u8;
+        self.set_volume(next);
+    }
+
+    /// True while Riff is the thing in front.
+    fn riff_is_front(&self) -> bool {
+        matches!(self.mode, Mode::Riff | Mode::RiffInsert)
+            || (!self.has_document && self.home == Home::Riff && self.mode == Mode::Action)
+    }
+
+    fn open_explorer(&mut self) {
+        let dir = music::music_dir();
+        let entries = music::entries(&dir);
+        self.riff.explorer = Some(Explorer {
+            dir,
+            entries,
+            selected: 0,
+        });
+        self.mode = Mode::RiffInsert;
+        self.program_prompt = false;
+        self.dirty = true;
+    }
+
+    fn explorer_move(&mut self, delta: isize) {
+        let Some(explorer) = self.riff.explorer.as_mut() else {
+            return;
+        };
+        let len = explorer.entries.len();
+        if len == 0 {
+            return;
+        }
+        let next = explorer.selected as isize + delta;
+        explorer.selected = next.clamp(0, len as isize - 1) as usize;
+        self.poke();
+    }
+
+    fn explorer_enter(&mut self) -> Result<(), String> {
+        let Some(explorer) = self.riff.explorer.as_ref() else {
+            return Ok(());
+        };
+        let Some(entry) = explorer.entries.get(explorer.selected).cloned() else {
+            return Ok(());
+        };
+        if entry.folder {
+            let entries = music::entries(&entry.path);
+            if let Some(explorer) = self.riff.explorer.as_mut() {
+                explorer.dir = entry.path;
+                explorer.entries = entries;
+                explorer.selected = 0;
+            }
+            self.poke();
+            return Ok(());
+        }
+        // A single track: the folder becomes the list, this track the entry.
+        let dir = entry.path.parent().unwrap_or(&entry.path).to_path_buf();
+        let index = music::tracks_in(&dir)
+            .iter()
+            .position(|track| track.path == entry.path)
+            .unwrap_or(0);
+        let message = self.riff_load(&dir, index)?;
+        self.close_explorer_into_player();
+        self.set_status(message);
+        Ok(())
+    }
+
+    /// Insert the folder being browsed as the playlist.
+    fn explorer_insert_folder(&mut self) -> Result<(), String> {
+        let Some(explorer) = self.riff.explorer.as_ref() else {
+            return Ok(());
+        };
+        let dir = explorer.dir.clone();
+        let message = self.riff_load(&dir, 0)?;
+        self.close_explorer_into_player();
+        self.set_status(message);
+        Ok(())
+    }
+
+    fn close_explorer_into_player(&mut self) {
+        self.riff.explorer = None;
+        self.mode = Mode::Riff;
+        self.program_prompt = false;
+        self.dirty = true;
+    }
+
+    /// One second of music time: advance at the end of a track, redraw the
+    /// counter while playing.
+    fn riff_tick(&mut self) -> bool {
+        if !self.riff.playing {
+            return false;
+        }
+        if self.audio.as_ref().is_none_or(|audio| !audio.finished()) {
+            let second = self
+                .audio
+                .as_ref()
+                .map(|audio| audio.position().as_secs())
+                .unwrap_or(0);
+            if second != self.riff.second {
+                self.riff.second = second;
+                self.dirty = true;
+            }
+            return true;
+        }
+        if self.riff.playlist.next() {
+            let _ = self.riff_start_current();
+        } else {
+            self.riff.playing = false;
+            if let Some(audio) = self.audio.as_mut() {
+                audio.stop();
+            }
+            self.set_status("end of the disc");
+        }
+        true
+    }
+
     // ── disks and the boot screen ───────────────────────────────────────────
 
     fn disk_dir(&self) -> PathBuf {
@@ -2954,6 +3542,16 @@ impl App {
         }
         for entry in &self.disks {
             match &entry.disk {
+                Some(disk) if program_index_by_id(&disk.program).is_some() => {
+                    let program = &PROGRAMS[program_index_by_id(&disk.program).unwrap()];
+                    push_boot_row(
+                        &mut rows,
+                        &mut letter,
+                        program.entry.into(),
+                        program.tagline.into(),
+                        false,
+                    );
+                }
                 Some(disk) => {
                     let detail = if disk.about.is_empty() {
                         format!("{} file(s)", disk.files.len())
@@ -3072,6 +3670,18 @@ impl App {
     /// Enter on a diskette: a program disk runs the program, a data disk opens
     /// the browser. Same letter, same row, different destination.
     fn launch_disk(&mut self, index: usize) {
+        let program = self
+            .disks
+            .get(index)
+            .and_then(|entry| entry.disk.as_ref())
+            .map(|disk| disk.program.clone())
+            .unwrap_or_default();
+        if let Some(position) = program_index_by_id(&program)
+            && !PROGRAMS[position].installed
+        {
+            self.start_loading(Pending::Program(position));
+            return;
+        }
         self.open_disk(index);
     }
 
@@ -3651,6 +4261,20 @@ impl ApplicationHandler for App {
                 self.home = Home::SoftHand;
                 self.mode = Mode::Action;
             }
+            "riff" => {
+                self.home = Home::Riff;
+                self.mode = Mode::Action;
+            }
+            "riffplay" => {
+                if let Err(e) = self
+                    .riff_ensure_loaded()
+                    .and_then(|()| self.riff_start_current())
+                {
+                    eprintln!("cread: {e}");
+                }
+                self.mode = Mode::Riff;
+            }
+            "riffinsert" => self.open_explorer(),
             "picture" => {
                 self.new_picture();
                 if !self.opts.command.is_empty() {
@@ -3937,6 +4561,57 @@ mod tests {
         app.discard_scratch();
         assert!(path.is_file());
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn riff_says_what_it_is_missing_and_insert_only_opens_inside_riff() {
+        let dir = vault("riff-empty");
+        let mut app = app_in(&dir);
+        app.prefs.riff_last.clear();
+        assert!(app.riff_status().contains("no disc"));
+        let error = app.run_riff(RiffAction::Play(None)).unwrap_err();
+        assert!(error.contains("no music"), "{error}");
+        let error = app.run_riff(RiffAction::Insert).unwrap_err();
+        assert!(error.contains("open Riff"), "{error}");
+
+        app.home = Home::Riff;
+        app.mode = Mode::Action;
+        assert!(app.run_riff(RiffAction::Insert).is_ok());
+        assert_eq!(app.mode, Mode::RiffInsert);
+        assert!(app.riff.explorer.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_explorer_walks_folders_without_leaving_music() {
+        let dir = vault("riff-explorer");
+        let music = dir.join("music");
+        std::fs::create_dir_all(music.join("Album")).unwrap();
+        std::fs::write(music.join("Album/01.wav"), b"x").unwrap();
+        std::fs::write(music.join("loose.wav"), b"x").unwrap();
+        std::fs::write(music.join("cover.png"), b"x").unwrap();
+
+        let mut app = app_in(&dir);
+        app.home = Home::Riff;
+        app.mode = Mode::Action;
+        let entries = music::entries(&music);
+        app.riff.explorer = Some(Explorer {
+            dir: music.clone(),
+            entries,
+            selected: 0,
+        });
+        app.mode = Mode::RiffInsert;
+        assert_eq!(
+            app.riff.explorer.as_ref().unwrap().entries.len(),
+            2,
+            "album and one track"
+        );
+        assert!(app.riff.explorer.as_ref().unwrap().entries[0].folder);
+
+        app.explorer_enter().unwrap();
+        assert!(app.riff.explorer.as_ref().unwrap().dir.ends_with("Album"));
+        assert_eq!(app.riff.explorer.as_ref().unwrap().entries.len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

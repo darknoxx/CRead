@@ -1,6 +1,7 @@
 //! CRead — a retro CRT writing terminal.
 
 mod app;
+mod audio;
 mod beep;
 mod cli;
 mod ui;

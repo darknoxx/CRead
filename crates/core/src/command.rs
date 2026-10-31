@@ -56,9 +56,28 @@ pub enum Command {
     /// `exit!` - save and quit, from anywhere.
     ExitForce,
     Settings,
+    /// The music player. `riff <verb>` works from any prompt.
+    Riff(RiffAction),
     /// `Some("all")` shows the whole vocabulary instead of this screen's.
     Help(Option<String>),
     About,
+}
+
+/// What to tell the music player.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RiffAction {
+    /// Resume, or start the list (optionally with a track named).
+    Play(Option<String>),
+    Stop,
+    /// Toggle between playing and paused.
+    Pause,
+    Next,
+    Prev,
+    Random(Option<bool>),
+    Volume(Option<u8>),
+    Status,
+    /// Open the music folder to load a playlist. Inside Riff only.
+    Insert,
 }
 
 /// Where a command makes sense. `help` only lists the ones that belong to the
@@ -263,6 +282,13 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Editor],
     },
     Spec {
+        name: "riff",
+        aliases: &["music"],
+        argument: "[command]",
+        summary: "the music player: play, stop, next, volume",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
+    Spec {
         name: "eject",
         aliases: &["unmount"],
         argument: "[drive]",
@@ -432,6 +458,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "run" => Command::Run(optional(rest)),
         "dir" => Command::Dir,
         "eject" => Command::Eject(optional(rest)),
+        "riff" => Command::Riff(parse_riff(rest)?),
         "exit" => {
             if bang {
                 Command::ExitForce
@@ -459,6 +486,40 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         }),
         "about" => Command::About,
         other => return Err(CommandError::Unknown(other.to_string())),
+    })
+}
+
+/// `riff <verb> [argument]`, with a word for every transport button.
+fn parse_riff(rest: &str) -> Result<RiffAction, CommandError> {
+    let (verb, argument) = match rest.split_once(char::is_whitespace) {
+        Some((verb, argument)) => (verb.to_ascii_lowercase(), argument.trim()),
+        None => (rest.trim().to_ascii_lowercase(), ""),
+    };
+    let optional = || (!argument.is_empty()).then(|| argument.to_string());
+    Ok(match verb.as_str() {
+        "" | "status" => RiffAction::Status,
+        "play" => RiffAction::Play(optional()),
+        "stop" => RiffAction::Stop,
+        "pause" | "resume" => RiffAction::Pause,
+        "next" | "skip" => RiffAction::Next,
+        "prev" | "previous" | "back" => RiffAction::Prev,
+        "random" | "shuffle" => {
+            RiffAction::Random(
+                parse_switch(argument).map_err(|value| CommandError::BadValue {
+                    value,
+                    expected: "on or off",
+                })?,
+            )
+        }
+        "volume" | "vol" => RiffAction::Volume(match optional() {
+            None => None,
+            Some(text) => Some(text.parse().map_err(|_| CommandError::BadValue {
+                value: text.clone(),
+                expected: "a number from 0 to 100",
+            })?),
+        }),
+        "insert" | "load" => RiffAction::Insert,
+        other => return Err(CommandError::Unknown(format!("riff {other}"))),
     })
 }
 

@@ -305,6 +305,7 @@ pub fn draw_inspiro(
         theme,
         title_row,
         "where your ideas have room to grow",
+        "type new or open to start",
         input,
         hint,
         error,
@@ -312,24 +313,20 @@ pub fn draw_inspiro(
 }
 
 /// A program's front door: logo (blitted by the caller), tagline, prompt.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_front_door(
     screen: &mut Screen,
     theme: &Theme,
     title_row: u32,
     tagline: &str,
+    call: &str,
     input: &str,
     hint: &str,
     error: &str,
 ) {
     screen.fill(Cell::blank(theme.fg, theme.bg));
     put_centered(screen, title_row, tagline, theme.status_dim, theme.bg);
-    put_centered(
-        screen,
-        title_row + 2,
-        "type new or open to start",
-        theme.accent,
-        theme.bg,
-    );
+    put_centered(screen, title_row + 2, call, theme.accent, theme.bg);
     draw_prompt(screen, theme, ">", input, hint, error);
 }
 
@@ -356,6 +353,224 @@ pub fn draw_program_line(
     let width = status.chars().count() as u32;
     let x = cols.saturating_sub(width + 1);
     screen.put_str(x, bar, status, theme.status_dim, bg);
+}
+
+// ── riff ────────────────────────────────────────────────────────────────────
+
+pub struct RiffView<'a> {
+    pub title: &'a str,
+    pub album: &'a str,
+    /// 0 to 1 through the track.
+    pub progress: f32,
+    pub elapsed: &'a str,
+    pub total: &'a str,
+    /// "3 of 12", or empty.
+    pub counter: &'a str,
+    pub playing: bool,
+    pub paused: bool,
+    pub shuffle: bool,
+    pub volume: u8,
+    /// Playlist window: (title, is current).
+    pub lines: &'a [(String, bool)],
+    /// Toast line: nothing loaded, or why the last action failed.
+    pub note: &'a str,
+}
+
+/// The player: title block, tape counter, transport, playlist.
+pub fn draw_riff(screen: &mut Screen, theme: &Theme, view: &RiffView<'_>) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    // Banner: spaced-out letters, because this is 1987.
+    screen.put_str(2, 1, "R I F F", theme.accent, theme.bg);
+    let right = "a Soundtrack for your life.";
+    let x = cols.saturating_sub(right.chars().count() as u32 + 2);
+    if x > 10 {
+        screen.put_str(x, 1, right, theme.status_dim, theme.bg);
+    }
+
+    let inner = cols.saturating_sub(6).min(62);
+    let x0 = (cols - inner) / 2;
+    let (b, bg) = (theme.accent, theme.bg);
+    // Double-line frame around the track.
+    for x in x0 + 1..x0 + inner - 1 {
+        screen.put(x, 3, Cell::new('\u{2550}', b, bg));
+        screen.put(x, 8, Cell::new('\u{2550}', b, bg));
+    }
+    for y in 4..8 {
+        screen.put(x0, y, Cell::new('\u{2551}', b, bg));
+        screen.put(x0 + inner - 1, y, Cell::new('\u{2551}', b, bg));
+    }
+    screen.put(x0, 3, Cell::new('\u{2554}', b, bg));
+    screen.put(x0 + inner - 1, 3, Cell::new('\u{2557}', b, bg));
+    screen.put(x0, 8, Cell::new('\u{255a}', b, bg));
+    screen.put(x0 + inner - 1, 8, Cell::new('\u{255d}', b, bg));
+
+    if view.title.is_empty() {
+        put_centered_at(screen, 5, view.note, theme.status_dim, theme.bg, x0, inner);
+    } else {
+        screen.put_str_ellipsis(x0 + 2, 4, "\u{266b}", 1, theme.accent, bg);
+        screen.put_str_ellipsis(x0 + 4, 4, view.title, inner - 6, theme.fg, bg);
+        let sub = if view.album.is_empty() {
+            view.counter.to_string()
+        } else {
+            format!("{}  \u{00b7}  {}", view.album, view.counter)
+        };
+        screen.put_str_ellipsis(x0 + 4, 5, &sub, inner - 6, theme.status_dim, bg);
+
+        // Tape counter: elapsed, bar, total.
+        let bar_w = inner.saturating_sub(16);
+        let filled = ((view.progress.clamp(0.0, 1.0) * bar_w as f32).round() as u32).min(bar_w);
+        screen.put_str(x0 + 2, 7, view.elapsed, theme.status_dim, bg);
+        for i in 0..bar_w {
+            let (ch, fg) = if i < filled {
+                ('\u{2588}', theme.accent)
+            } else {
+                ('\u{2591}', theme.dim)
+            };
+            screen.put(x0 + 8 + i, 7, Cell::new(ch, fg, bg));
+        }
+        screen.put_str(x0 + 9 + bar_w, 7, view.total, theme.status_dim, bg);
+    }
+
+    // Transport.
+    let state = if view.playing && !view.paused {
+        "\u{25ba}"
+    } else {
+        "\u{2551}"
+    };
+    let transport = format!("\u{25c4}\u{25c4}    {state}    \u{25a0}    \u{25ba}\u{25ba}");
+    put_centered_at(screen, 10, &transport, theme.fg, bg, 0, cols);
+
+    // Volume, right aligned on the same line.
+    let vol_w = 10u32;
+    let lvl = (view.volume as u32 * vol_w).div_ceil(100).min(vol_w);
+    let vx = cols.saturating_sub(vol_w + 8);
+    if vx > 30 {
+        screen.put_str(vx, 10, "vol", theme.status_dim, bg);
+        for i in 0..vol_w {
+            let (ch, fg) = if i < lvl {
+                ('\u{2588}', theme.accent)
+            } else {
+                ('\u{2591}', theme.dim)
+            };
+            screen.put(vx + 5 + i, 10, Cell::new(ch, fg, bg));
+        }
+    }
+
+    let hints = if view.shuffle {
+        "spc pause   <- -> track   i insert   r random on   esc commands"
+    } else {
+        "spc pause   <- -> track   i insert   r random   esc commands"
+    };
+    put_centered_at(screen, 12, hints, theme.status_dim, bg, 0, cols);
+
+    // Playlist.
+    let start = 14;
+    for (i, (title, current)) in view.lines.iter().enumerate() {
+        let y = start + i as u32;
+        if y + 1 >= rows {
+            break;
+        }
+        let (fg, bgc) = if *current {
+            (theme.bg, theme.fg)
+        } else {
+            (theme.fg, theme.bg)
+        };
+        if *current {
+            for x in 1..cols.saturating_sub(1) {
+                screen.put(x, y, Cell::blank(theme.bg, theme.fg));
+            }
+        }
+        let mark = if *current { "\u{25ba}" } else { " " };
+        screen.put_str(3, y, mark, theme.accent, bgc);
+        screen.put_str_ellipsis(5, y, title, cols.saturating_sub(8), fg, bgc);
+    }
+}
+
+/// A string centred inside a horizontal slice.
+fn put_centered_at(screen: &mut Screen, y: u32, text: &str, fg: u8, bg: u8, x0: u32, width: u32) {
+    let len = text.chars().count() as u32;
+    if len > width {
+        screen.put_str_ellipsis(x0, y, text, width, fg, bg);
+        return;
+    }
+    screen.put_str(x0 + (width - len) / 2, y, text, fg, bg);
+}
+
+pub struct ExplorerView<'a> {
+    pub dir: &'a str,
+    pub entries: &'a [(String, bool)],
+    pub selected: usize,
+    /// First entry shown, for scrolling a long folder.
+    pub top: usize,
+}
+
+/// The music folder, one level at a time.
+pub fn draw_explorer(screen: &mut Screen, theme: &Theme, view: &ExplorerView<'_>) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    screen.fill_row(0, Cell::blank(theme.status_fg, theme.status_bg));
+    screen.put_str(
+        0,
+        0,
+        " RIFF \u{00b7} insert music ",
+        theme.status_fg,
+        theme.status_bg,
+    );
+    screen.put_str_ellipsis(
+        2,
+        2,
+        view.dir,
+        cols.saturating_sub(4),
+        theme.accent,
+        theme.bg,
+    );
+
+    let first = 4;
+    let last = rows.saturating_sub(2);
+    for (i, (name, folder)) in view.entries.iter().enumerate().skip(view.top) {
+        let y = first + (i - view.top) as u32;
+        if y >= last {
+            break;
+        }
+        let selected = i == view.selected;
+        let (fg, bg) = if selected {
+            (theme.bg, theme.fg)
+        } else if *folder {
+            (theme.accent, theme.bg)
+        } else {
+            (theme.fg, theme.bg)
+        };
+        if selected {
+            for x in 1..cols.saturating_sub(1) {
+                screen.put(x, y, Cell::blank(theme.bg, theme.fg));
+            }
+        }
+        let mark = if *folder { "\u{25ba}" } else { " " };
+        screen.put_str(2, y, mark, fg, bg);
+        screen.put_str_ellipsis(4, y, name, cols.saturating_sub(6), fg, bg);
+    }
+
+    if view.entries.is_empty() {
+        screen.put_str(
+            4,
+            first,
+            "no folders or playable files here",
+            theme.status_dim,
+            theme.bg,
+        );
+    }
+
+    let bar = rows.saturating_sub(1);
+    screen.fill_row(bar, Cell::blank(theme.status_fg, theme.status_bg));
+    screen.put_str(0, bar, " Enter open  ", theme.status_fg, theme.status_bg);
+    let right = "Enter play  i insert folder  Esc back ";
+    let x = cols.saturating_sub(right.chars().count() as u32);
+    screen.put_str(x, bar, right, theme.status_fg, theme.status_bg);
 }
 
 // ── loading ─────────────────────────────────────────────────────────────────

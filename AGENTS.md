@@ -66,9 +66,9 @@ blink. Two consequences:
   by up to 620 ms — the exact bug that made Up/Down feel unresponsive.
 - Adding an effect that changes every frame (flicker, drift, animation) means
   bringing a frame clock back deliberately, not by accident. There are exactly
-  three: scanline drift, the fake loading bar, and the launch bar
-  (`boot_at`: two seconds before the first real frame, beep at the end, skipped
-  by any key and by every screenshot unless `--boot`).
+  four: scanline drift, the fake loading bar, the launch bar (`boot_at`), and
+  the music clock (`riff_tick`: twice a second while a track plays, which is what
+  starts the next track).
 
 **The CRT uniform layout must match the WGSL struct byte for byte.** `CrtUniforms`
 is 32 bytes and has a `const` assertion; the shader pads to the same size. A
@@ -87,6 +87,13 @@ rasterising. Two faces ship: `Face::Classic` (VGA) and `Face::Thin` (ISO 9241).
 says `program=<id>` puts that row on the boot screen under its own letter and
 nothing more: there is no runtime, no loading of code, and `Disks` is a mount
 point, not a plugin directory.
+
+**Sound belongs to the shell.** The music deck (`crates/app/src/audio.rs`) lives
+in `App`, not in the Riff program, because playback has to outlive the screen and
+because `riff ...` must work from any prompt. Riff is a disk program
+(`installed: false`) whose UI is composed by the shell like the editor's. A
+program that needs to keep running while another one is in front belongs here,
+not in `crates/programs`.
 
 **Two surfaces, one raster.** A program draws pixels into `Raster` (16 fixed
 colours, 640x368) and text into the `Screen` on top; cells can be transparent so

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Riff.** A music player with a transport, a playlist and a volume, playing the
+  XDG music folder (MP3, FLAC, OGG, WAV). It ships on a diskette
+  (`examples/disks/RIFF.DSK`), so it only appears on the boot screen while that
+  disk is in. `riff play|stop|pause|next|prev|random|volume` work from any prompt,
+  even before Riff was opened, and the music keeps playing while another program
+  is in front. This is the first real audio dependency: `rodio`/`symphonia`, and
+  `libasound2-dev` at build time.
 - **`eject`.** Takes a diskette out for the session: `eject D`, `eject hello`, or
   bare `eject` for the selected row. The drive disappears from the boot screen and
   from `dir` until CRead restarts; the file in `Disks` is not touched.

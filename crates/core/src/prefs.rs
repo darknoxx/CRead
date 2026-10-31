@@ -25,6 +25,12 @@ pub struct Prefs {
     /// Write the document while typing. Off by default: saving is the writer's
     /// decision, not the program's.
     pub autosave: bool,
+    /// Loudness of the music player, 0 to 100.
+    pub volume: u8,
+    /// Folder or file last inserted into Riff.
+    pub riff_last: String,
+    /// Shuffle the playlist.
+    pub riff_random: bool,
 }
 
 impl Default for Prefs {
@@ -39,6 +45,9 @@ impl Default for Prefs {
             font: "classic".to_string(),
             beep: true,
             autosave: false,
+            volume: 70,
+            riff_last: String::new(),
+            riff_random: false,
         }
     }
 }
@@ -110,6 +119,8 @@ mod tests {
         assert!(!p.typewriter);
         assert!(p.beep);
         assert!(!p.autosave, "saving is manual until asked for");
+        assert_eq!(p.volume, 70);
+        assert!(p.riff_last.is_empty());
     }
 
     #[test]
@@ -125,6 +136,9 @@ mod tests {
             font: "thin".into(),
             beep: false,
             autosave: true,
+            volume: 40,
+            riff_last: "/music/Morgenlicht".into(),
+            riff_random: true,
         };
         saved.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), saved);

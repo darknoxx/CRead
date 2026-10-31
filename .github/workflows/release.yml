@@ -28,6 +28,7 @@ jobs:
             build-essential pkg-config \
             libxkbcommon-dev libxkbcommon-x11-dev \
             libwayland-dev wayland-protocols \
+            libasound2-dev \
             libssl-dev
 
       - uses: actions/checkout@v7
