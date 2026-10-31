@@ -116,12 +116,13 @@ impl Pad {
     }
 }
 
-/// The pad's buttons, in the order a Super Nintendo has them: A is east, B is
-/// south.
+/// The pad's buttons. A SNES-style pad reports its east and south buttons, and
+/// on this one the east button is the one marked B.
 fn pad_button(button: Button) -> Option<JoypadButton> {
     Some(match button {
-        Button::East => JoypadButton::A,
-        Button::South => JoypadButton::B,
+        // On the pad in hand the right-hand button is B, the lower one is A.
+        Button::East => JoypadButton::B,
+        Button::South => JoypadButton::A,
         Button::Start => JoypadButton::Start,
         Button::Select => JoypadButton::Select,
         Button::DPadUp => JoypadButton::Up,

@@ -41,6 +41,10 @@ const LOADING_SECONDS: f32 = 1.4;
 const ROLL_SPEED: f32 = 40.0;
 /// While the raster drifts we need a frame clock again; this is the budget.
 const ANIMATION_FPS: u32 = 60;
+/// One emulated Game Boy frame, in wall time: 59.7275 Hz. A running cartridge
+/// is clocked by this instead of 60 Hz, because its audio is tied to wall time
+/// and 0.45% more samples per second is a queue that grows into a delay.
+const PROGRAM_FRAME: Duration = Duration::from_micros(16_734);
 /// How long a status message stays on the line before the mode hint returns.
 const STATUS_TTL: Duration = Duration::from_secs(4);
 /// Launch: a bar runs before the first real frame, long enough to read as a
@@ -911,17 +915,17 @@ impl App {
 
         // Nothing animates any more except the cursor, so we do not run a
         // frame clock at all: sleep until the blink is due and redraw then.
-        if self.boot_at.is_some()
-            || self.mode == Mode::Loading
-            || self
-                .program
-                .as_ref()
-                .is_some_and(|program| program.wants_frames())
+        if self.boot_at.is_some() || self.mode == Mode::Loading {
+            self.next_frame = frame_start + Duration::from_secs_f64(1.0 / ANIMATION_FPS as f64);
+        } else if self
+            .program
+            .as_ref()
+            .is_some_and(|program| program.wants_frames())
         {
-            self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
+            self.next_frame = frame_start + PROGRAM_FRAME;
         } else if crt.roll > 0.0 && crt.scanline > 0.0 {
             // The raster moves, so this is the one case that needs a full clock.
-            self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
+            self.next_frame = frame_start + Duration::from_secs_f64(1.0 / ANIMATION_FPS as f64);
         } else if self.riff.playing {
             // No raster movement: the tape counter and the end of a track only
             // need twice a second.
