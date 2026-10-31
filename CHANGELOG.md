@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.1
 
 - **Sound follows the system's output device.** Both the game and the music
   player opened the default ALSA device, which on some setups is the hardware
