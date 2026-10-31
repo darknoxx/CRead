@@ -61,13 +61,17 @@ On launch you get the boot screen: the logo, a greeting and a short drive list.
 ```
                              Welcome to CRead
 
-                       A: INSPIRO     where your ideas have room to grow
-                       B: DOCUMENTS   everything in your vault
-                       E: HELLO       diskette, 3 files
+                       A: DOCUMENTS   open a file from the vault
+                       ─────────────────────────────────────────
+                       B: INSPIRO     where your ideas have room to grow
+                       C: SOFTHAND    16 colors, endless possibilities.
+                       D: HELLO       a sample diskette
 ```
 
-`A:` enters **Inspiro**, the writing terminal: a fake loading bar, then the
-editor's own front door with its logo and a prompt.
+`A:` is the vault itself. Below the rule are the modules: `B:` is **Inspiro**,
+the writing terminal, `C:` is **Softhand**, the paint program. Both are installed
+with CRead, and both open with a fake loading bar before their own front door
+appears.
 
 ```
                                   [logo]
@@ -79,7 +83,7 @@ editor's own front door with its logo and a prompt.
 ```
 
 There `new` opens an empty document and `open` shows the vault, exactly as
-before. Opening a file from `B: DOCUMENTS` goes through the same loader, and any
+before. Opening a file from `A: DOCUMENTS` goes through the same loader, and any
 key skips it. Pass a file name on the command line and it opens straight away,
 bar and all.
 
@@ -138,9 +142,9 @@ obvious thing: click places the cursor, dragging marks, the wheel scrolls.
 
 ## Diskettes
 
-CRead OS is the start screen: the logo, a greeting, the drives and a prompt. Two
-drives are built in — `A: INSPIRO` and `B: DOCUMENTS` — and everything else comes
-from the `Disks` folder inside your vault:
+CRead OS is the start screen: the logo, a greeting, the drives and a prompt. The
+vault is `A:`, the modules `B: INSPIRO` and `C: SOFTHAND` follow, and everything
+after that comes from the `Disks` folder inside your vault:
 
 ```
 ~/Dokumente/CRead/Disks/MAIL.DSK
@@ -175,24 +179,24 @@ the next step; the container is designed to carry them.
 
 ### Program disks
 
-A diskette can mount a program instead of carrying documents. The header gets a
-`program=` line naming one of the programs built into CRead:
+A diskette can name a program in its header instead of carrying documents:
 
 ```
 CRead Disk 1
-name=SOFTHAND
+name=MAILBOX
 api=1
-about=16 colors, endless possibilities.
-program=softhand
+program=mailbox
 ```
 
-While that file sits in `Disks`, its row on the boot screen becomes the program
-(`G: SOFTHAND`) and Enter runs it. Take the diskette away and the row is gone —
-the code never leaves the binary, the diskette is the mount. `exit` returns to
-the boot screen, `exit!` quits CRead from anywhere.
+The code is always in the binary; the diskette is what puts the drive on the
+shelf. A program that ships as a removable module has no boot row until its
+diskette is in `Disks` — take it out and the row is gone again. A diskette that
+names a program this build does not have shows up in red: *needs program
+mailbox, which is not installed*.
 
-`examples/disks/SOFTHAND.DSK` is the sample: drop it into `<vault>/Disks` and the
-paint program appears.
+Softhand is installed, so it never needs a diskette; a `program=softhand` disk
+would just be a data disk. `exit` returns to the boot screen (and quits CRead
+when you are already there), `exit!` quits from anywhere.
 
 ## View mode
 
@@ -212,7 +216,8 @@ it landed, `Esc` puts it back.
 ## Softhand
 
 Softhand is the paint program, and the first module with pixels under the text
-layer. Its front door looks like Inspiro's (logo, tagline, `new`/`open`), and the
+layer. It is installed with CRead — no diskette needed. Its front door looks like
+Inspiro's (logo, tagline, `new`/`open`), and the
 canvas is the full 640x368 raster with a sixteen-colour VGA palette along the
 bottom. Pictures are PNGs in `<vault>/Pictures`; `save` picks `picture.png`,
 `picture-2.png` and so on, `saveas` names one.

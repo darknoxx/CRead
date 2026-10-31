@@ -6,9 +6,12 @@
   pencil, eraser, line, rect, fill and pick, eight undo steps, and pictures saved
   as PNG in `<vault>/Pictures`. Its front door looks like Inspiro's, and it runs
   from a program diskette.
-- **Program disks.** A `.dsk` whose header says `program=softhand` mounts the
-  program on the boot screen under its own drive letter; remove the diskette and
-  the row is gone. The code ships in the binary — the diskette is the mount.
+- **A boot screen with a shelf.** The vault is `A: DOCUMENTS`, then a rule, then
+  the modules: `B: INSPIRO` and `C: SOFTHAND`, with diskettes after them. The
+  arrow keys step over the rule.
+- **Program disks.** A `.dsk` whose header names a `program=` puts that program on
+  the boot screen; remove the diskette and the row is gone. Softhand is installed
+  and needs no diskette — the mechanism is there for modules that ship on one.
 - **A pixel layer under the text grid.** Programs draw into a 640x368
   sixteen-colour raster; cells can be transparent so menus sit on top of a
   picture, and everything still goes through one CRT pass.

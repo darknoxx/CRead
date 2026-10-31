@@ -577,6 +577,20 @@ pub struct BootItem {
     pub detail: String,
     /// Shown in the error colour: a disk that would not parse.
     pub broken: bool,
+    /// A horizontal rule instead of a row: the shelf which separates the vault
+    /// from the modules. Never selectable, never counted for the block width.
+    pub rule: bool,
+}
+
+impl BootItem {
+    pub fn rule() -> Self {
+        Self {
+            label: String::new(),
+            detail: String::new(),
+            broken: false,
+            rule: true,
+        }
+    }
 }
 
 pub struct WelcomeView<'a> {
@@ -613,6 +627,7 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
     let widest = view
         .items
         .iter()
+        .filter(|item| !item.rule)
         .map(|item| LABEL_W + item.detail.chars().count() as u32)
         .max()
         .unwrap_or(0);
@@ -623,6 +638,20 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
         let y = view.title_row + 2 + i as u32;
         if y >= rows.saturating_sub(3) {
             break;
+        }
+        if item.rule {
+            // A rule across the drive block, matching the highlight's width so
+            // the shelf lines up with the rows above and below it.
+            let start = x0.saturating_sub(1);
+            let len = (block_w + 2).min(cols.saturating_sub(start));
+            screen.put_str(
+                start,
+                y,
+                &"\u{2500}".repeat(len as usize),
+                theme.dim,
+                theme.bg,
+            );
+            continue;
         }
         let selected = i == view.selected;
         if selected {
@@ -1173,19 +1202,29 @@ mod tests {
         let mut screen = Screen::new(vp.cols(), vp.rows());
         let items = vec![
             BootItem {
-                label: "A: EDITOR".into(),
+                label: "A: DOCUMENTS".into(),
+                detail: "open a file from the vault".into(),
+                broken: false,
+                rule: false,
+            },
+            BootItem::rule(),
+            BootItem {
+                label: "B: INSPIRO".into(),
                 detail: "the writing terminal".into(),
                 broken: false,
+                rule: false,
             },
             BootItem {
                 label: "C: MAIL".into(),
                 detail: "Postfach".into(),
                 broken: false,
+                rule: false,
             },
             BootItem {
                 label: "D: BROKEN".into(),
                 detail: "not a CRead disk".into(),
                 broken: true,
+                rule: false,
             },
         ];
         draw_welcome(
@@ -1195,7 +1234,7 @@ mod tests {
                 show_prompt: true,
                 title_row: 4,
                 items: &items,
-                selected: 1,
+                selected: 2,
                 note: "no disks - put .dsk files in ~/Dokumente/CRead/Disks",
                 input: "ne",
                 hint: "arrows select",
@@ -1205,12 +1244,25 @@ mod tests {
         let text = rows_as_text(&screen);
         assert!(text.contains("Welcome to CRead"));
         assert!(text.contains("no disks"));
-        assert!(text.contains("A: EDITOR"));
+        assert!(text.contains("A: DOCUMENTS"));
+        assert!(text.contains("B: INSPIRO"));
         assert!(text.contains("C: MAIL"));
         assert!(text.contains("> ne"));
 
+        // The rule sits between the vault and the modules, and is not a row.
+        let rule_row = 4 + 2 + 1;
+        let grid = rows_as_text(&screen);
+        let rule = grid.lines().nth(rule_row as usize).unwrap_or("");
+        assert!(rule.contains('\u{2500}'), "the rule is drawn: {rule:?}");
+        let inverted_rule = (0..vp.cols()).any(|x| {
+            screen
+                .get(x, rule_row)
+                .is_some_and(|c| c.bg == Theme::BLACK.fg)
+        });
+        assert!(!inverted_rule, "the rule is never selectable");
+
         // The selected row is inverted somewhere along its length.
-        let row = 4 + 2 + 1;
+        let row = 4 + 2 + 2;
         let inverted = (0..vp.cols()).any(|x| {
             screen
                 .get(x, row)

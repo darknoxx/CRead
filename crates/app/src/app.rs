@@ -179,7 +179,8 @@ enum Home {
 /// What happens when the loading bar finishes.
 enum Pending {
     Inspiro,
-    SoftHand,
+    /// Index into [`PROGRAMS`]: load that program's front door.
+    Program(usize),
     NewPicture,
     Picture(PathBuf),
     Document(PathBuf),
@@ -189,9 +190,21 @@ enum Pending {
 /// One row of the boot screen.
 #[derive(Clone, Copy)]
 enum BootItem {
-    Editor,
+    /// The vault: the first row, always.
     Documents,
+    /// The rule between the vault and the modules. Never selectable.
+    Rule,
+    /// The editor, the first module.
+    Inspiro,
+    /// Index into [`PROGRAMS`].
+    Program(usize),
     Disk(usize),
+}
+
+impl BootItem {
+    fn selectable(self) -> bool {
+        !matches!(self, BootItem::Rule)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,14 +231,52 @@ enum Mode {
     Program,
 }
 
-/// The programs compiled into this build. A diskette whose header says
-/// `program=<id>` mounts one on the boot screen; the code itself is not on the
-/// disk, the disk is what puts the drive there.
-fn program_by_id(id: &str) -> Option<(&'static str, &'static str)> {
-    match id {
-        "softhand" => Some(("SOFTHAND", "16 colors, endless possibilities.")),
-        _ => None,
+/// A program compiled into this build.
+pub struct ProgramInfo {
+    pub id: &'static str,
+    /// What the boot row and the loading bar call it.
+    pub entry: &'static str,
+    pub tagline: &'static str,
+    /// Installed programs always have a row. The others need a diskette whose
+    /// header says `program=<id>`; the code is in the binary either way, the
+    /// diskette is only what puts the drive on the shelf.
+    pub installed: bool,
+}
+
+pub const PROGRAMS: &[ProgramInfo] = &[ProgramInfo {
+    id: "softhand",
+    entry: "SOFTHAND",
+    tagline: "16 colors, endless possibilities.",
+    installed: true,
+}];
+
+fn program_index_by_id(id: &str) -> Option<usize> {
+    PROGRAMS.iter().position(|program| program.id == id)
+}
+
+/// The home screen a program opens onto.
+fn program_home(index: usize) -> Home {
+    match PROGRAMS.get(index).map(|program| program.id) {
+        Some("softhand") => Home::SoftHand,
+        _ => Home::Boot,
     }
+}
+
+/// Append one drive row with the next free letter.
+fn push_boot_row(
+    rows: &mut Vec<ui::BootItem>,
+    letter: &mut u8,
+    label: String,
+    detail: String,
+    broken: bool,
+) {
+    rows.push(ui::BootItem {
+        label: format!("{}: {label}", *letter as char),
+        detail,
+        broken,
+        rule: false,
+    });
+    *letter += 1;
 }
 
 struct App {
@@ -767,15 +818,18 @@ impl App {
                 .powf(0.8)
                 .clamp(0.0, 1.0);
             let label = match &self.pending {
-                Some(Pending::Inspiro) => "Loading INSPIRO...",
-                Some(Pending::SoftHand) => "Loading SOFTHAND...",
-                Some(Pending::NewPicture) => "New picture...",
-                Some(Pending::Picture(_)) => "Loading picture...",
-                Some(Pending::Document(_)) => "Loading document...",
-                Some(Pending::NewDocument) => "New document...",
-                None => "Loading...",
+                Some(Pending::Inspiro) => "Loading INSPIRO...".to_string(),
+                Some(Pending::Program(index)) => format!(
+                    "Loading {}...",
+                    PROGRAMS.get(*index).map(|p| p.entry).unwrap_or("program")
+                ),
+                Some(Pending::NewPicture) => "New picture...".to_string(),
+                Some(Pending::Picture(_)) => "Loading picture...".to_string(),
+                Some(Pending::Document(_)) => "Loading document...".to_string(),
+                Some(Pending::NewDocument) => "New document...".to_string(),
+                None => "Loading...".to_string(),
             };
-            ui::draw_loading(&mut screen, &self.theme, label, progress);
+            ui::draw_loading(&mut screen, &self.theme, &label, progress);
             self.screen = screen;
             return;
         }
@@ -1757,7 +1811,7 @@ impl App {
             }
             Key::Named(NamedKey::ArrowUp) => {
                 if self.home == Home::Boot && !self.has_document && self.command.is_empty() {
-                    self.boot_selected = self.boot_selected.saturating_sub(1);
+                    self.boot_step(-1);
                 } else {
                     self.history_step(-1);
                 }
@@ -1765,8 +1819,7 @@ impl App {
             }
             Key::Named(NamedKey::ArrowDown) => {
                 if self.home == Home::Boot && !self.has_document && self.command.is_empty() {
-                    let last = self.boot_items().len().saturating_sub(1);
-                    self.boot_selected = (self.boot_selected + 1).min(last);
+                    self.boot_step(1);
                 } else {
                     self.history_step(1);
                 }
@@ -2531,8 +2584,8 @@ impl App {
                 self.mode = Mode::Action;
                 self.command.clear();
             }
-            Pending::SoftHand => {
-                self.home = Home::SoftHand;
+            Pending::Program(index) => {
+                self.home = program_home(index);
                 self.mode = Mode::Action;
                 self.command.clear();
             }
@@ -2709,6 +2762,19 @@ impl App {
                         .map_err(|e| e.to_string())
                         .and_then(|t| Disk::parse(&t).map_err(|e| e.to_string()))
                     {
+                        Ok(disk)
+                            if !disk.program.is_empty()
+                                && program_index_by_id(&disk.program).is_none() =>
+                        {
+                            DiskEntry {
+                                stem,
+                                disk: None,
+                                error: Some(format!(
+                                    "needs program {}, which is not installed",
+                                    disk.program
+                                )),
+                            }
+                        }
                         Ok(disk) => DiskEntry {
                             stem,
                             disk: Some(disk),
@@ -2733,52 +2799,62 @@ impl App {
     }
 
     fn boot_items(&self) -> Vec<BootItem> {
-        let mut items = vec![BootItem::Editor, BootItem::Documents];
+        let mut items = vec![BootItem::Documents, BootItem::Rule, BootItem::Inspiro];
+        for (index, program) in PROGRAMS.iter().enumerate() {
+            if program.installed {
+                items.push(BootItem::Program(index));
+            }
+        }
         items.extend((0..self.disks.len()).map(BootItem::Disk));
         items
     }
 
     /// The boot screen list as the UI wants it.
     fn boot_rows(&self) -> Vec<ui::BootItem> {
-        let letter = |i: usize| (b'A' + i as u8) as char;
-        let mut rows = vec![
-            ui::BootItem {
-                label: format!("{}: INSPIRO", letter(0)),
-                detail: "where your ideas have room to grow".into(),
-                broken: false,
-            },
-            ui::BootItem {
-                label: format!("{}: DOCUMENTS", letter(1)),
-                detail: "open a file from the vault".into(),
-                broken: false,
-            },
-        ];
-        for (i, entry) in self.disks.iter().enumerate() {
-            let letter = letter(i + 2);
+        let mut rows = Vec::new();
+        let mut letter = b'A';
+        push_boot_row(
+            &mut rows,
+            &mut letter,
+            "DOCUMENTS".into(),
+            "open a file from the vault".into(),
+            false,
+        );
+        rows.push(ui::BootItem::rule());
+
+        push_boot_row(
+            &mut rows,
+            &mut letter,
+            "INSPIRO".into(),
+            "where your ideas have room to grow".into(),
+            false,
+        );
+        for program in PROGRAMS.iter().filter(|program| program.installed) {
+            push_boot_row(
+                &mut rows,
+                &mut letter,
+                program.entry.into(),
+                program.tagline.into(),
+                false,
+            );
+        }
+        for entry in &self.disks {
             match &entry.disk {
                 Some(disk) => {
-                    let (label, detail) = match program_by_id(&disk.program) {
-                        Some((entry, tagline)) => (entry.to_string(), tagline.to_string()),
-                        None => (
-                            disk.name.clone(),
-                            if disk.about.is_empty() {
-                                format!("{} file(s)", disk.files.len())
-                            } else {
-                                disk.about.clone()
-                            },
-                        ),
+                    let detail = if disk.about.is_empty() {
+                        format!("{} file(s)", disk.files.len())
+                    } else {
+                        disk.about.clone()
                     };
-                    rows.push(ui::BootItem {
-                        label: format!("{letter}: {label}"),
-                        detail,
-                        broken: false,
-                    })
+                    push_boot_row(&mut rows, &mut letter, disk.name.clone(), detail, false)
                 }
-                None => rows.push(ui::BootItem {
-                    label: format!("{letter}: {}", entry.stem.to_uppercase()),
-                    detail: entry.error.clone().unwrap_or_default(),
-                    broken: true,
-                }),
+                None => push_boot_row(
+                    &mut rows,
+                    &mut letter,
+                    entry.stem.to_uppercase(),
+                    entry.error.clone().unwrap_or_default(),
+                    true,
+                ),
             }
         }
         rows
@@ -2794,25 +2870,34 @@ impl App {
             return;
         };
         match item {
-            BootItem::Editor => self.start_loading(Pending::Inspiro),
             BootItem::Documents => self.open_palette(),
+            BootItem::Rule => {}
+            BootItem::Inspiro => self.start_loading(Pending::Inspiro),
+            BootItem::Program(index) => self.start_loading(Pending::Program(index)),
             BootItem::Disk(index) => self.launch_disk(index),
+        }
+    }
+
+    /// Move the boot selection, stepping over rows that are not selectable
+    /// (the rule). Stops at both ends instead of wrapping.
+    fn boot_step(&mut self, delta: isize) {
+        let items = self.boot_items();
+        let mut index = self.boot_selected as isize;
+        loop {
+            index += delta;
+            if index < 0 || index >= items.len() as isize {
+                return;
+            }
+            if items[index as usize].selectable() {
+                self.boot_selected = index as usize;
+                return;
+            }
         }
     }
 
     /// Enter on a diskette: a program disk runs the program, a data disk opens
     /// the browser. Same letter, same row, different destination.
     fn launch_disk(&mut self, index: usize) {
-        let program = self
-            .disks
-            .get(index)
-            .and_then(|entry| entry.disk.as_ref())
-            .map(|disk| disk.program.clone())
-            .unwrap_or_default();
-        if program_by_id(&program).is_some() {
-            self.start_loading(Pending::SoftHand);
-            return;
-        }
         self.open_disk(index);
     }
 
@@ -2842,17 +2927,19 @@ impl App {
             self.open_palette();
             return Ok(String::new());
         }
-        if let Some((_, _)) = program_by_id(&wanted) {
-            let mounted = self.disks.iter().any(|entry| {
-                entry
-                    .disk
-                    .as_ref()
-                    .is_some_and(|disk| disk.program == wanted)
-            });
-            if !mounted {
-                return Err(format!("no diskette called {wanted} - put one in Disks"));
+        if let Some(index) = program_index_by_id(&wanted) {
+            if !PROGRAMS[index].installed {
+                let mounted = self.disks.iter().any(|entry| {
+                    entry
+                        .disk
+                        .as_ref()
+                        .is_some_and(|disk| disk.program == wanted)
+                });
+                if !mounted {
+                    return Err(format!("no diskette called {wanted} - put one in Disks"));
+                }
             }
-            self.start_loading(Pending::SoftHand);
+            self.start_loading(Pending::Program(index));
             return Ok(String::new());
         }
         let index = self
@@ -3651,12 +3738,57 @@ mod tests {
     }
 
     #[test]
-    fn a_program_disk_is_a_boot_row_of_its_own() {
-        let dir = vault("program-disk");
+    fn the_boot_screen_is_documents_then_a_rule_then_the_modules() {
+        let dir = vault("boot-order");
         std::fs::create_dir_all(dir.join("Disks")).unwrap();
         std::fs::write(
-            dir.join("Disks/SOFTHAND.DSK"),
-            include_str!("../../../examples/disks/SOFTHAND.DSK"),
+            dir.join("Disks/HELLO.DSK"),
+            "CRead Disk 1\nname=HELLO\n\n---FILE A.TXT\nhi\n",
+        )
+        .unwrap();
+        let mut app = app_in(&dir);
+        app.refresh_disks();
+        let rows = app.boot_rows();
+        let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            vec!["A: DOCUMENTS", "", "B: INSPIRO", "C: SOFTHAND", "D: HELLO"]
+        );
+        assert!(
+            rows[1].rule,
+            "the rule separates the vault from the modules"
+        );
+        assert!(rows[2].detail.contains("your ideas"));
+        assert!(rows[3].detail.contains("16 colors"));
+        assert!(!rows[3].broken, "SOFTHAND is installed, no diskette needed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_arrow_keys_skip_the_rule() {
+        let dir = vault("boot-nav");
+        let mut app = app_in(&dir);
+        assert_eq!(app.boot_selected, 0, "starts on DOCUMENTS");
+        app.boot_step(1);
+        assert_eq!(app.boot_selected, 2, "over the rule, onto INSPIRO");
+        app.boot_step(1);
+        assert_eq!(app.boot_selected, 3, "onto SOFTHAND");
+        app.boot_step(1);
+        assert_eq!(app.boot_selected, 3, "no diskette, no row, no wrap");
+        app.boot_step(-1);
+        assert_eq!(app.boot_selected, 2);
+        app.boot_step(-1);
+        assert_eq!(app.boot_selected, 0, "back over the rule");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_disk_naming_an_unknown_program_says_so() {
+        let dir = vault("unknown-program");
+        std::fs::create_dir_all(dir.join("Disks")).unwrap();
+        std::fs::write(
+            dir.join("Disks/MAIL.DSK"),
+            "CRead Disk 1\nname=MAIL\nprogram=mailbox\n",
         )
         .unwrap();
         let mut app = app_in(&dir);
@@ -3664,15 +3796,10 @@ mod tests {
         let rows = app.boot_rows();
         let row = rows
             .iter()
-            .find(|row| row.label.contains("SOFTHAND"))
-            .expect("mounted on the boot screen");
-        assert!(
-            row.label.starts_with("C: "),
-            "the first disk is C:, got {}",
-            row.label
-        );
-        assert!(row.detail.contains("16 colors"));
-        assert!(!row.broken);
+            .find(|row| row.label.contains("MAIL"))
+            .expect("listed");
+        assert!(row.broken);
+        assert!(row.detail.contains("not installed"), "{}", row.detail);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

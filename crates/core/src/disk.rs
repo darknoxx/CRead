@@ -241,11 +241,11 @@ Hallo.
     }
 
     #[test]
-    fn the_sample_softhand_disk_mounts() {
-        let text = include_str!("../../../examples/disks/SOFTHAND.DSK");
+    fn a_program_disk_mounts_without_files() {
+        let text = "CRead Disk 1\nname=MAILBOX\nprogram=mailbox\nabout=mail";
         let disk = Disk::parse(text).unwrap();
-        assert_eq!(disk.program, "softhand");
-        assert_eq!(disk.name, "SOFTHAND");
+        assert_eq!(disk.program, "mailbox");
+        assert!(disk.files.is_empty());
     }
 
     #[test]
