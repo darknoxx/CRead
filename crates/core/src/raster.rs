@@ -186,13 +186,29 @@ impl Raster {
     }
 
     /// Copy another surface into this one at `(x, y)`, clipped.
+    ///
+    /// Row-wise, because this runs on every frame of a program that copies its
+    /// canvas into the composited surface.
     pub fn copy_from(&mut self, src: &Raster, x: i32, y: i32) {
-        for sy in 0..src.height() as i32 {
-            for sx in 0..src.width() as i32 {
-                if let Some(index) = src.get(sx, sy) {
-                    self.set(x + sx, y + sy, index);
-                }
+        // Horizontal overlap, computed once for every row.
+        let skip = (-x).max(0) as u32;
+        let dx = (x + skip as i32).max(0) as u32;
+        let count = src
+            .width
+            .saturating_sub(skip)
+            .min(self.width.saturating_sub(dx));
+        if count == 0 {
+            return;
+        }
+        for sy in 0..src.height() {
+            let dy = y + sy as i32;
+            if dy < 0 || dy as u32 >= self.height {
+                continue;
             }
+            let from = (sy * src.width + skip) as usize;
+            let to = (dy as u32 * self.width + dx) as usize;
+            let n = count as usize;
+            self.pixels[to..to + n].copy_from_slice(&src.pixels[from..from + n]);
         }
     }
 

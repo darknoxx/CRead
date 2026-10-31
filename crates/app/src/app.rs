@@ -302,6 +302,9 @@ struct App {
     picture_path: Option<PathBuf>,
     /// The program's command line is open (Esc between drawing and typing).
     program_prompt: bool,
+    /// Last raster pixel the pointer reported, so sub-pixel motion at scale 2 or
+    /// 3 does not redraw the world.
+    program_point: (i32, i32),
     mode: Mode,
     palette: Palette,
     form: FormState,
@@ -320,6 +323,8 @@ struct App {
     help_about: bool,
     /// Highlighted row on the help screen.
     help_selected: usize,
+    /// `help all` shows the whole vocabulary instead of this screen's list.
+    help_all: bool,
 
     sync_cfg: SyncConfig,
     sync: Option<Worker>,
@@ -492,6 +497,7 @@ impl App {
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
             picture_path: None,
             program_prompt: false,
+            program_point: (-1, -1),
             mode: if has_document {
                 Mode::Write
             } else {
@@ -509,6 +515,7 @@ impl App {
             confirm: None,
             help_about: false,
             help_selected: 0,
+            help_all: false,
             sync_cfg,
             sync: None,
         }
@@ -791,10 +798,18 @@ impl App {
         }
         if self.mode == Mode::Help {
             self.splash_at = None;
+            let specs: Vec<&command::Spec> = if self.help_about {
+                Vec::new()
+            } else if self.help_all {
+                command::SPECS.iter().collect()
+            } else {
+                command::specs_for(self.help_scope())
+            };
             ui::draw_help(
                 &mut screen,
                 &self.theme,
                 self.help_about,
+                &specs,
                 self.help_selected,
             );
             self.screen = screen;
@@ -1781,9 +1796,24 @@ impl App {
         }
     }
 
+    /// Which command list `help` shows.
+    fn help_scope(&self) -> command::Scope {
+        if self.program.is_some() || self.home == Home::SoftHand {
+            command::Scope::Program
+        } else if self.has_document || self.home == Home::Inspiro {
+            command::Scope::Editor
+        } else {
+            command::Scope::Boot
+        }
+    }
+
     /// Help: arrows walk the list, any other key goes back.
     fn on_key_help(&mut self, event: KeyEvent) {
-        let specs = command::SPECS.len();
+        let specs = if self.help_all {
+            command::SPECS.len()
+        } else {
+            command::specs_for(self.help_scope()).len()
+        };
         match &event.logical_key {
             Key::Named(NamedKey::ArrowUp) if !self.help_about => {
                 self.help_selected = self.help_selected.saturating_sub(1);
@@ -1883,6 +1913,11 @@ impl App {
             return false;
         }
         let (x, y) = self.raster_point();
+        if matches!(kind, PointerKind::Move) && (x, y) == self.program_point {
+            // Same emulated pixel: nothing on screen would change.
+            return true;
+        }
+        self.program_point = (x, y);
         if let Some(program) = self.program.as_mut() {
             if program.pointer(PointerEvent { x, y, kind }) == Outcome::Exit {
                 self.leave_to_boot();
@@ -2145,25 +2180,34 @@ impl App {
                 if self.has_document && self.doc.editor.modified() {
                     self.save()?;
                 }
-                let already_home =
-                    !self.has_document && self.program.is_none() && self.home == Home::Boot;
+                // On the boot screen `exit` means what it means everywhere else:
+                // stop the program. That is CRead itself.
+                if !self.has_document && self.program.is_none() && self.home == Home::Boot {
+                    el.exit();
+                    return Ok(String::new());
+                }
                 self.leave_to_boot();
-                Ok(if already_home {
-                    "already at the boot screen - exit! quits".into()
-                } else {
-                    String::new()
-                })
+                Ok(String::new())
             }
             Command::Settings => {
                 self.open_settings();
                 Ok(String::new())
             }
-            Command::Help => {
+            Command::Help(argument) => {
                 self.help_about = false;
+                self.help_all = argument
+                    .as_deref()
+                    .is_some_and(|a| a.eq_ignore_ascii_case("all"));
                 self.help_selected = 0;
                 self.mode = Mode::Help;
                 self.dirty = true;
                 Ok(String::new())
+            }
+            Command::Tool(_) | Command::Size(_) | Command::Colour(_) => {
+                let Some(program) = self.program.as_mut() else {
+                    return Err("only a program has tools".into());
+                };
+                program.command(&command)
             }
             Command::About => {
                 self.help_about = true;
@@ -2533,6 +2577,7 @@ impl App {
         self.program = None;
         self.picture_path = None;
         self.program_prompt = false;
+        self.program_point = (-1, -1);
         self.discard_scratch();
         self.doc = Document {
             path: None,
@@ -3649,6 +3694,23 @@ mod tests {
             .expect("listed");
         assert!(row.label.ends_with("HELLO"));
         assert!(row.detail.contains("file"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn help_shows_the_commands_of_the_screen_you_are_on() {
+        let dir = vault("help-scope");
+        let mut app = app_in(&dir);
+        assert_eq!(app.help_scope(), command::Scope::Boot);
+
+        app.home = Home::Inspiro;
+        assert_eq!(app.help_scope(), command::Scope::Editor);
+
+        app.home = Home::SoftHand;
+        assert_eq!(app.help_scope(), command::Scope::Program);
+
+        app.new_picture();
+        assert_eq!(app.help_scope(), command::Scope::Program);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

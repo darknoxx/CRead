@@ -84,12 +84,34 @@ impl Framebuffer {
     /// Cells marked transparent are skipped, which is what lets a program put a
     /// menu over its own picture without punching a hole in it.
     pub fn draw_program(&mut self, screen: &Screen, raster: &Raster, theme: &Theme, font: &Font) {
-        self.clear(theme.background());
-        for y in 0..raster.height() {
-            for x in 0..raster.width() {
-                if let Some(index) = raster.get(x as i32, y as i32) {
-                    self.put(x as i32, y as i32, VGA[(index & 0x0f) as usize]);
-                }
+        // Only the margin outside the program's surface needs the theme
+        // background: everything inside is overwritten below anyway.
+        let rows = raster.height().min(self.height);
+        let cols = raster.width().min(self.width);
+        if cols < self.width {
+            let bg = theme.background();
+            self.fill_rect(cols as i32, 0, self.width - cols, rows, bg);
+        }
+        if rows < self.height {
+            self.fill_rect(
+                0,
+                rows as i32,
+                self.width,
+                self.height - rows,
+                theme.background(),
+            );
+        }
+
+        // Row-wise conversion: 245k pixels, once per frame, so the per-pixel
+        // bounds check of `put` would show up in a pointer-driven program.
+        let pixels = raster.pixels();
+        for y in 0..rows {
+            let src = &pixels[(y * raster.width()) as usize..][..cols as usize];
+            let base = (y * self.width) as usize * 4;
+            let dst = &mut self.data[base..base + cols as usize * 4];
+            for (index, chunk) in src.iter().zip(dst.as_chunks_mut::<4>().0) {
+                let rgb = VGA[(*index & 0x0f) as usize];
+                *chunk = [rgb[0], rgb[1], rgb[2], 0xff];
             }
         }
         self.draw_cells(screen, theme, font, 0, 0);
@@ -231,6 +253,20 @@ mod tests {
         // Inside the glyph cell the theme background wins.
         assert_eq!(fb.pixel(0, 0), [0, 0, 0]);
         assert_eq!(fb.pixel(15, 31), [170, 0, 0]);
+    }
+
+    #[test]
+    fn bench_program_blit() {
+        let mut fb = Framebuffer::new(640, 400);
+        let raster = Raster::new(640, 384);
+        let screen = Screen::new(80, 25);
+        let theme = solid_theme();
+        let font = Font::new();
+        let start = std::time::Instant::now();
+        for _ in 0..50 {
+            fb.draw_program(&screen, &raster, &theme, &font);
+        }
+        eprintln!("draw_program: {:?}/frame", start.elapsed() / 50);
     }
 
     #[test]

@@ -95,6 +95,11 @@ mode**, where the bottom line turns into a command prompt, like a DOS shell.
 `Tab` completes the command, the arrow keys walk history, and a dimmed hint on
 the right tells you what the command does before you commit to it.
 
+`help` is not one big list: it shows the commands that belong to the screen you
+are on — drives and disks on the boot screen, documents and search in the editor,
+tools and colours in Softhand. `help all` shows the whole vocabulary, and on the
+help screen the arrow keys walk it while the status line explains each row.
+
 | Command | Aliases | What it does |
 | --- | --- | --- |
 | `save` | `w`, `safe` | write the document to disk |
@@ -215,9 +220,12 @@ bottom. Pictures are PNGs in `<vault>/Pictures`; `save` picks `picture.png`,
 Drawing is a gesture, so it has keys: `b` pencil, `e` eraser, `l` line, `r` rect,
 `f` fill, `i` pick colour, `,`/`.` previous/next colour, `-`/`+` brush size, `u`
 and `Ctrl+Z` undo, `y` and `Ctrl+Y` redo. Click the palette strip to pick a
-colour, drag to draw, wheel for the brush. `Esc` turns the system line into a
-prompt for `save`, `saveas`, `open`, `undo`, `exit`; `Esc` again goes back to the
-canvas.
+colour, drag to draw, wheel for the brush.
+
+`Esc` turns the system line into a prompt; `Esc` again goes back to the canvas.
+There: `save`, `saveas`, `open`, `undo`, `exit`, and the three that are easier to
+type than to remember — `tool fill`, `size 6`, `colour 12`. Bare `tool`, `size`
+and `colour` report what is set, and `help` lists exactly this vocabulary.
 
 Undo keeps the last eight full-canvas snapshots — a paint program without undo
 is a trap, and 240 KB per step is nothing.

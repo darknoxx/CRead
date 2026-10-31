@@ -13,8 +13,14 @@
   sixteen-colour raster; cells can be transparent so menus sit on top of a
   picture, and everything still goes through one CRT pass.
 - **`exit` and `exit!`.** `exit` (was `welcome`) returns to the boot screen from
-  anywhere; `exit!` (was `quit`) saves and quits. `q` still quits, now spelled
-  `exit!`.
+  anywhere, and quits CRead when you are already there; `exit!` (was `quit`)
+  saves and quits from anywhere. `q` still quits, now spelled `exit!`.
+- **`help` is scoped.** It lists the commands of the screen you are on — the
+  boot screen, the editor, or the running program — in two columns with the
+  highlighted row explained in the status line. `help all` still shows
+  everything.
+- **Paint settings as commands.** `tool <name>`, `size <n>` and `colour <n>` in
+  Softhand's prompt; bare, they report the current setting.
 - The boot screen shrinks the logo by a whole step when the drive list is long,
   instead of dropping rows off the bottom.
 - The help screen lists the commands in two columns (the vocabulary outgrew one

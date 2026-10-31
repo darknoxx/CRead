@@ -4,6 +4,7 @@
 //! the system line. Everything here is plain data, so the drawing logic is
 //! unit-testable without a window.
 
+use cread_core::command::Command;
 use cread_core::program::{BUTTON_LEFT, KeyPress, Outcome, PointerEvent, PointerKind, Program};
 use cread_core::raster::{PAPER, VGA};
 use cread_core::{Cell, Raster, Screen};
@@ -312,6 +313,42 @@ impl Program for Softhand {
         Softhand::status(self)
     }
 
+    fn command(&mut self, command: &Command) -> Result<String, String> {
+        match command {
+            Command::Tool(None) => Ok("tools: pencil, eraser, line, rect, fill, pick".into()),
+            Command::Tool(Some(name)) => {
+                let tool = match name.trim().to_ascii_lowercase().as_str() {
+                    "pencil" | "pen" => Tool::Pencil,
+                    "eraser" | "rubber" => Tool::Eraser,
+                    "line" => Tool::Line,
+                    "rect" | "rectangle" | "box" => Tool::Rect,
+                    "fill" | "bucket" => Tool::Fill,
+                    "pick" | "eyedropper" => Tool::Pick,
+                    other => return Err(format!("no tool called {other}")),
+                };
+                self.tool = tool;
+                Ok(format!("tool: {}", tool.name()))
+            }
+            Command::Size(None) => Ok(format!("brush size {}", self.brush)),
+            Command::Size(Some(size)) => {
+                if !(1..=16).contains(size) {
+                    return Err("brush size is 1 to 16".into());
+                }
+                self.brush = *size;
+                Ok(format!("brush size {}", self.brush))
+            }
+            Command::Colour(None) => Ok(format!("colour {}", self.colour)),
+            Command::Colour(Some(index)) => {
+                if *index > 15 {
+                    return Err("colour is 0 to 15".into());
+                }
+                self.set_colour(*index);
+                Ok(format!("colour {}", self.colour))
+            }
+            other => Err(format!("SOFTHAND does not know {other:?}")),
+        }
+    }
+
     fn picture(&self) -> Option<&Raster> {
         Some(&self.canvas)
     }
@@ -384,6 +421,33 @@ mod tests {
             assert_eq!(app.canvas().get(x, 5), Some(1), "x={x}");
         }
         assert_eq!(app.canvas().get(5, 6), Some(PAPER));
+    }
+
+    #[test]
+    fn the_prompt_can_set_the_brush_colour_and_tool() {
+        let mut app = Softhand::new();
+        assert_eq!(
+            app.command(&Command::Size(Some(5))).unwrap(),
+            "brush size 5"
+        );
+        assert_eq!(app.brush(), 5);
+        assert!(app.command(&Command::Size(Some(0))).is_err());
+
+        assert_eq!(
+            app.command(&Command::Colour(Some(12))).unwrap(),
+            "colour 12"
+        );
+        assert_eq!(app.colour(), 12);
+        assert!(app.command(&Command::Colour(Some(99))).is_err());
+
+        assert!(app.command(&Command::Tool(Some("fill".into()))).is_ok());
+        assert_eq!(app.tool(), Tool::Fill);
+        assert!(app.command(&Command::Tool(Some("spray".into()))).is_err());
+        assert!(
+            app.command(&Command::Tool(None))
+                .unwrap()
+                .contains("pencil")
+        );
     }
 
     #[test]

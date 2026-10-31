@@ -6,6 +6,7 @@
 //! of windows and GPUs, and so the surfaces a program touches are the same
 //! plain data the tests use.
 
+use crate::command::Command;
 use crate::raster::Raster;
 use crate::screen::Screen;
 
@@ -86,6 +87,13 @@ pub trait Program {
     fn pointer(&mut self, event: PointerEvent) -> Outcome;
 
     fn draw(&mut self, screen: &mut Screen, raster: &mut Raster);
+
+    /// A command the shell does not handle itself (`tool`, `size`, `colour`).
+    /// Programs that have no vocabulary of their own reject everything.
+    fn command(&mut self, command: &Command) -> Result<String, String> {
+        let _ = command;
+        Err("this program has no commands".into())
+    }
 
     /// Right-hand text for the system line, e.g. the current tool.
     fn status(&self) -> String {

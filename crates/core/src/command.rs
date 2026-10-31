@@ -32,6 +32,12 @@ pub enum Command {
     Redo,
     /// Open the search prompt, optionally with a query already typed.
     Find(Option<String>),
+    /// Pick a tool inside a program (Softhand's pencil, fill, ...).
+    Tool(Option<String>),
+    /// Brush size inside a program.
+    Size(Option<u32>),
+    /// Palette index inside a program.
+    Colour(Option<u8>),
     /// Toggle reader mode.
     View,
     /// Run a diskette by name; bare `run` runs what the boot screen has
@@ -44,8 +50,21 @@ pub enum Command {
     /// `exit!` - save and quit, from anywhere.
     ExitForce,
     Settings,
-    Help,
+    /// `Some("all")` shows the whole vocabulary instead of this screen's.
+    Help(Option<String>),
     About,
+}
+
+/// Where a command makes sense. `help` only lists the ones that belong to the
+/// screen you are standing on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// The boot screen: drives, disks, settings.
+    Boot,
+    /// The editor (Inspiro): documents and the writing screen.
+    Editor,
+    /// A program that owns the screen (Softhand).
+    Program,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -85,6 +104,8 @@ pub struct Spec {
     /// `""`, `"<name>"` (required) or `"[name]"` (optional).
     pub argument: &'static str,
     pub summary: &'static str,
+    /// Screens this command belongs to. `help` reads this.
+    pub scopes: &'static [Scope],
 }
 
 pub const SPECS: &[Spec] = &[
@@ -93,158 +114,213 @@ pub const SPECS: &[Spec] = &[
         aliases: &["w", "safe", "write"],
         argument: "",
         summary: "write it to disk",
+        scopes: &[Scope::Editor, Scope::Program],
     },
     Spec {
         name: "saveas",
         aliases: &["sa"],
         argument: "<name>",
         summary: "save under a new name in the vault",
+        scopes: &[Scope::Editor, Scope::Program],
     },
     Spec {
         name: "open",
         aliases: &["o", "e"],
         argument: "[name]",
         summary: "open a document or picture (bare: list)",
+        scopes: &[Scope::Editor, Scope::Program],
     },
     Spec {
         name: "new",
         aliases: &["n"],
         argument: "",
         summary: "start a new document or picture",
+        scopes: &[Scope::Editor, Scope::Program],
     },
     Spec {
         name: "rename",
         aliases: &["mv", "rn"],
         argument: "<name>",
         summary: "rename the current document",
+        scopes: &[Scope::Editor],
     },
     Spec {
         name: "delete",
         aliases: &["rm", "del"],
         argument: "",
         summary: "delete the current document",
+        scopes: &[Scope::Editor],
     },
     Spec {
         name: "sync",
         aliases: &[],
         argument: "",
         summary: "sync the vault with WebDAV now",
+        scopes: &[Scope::Boot, Scope::Editor],
     },
     Spec {
         name: "theme",
         aliases: &[],
         argument: "[name]",
         summary: "switch theme (no argument: next)",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "scanlines",
         aliases: &["scan", "sl"],
         argument: "[on|off] -r",
         summary: "toggle or set the scanlines",
+        scopes: &[Scope::Editor],
     },
     Spec {
         name: "bloom",
         aliases: &[],
         argument: "[on|off]",
         summary: "toggle or set the phosphor glow",
+        scopes: &[Scope::Editor],
     },
     Spec {
         name: "roll",
         aliases: &["drift"],
         argument: "[on|off]",
         summary: "let the scanline pattern drift downwards",
+        scopes: &[Scope::Editor],
     },
     Spec {
         name: "typewriter",
         aliases: &["tw"],
         argument: "[on|off]",
         summary: "toggle or set typewriter scrolling",
+        scopes: &[Scope::Editor],
     },
     Spec {
         name: "font",
         aliases: &["weight"],
         argument: "[classic|thin]",
         summary: "face: classic VGA or thin ISO (bare: toggle)",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "fullscreen",
         aliases: &["fs"],
         argument: "",
         summary: "go fullscreen",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "windowed",
         aliases: &["win"],
         argument: "",
         summary: "leave fullscreen",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "undo",
         aliases: &["u"],
         argument: "",
         summary: "undo the last edit",
+        scopes: &[Scope::Editor, Scope::Program],
     },
     Spec {
         name: "redo",
         aliases: &[],
         argument: "",
         summary: "redo",
+        scopes: &[Scope::Editor, Scope::Program],
     },
     Spec {
         name: "view",
         aliases: &["read"],
         argument: "",
         summary: "reading mode: markup stripped, nothing to edit",
+        scopes: &[Scope::Editor],
     },
     Spec {
         name: "find",
         aliases: &["search"],
         argument: "[text]",
         summary: "search the document (Ctrl+F, F3 for the next hit)",
+        scopes: &[Scope::Editor],
     },
     Spec {
         name: "run",
         aliases: &["exec"],
         argument: "[name]",
         summary: "run a diskette (bare: the one selected on the boot screen)",
+        scopes: &[Scope::Boot],
     },
     Spec {
         name: "dir",
         aliases: &["disks"],
         argument: "",
         summary: "list the diskettes in the drive folder",
+        scopes: &[Scope::Boot],
+    },
+    Spec {
+        name: "tool",
+        aliases: &["tools"],
+        argument: "[name]",
+        summary: "pencil, eraser, line, rect, fill, pick",
+        scopes: &[Scope::Program],
+    },
+    Spec {
+        name: "size",
+        aliases: &["brush", "width"],
+        argument: "[n]",
+        summary: "brush size, 1 to 16",
+        scopes: &[Scope::Program],
+    },
+    Spec {
+        name: "colour",
+        aliases: &["color", "ink"],
+        argument: "[n]",
+        summary: "palette colour, 0 to 15",
+        scopes: &[Scope::Program],
     },
     Spec {
         name: "settings",
         aliases: &["set", "cfg"],
         argument: "",
         summary: "WebDAV settings",
+        scopes: &[Scope::Boot, Scope::Editor],
     },
     Spec {
         name: "help",
         aliases: &["?", "h"],
-        argument: "",
+        argument: "[all]",
         summary: "list these commands",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "about",
         aliases: &["version"],
         argument: "",
         summary: "version and credits",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "exit",
         aliases: &["welcome", "home"],
         argument: "",
-        summary: "back to the boot screen",
+        summary: "back to the boot screen (there: quit)",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "exit!",
         aliases: &["quit", "q", "x"],
         argument: "",
         summary: "save and quit from anywhere",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
 ];
+
+/// The commands that belong to one screen, in table order.
+pub fn specs_for(scope: Scope) -> Vec<&'static Spec> {
+    SPECS
+        .iter()
+        .filter(|spec| spec.scopes.contains(&scope))
+        .collect()
+}
 
 /// Parse a command line. Arguments are everything after the first whitespace, so
 /// file names may contain spaces.
@@ -335,7 +411,22 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         }
         "exit!" => Command::ExitForce,
         "settings" => Command::Settings,
-        "help" => Command::Help,
+        "help" => Command::Help(optional(rest)),
+        "tool" => Command::Tool(optional(rest)),
+        "size" => Command::Size(match optional(rest) {
+            None => None,
+            Some(text) => Some(text.parse().map_err(|_| CommandError::BadValue {
+                value: text.clone(),
+                expected: "a number from 1 to 16",
+            })?),
+        }),
+        "colour" => Command::Colour(match optional(rest) {
+            None => None,
+            Some(text) => Some(text.parse().map_err(|_| CommandError::BadValue {
+                value: text.clone(),
+                expected: "a number from 0 to 15",
+            })?),
+        }),
         "about" => Command::About,
         other => return Err(CommandError::Unknown(other.to_string())),
     })
@@ -457,6 +548,45 @@ mod tests {
         assert_eq!(parse("welcome"), Ok(Command::Exit));
         assert_eq!(parse("?"), parse("help"));
         assert_eq!(parse("o"), parse("open"));
+    }
+
+    #[test]
+    fn help_is_scoped_to_the_screen_you_are_on() {
+        let boot = specs_for(Scope::Boot);
+        assert!(boot.iter().any(|s| s.name == "run"));
+        assert!(boot.iter().any(|s| s.name == "dir"));
+        assert!(
+            !boot.iter().any(|s| s.name == "save"),
+            "nothing to save yet"
+        );
+        assert!(boot.iter().any(|s| s.name == "exit"));
+
+        let editor = specs_for(Scope::Editor);
+        assert!(editor.iter().any(|s| s.name == "save"));
+        assert!(editor.iter().any(|s| s.name == "find"));
+        assert!(!editor.iter().any(|s| s.name == "tool"));
+
+        let program = specs_for(Scope::Program);
+        assert!(program.iter().any(|s| s.name == "tool"));
+        assert!(program.iter().any(|s| s.name == "size"));
+        assert!(program.iter().any(|s| s.name == "colour"));
+        assert!(!program.iter().any(|s| s.name == "rename"));
+        assert!(!program.iter().any(|s| s.name == "sync"));
+    }
+
+    #[test]
+    fn paint_settings_parse() {
+        assert_eq!(parse("size 4"), Ok(Command::Size(Some(4))));
+        assert_eq!(parse("size"), Ok(Command::Size(None)));
+        assert!(matches!(
+            parse("size x"),
+            Err(CommandError::BadValue { .. })
+        ));
+        assert_eq!(parse("colour 12"), Ok(Command::Colour(Some(12))));
+        assert_eq!(parse("color 12"), Ok(Command::Colour(Some(12))));
+        assert_eq!(parse("tool fill"), Ok(Command::Tool(Some("fill".into()))));
+        assert_eq!(parse("brush"), Ok(Command::Size(None)));
+        assert_eq!(parse("help all"), Ok(Command::Help(Some("all".into()))));
     }
 
     #[test]

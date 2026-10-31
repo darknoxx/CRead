@@ -683,7 +683,13 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Full-screen reference. Without hotkeys this is the only way to discover what
 /// the program can do, so it is a first-class screen rather than a popup.
-pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool, selected: usize) {
+pub fn draw_help(
+    screen: &mut Screen,
+    theme: &Theme,
+    about: bool,
+    specs: &[&cread_core::command::Spec],
+    selected: usize,
+) {
     let cols = screen.cols();
     let rows = screen.rows();
     let (fg, bg) = (theme.fg, theme.bg);
@@ -722,10 +728,10 @@ pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool, selected: usiz
             y += 1;
         }
     } else {
-        // Two columns: the vocabulary outgrew a single list, and a help screen
-        // that silently drops its last five rows is worse than none.
-        let specs = cread_core::command::SPECS;
-        let per_col = (last - y) as usize;
+        // Two columns, balanced: a help screen that silently drops its last
+        // rows is worse than none.
+        let rows_free = (last - y) as usize;
+        let per_col = specs.len().div_ceil(2).min(rows_free).max(1);
         for (i, spec) in specs.iter().enumerate() {
             let (col, row) = (i / per_col, i % per_col);
             if col > 1 {
@@ -762,7 +768,7 @@ pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool, selected: usiz
     let right = if about {
         "type any command name to run it ".to_string()
     } else {
-        match cread_core::command::SPECS.get(selected) {
+        match specs.get(selected) {
             Some(spec) => format!("{} ", spec.summary),
             None => String::new(),
         }
