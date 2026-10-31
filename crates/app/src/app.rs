@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cread_core::{
-    Cell, Editor, KeyPress, Position, Prefs, Raster, ScaleMode, Screen, Stats, Theme, Viewport,
+    Editor, KeyPress, Position, Prefs, Raster, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
     disk::Disk,
     picture,
@@ -44,25 +44,17 @@ const ROLL_SPEED: f32 = 40.0;
 const ANIMATION_FPS: u32 = 60;
 /// How long a status message stays on the line before the mode hint returns.
 const STATUS_TTL: Duration = Duration::from_secs(4);
-/// Launch: the monitor warms up, a bar runs, the monitor syncs once more, then
-/// the picture holds. Short enough to read as a PC starting rather than a wait.
-const BOOT_FLICKER_SECONDS: f32 = 0.7;
-const BOOT_LOADING_SECONDS: f32 = 1.0;
+/// Launch: a bar runs before the first real frame, long enough to read as a
+/// machine starting up. Any key skips it.
+const BOOT_SECONDS: f32 = 2.0;
 /// What the bar says while the "system" starts.
 const BOOT_LABEL: &str = "Starting CRead OS...";
-/// (seconds into the phase, brightness) — a monitor looking for a signal.
-const BOOT_WARMUP_STEPS: &[(f32, f32)] = &[
-    (0.00, 0.0),
-    (0.08, 0.9),
-    (0.14, 0.0),
-    (0.20, 0.5),
-    (0.26, 0.0),
-    (0.34, 1.0),
-    (0.42, 0.2),
-    (0.50, 1.0),
-    (0.58, 0.45),
-    (0.62, 1.0),
-];
+
+/// Bar fill at `seconds` in, 0 to 1. The bar is full a little before the wait
+/// ends, so it never stops short of the right edge.
+fn boot_progress(seconds: f32) -> f32 {
+    (seconds / (BOOT_SECONDS * 0.8)).powf(0.8).clamp(0.0, 1.0)
+}
 
 pub fn run(opts: Options) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| format!("event loop: {e}"))?;
@@ -173,90 +165,6 @@ struct Search {
     query: String,
     matches: Vec<(Position, usize)>,
     current: usize,
-}
-
-/// Where the launch sequence is: flicker, bar, flicker, picture.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BootPhase {
-    /// An empty screen stuttering on: the monitor, before there is a picture.
-    Warmup,
-    /// The bar, still on an empty screen.
-    Loading,
-}
-
-/// What just happened at a phase boundary.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BootEvent {
-    /// Warm-up over: the bar starts.
-    Loading,
-    /// Bar full: beep once and draw the real screen.
-    Ready,
-}
-
-struct BootState {
-    phase: BootPhase,
-    started: Instant,
-}
-
-impl BootState {
-    fn new() -> Self {
-        Self {
-            phase: BootPhase::Warmup,
-            started: Instant::now(),
-        }
-    }
-
-    fn elapsed(&self) -> f32 {
-        self.started.elapsed().as_secs_f32()
-    }
-
-    fn brightness(&self) -> f32 {
-        match self.phase {
-            BootPhase::Warmup => level_at(BOOT_WARMUP_STEPS, self.elapsed()),
-            BootPhase::Loading => 1.0,
-        }
-    }
-
-    /// Bar fill, 0 to 1, done before the wait is over so it never stalls short.
-    fn progress(&self) -> f32 {
-        (self.elapsed() / (BOOT_LOADING_SECONDS * 0.8))
-            .powf(0.8)
-            .clamp(0.0, 1.0)
-    }
-
-    fn tick(&mut self) -> Option<BootEvent> {
-        let event = boot_advance(self.phase, self.elapsed())?;
-        if event == BootEvent::Loading {
-            self.phase = BootPhase::Loading;
-            self.started = Instant::now();
-        }
-        Some(event)
-    }
-}
-
-/// The phase machine on its own, so the order is testable without a clock.
-fn boot_advance(phase: BootPhase, elapsed: f32) -> Option<BootEvent> {
-    let done = match phase {
-        BootPhase::Warmup => elapsed >= BOOT_FLICKER_SECONDS,
-        BootPhase::Loading => elapsed >= BOOT_LOADING_SECONDS,
-    };
-    if !done {
-        return None;
-    }
-    Some(match phase {
-        BootPhase::Warmup => BootEvent::Loading,
-        BootPhase::Loading => BootEvent::Ready,
-    })
-}
-
-/// Brightness from a step table at `seconds`.
-fn level_at(steps: &[(f32, f32)], seconds: f32) -> f32 {
-    steps
-        .iter()
-        .rev()
-        .find(|(from, _)| seconds >= *from)
-        .map(|(_, level)| *level)
-        .unwrap_or(0.0)
 }
 
 /// A diskette found in the vault, parsed or not — a broken disk still shows up
@@ -479,8 +387,8 @@ struct App {
     help_selected: usize,
     /// `help all` shows the whole vocabulary instead of this screen's list.
     help_all: bool,
-    /// The launch sequence, while it runs.
-    boot: Option<BootState>,
+    /// The launch bar, while it runs.
+    boot_at: Option<Instant>,
     /// The startup beep, mirrored from the preferences.
     beep_on: bool,
 
@@ -675,7 +583,7 @@ impl App {
             help_about: false,
             help_selected: 0,
             help_all: false,
-            boot: None,
+            boot_at: None,
             beep_on,
             sync_cfg,
             sync: None,
@@ -802,33 +710,18 @@ impl App {
             self.dirty = true;
         }
 
-        if let Some(boot) = self.boot.as_mut() {
-            match boot.tick() {
-                Some(BootEvent::Loading) => {}
-                Some(BootEvent::Ready) => {
-                    // The bar is full: the speaker says so, then the picture
-                    // appears. Nothing of the boot screen is drawn before.
-                    self.beep();
-                    self.boot = None;
-                    self.dirty = true;
-                }
-                None => {}
+        if let Some(started) = self.boot_at {
+            if started.elapsed().as_secs_f32() >= BOOT_SECONDS {
+                // The bar is full: the speaker says so, then the picture
+                // appears. Nothing of the boot screen was drawn before it.
+                self.beep();
+                self.boot_at = None;
             }
-            // The bar has to move every frame; the flickers only change the
-            // brightness, which is a uniform.
-            if self
-                .boot
-                .as_ref()
-                .is_some_and(|b| b.phase == BootPhase::Loading)
-            {
-                self.dirty = true;
-            }
+            // The bar has to move every frame.
+            self.dirty = true;
         }
 
         let mut crt = self.crt;
-        if let Some(level) = self.boot.as_ref().map(BootState::brightness) {
-            crt.brightness *= level;
-        }
         if self.theme.is_light() {
             // Glow on paper is ink bleed: keep a trace, not a haze.
             crt.bloom *= 0.3;
@@ -924,7 +817,7 @@ impl App {
 
         // Nothing animates any more except the cursor, so we do not run a
         // frame clock at all: sleep until the blink is due and redraw then.
-        if self.boot.is_some() || self.mode == Mode::Loading {
+        if self.boot_at.is_some() || self.mode == Mode::Loading {
             self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
         } else if crt.roll > 0.0 && crt.scanline > 0.0 {
             // The raster moves, so this is the one case that needs a clock.
@@ -946,16 +839,9 @@ impl App {
         self.splash_at = None;
         self.inspiro_at = None;
         self.softhand_at = None;
-        if let Some(boot) = self.boot.as_ref() {
-            match boot.phase {
-                BootPhase::Warmup => {
-                    // An empty screen stuttering on, not the boot screen yet.
-                    screen.fill(Cell::blank(self.theme.fg, self.theme.bg));
-                }
-                BootPhase::Loading => {
-                    ui::draw_loading(&mut screen, &self.theme, BOOT_LABEL, boot.progress());
-                }
-            }
+        if let Some(started) = self.boot_at {
+            let progress = boot_progress(started.elapsed().as_secs_f32());
+            ui::draw_loading(&mut screen, &self.theme, BOOT_LABEL, progress);
             self.screen = screen;
             return;
         }
@@ -1767,7 +1653,7 @@ impl App {
         if event.state != ElementState::Pressed {
             return;
         }
-        if self.boot.take().is_some() {
+        if self.boot_at.take().is_some() {
             // Impatient: skip straight to the picture, and swallow the key.
             self.next_frame = Instant::now();
             self.dirty = true;
@@ -3623,7 +3509,7 @@ impl ApplicationHandler for App {
         // A screenshot wants the settled picture; `--boot` replays the flicker
         // so it can be looked at.
         if self.opts.boot || self.opts.screenshot.is_none() {
-            self.boot = Some(BootState::new());
+            self.boot_at = Some(Instant::now());
         }
 
         if self.sync_cfg.enabled {
@@ -3913,20 +3799,22 @@ mod tests {
     }
 
     #[test]
-    fn the_launch_is_flicker_then_bar_then_the_picture() {
-        use BootEvent::*;
-        assert_eq!(boot_advance(BootPhase::Warmup, 0.3), None);
-        assert_eq!(boot_advance(BootPhase::Warmup, 0.7), Some(Loading));
-        assert_eq!(boot_advance(BootPhase::Loading, 0.9), None);
-        assert_eq!(boot_advance(BootPhase::Loading, 1.0), Some(Ready));
-    }
-
-    #[test]
-    fn the_warmup_flashes_black_and_bright_and_ends_lit() {
-        assert_eq!(level_at(BOOT_WARMUP_STEPS, 0.0), 0.0);
-        assert_eq!(level_at(BOOT_WARMUP_STEPS, 0.08), 0.9);
-        assert_eq!(level_at(BOOT_WARMUP_STEPS, 0.15), 0.0);
-        assert_eq!(level_at(BOOT_WARMUP_STEPS, 0.65), 1.0, "holds once warm");
+    fn the_launch_bar_fills_before_the_wait_ends() {
+        assert_eq!(boot_progress(0.0), 0.0);
+        assert!(boot_progress(0.5) > 0.0 && boot_progress(0.5) < 1.0);
+        assert_eq!(
+            boot_progress(BOOT_SECONDS * 0.8),
+            1.0,
+            "full a fifth before the end"
+        );
+        assert_eq!(boot_progress(BOOT_SECONDS * 1.5), 1.0, "and stays full");
+        // Monotonic, so the bar never jumps back.
+        let mut last = 0.0;
+        for step in 0..=20 {
+            let value = boot_progress(step as f32 * 0.1);
+            assert!(value >= last);
+            last = value;
+        }
     }
 
     #[test]

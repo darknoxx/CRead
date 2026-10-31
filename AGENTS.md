@@ -66,9 +66,9 @@ blink. Two consequences:
   by up to 620 ms — the exact bug that made Up/Down feel unresponsive.
 - Adding an effect that changes every frame (flicker, drift, animation) means
   bringing a frame clock back deliberately, not by accident. There are exactly
-  three: scanline drift, the fake loading bar, and the launch sequence
-  (`BootState`: flicker on an empty screen, bar, beep, then the first real
-  frame; ~1.7 s, skipped by any key and by every screenshot unless `--boot`).
+  three: scanline drift, the fake loading bar, and the launch bar
+  (`boot_at`: two seconds before the first real frame, beep at the end, skipped
+  by any key and by every screenshot unless `--boot`).
 
 **The CRT uniform layout must match the WGSL struct byte for byte.** `CrtUniforms`
 is 32 bytes and has a `const` assertion; the shader pads to the same size. A
