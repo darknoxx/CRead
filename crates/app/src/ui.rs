@@ -388,32 +388,39 @@ pub fn draw_program_line(
 
 // ── software ────────────────────────────────────────────────────────────────
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SoftwareState {
-    /// Part of the system, cannot be removed.
-    System,
-    Installed,
-    Available,
-}
-
-pub struct SoftwareItem {
+/// One row of a menu screen: a name, what it is, and where it stands.
+pub struct MenuItem {
     pub name: String,
-    pub tagline: String,
-    pub state: SoftwareState,
+    pub detail: String,
+    pub value: String,
 }
 
-/// The install screen: one row per module, with what it is and where it stands.
-pub fn draw_software(screen: &mut Screen, theme: &Theme, items: &[SoftwareItem], selected: usize) {
+/// A boxed list with a value on the right: SOFTWARE and SETTINGS are the same
+/// screen with different rows, and that is the point.
+pub fn draw_menu(
+    screen: &mut Screen,
+    theme: &Theme,
+    title: &str,
+    hint: &str,
+    items: &[MenuItem],
+    selected: usize,
+) {
     let cols = screen.cols();
     let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
 
     screen.fill_row(0, Cell::blank(theme.status_fg, theme.status_bg));
-    screen.put_str(0, 0, " SOFTWARE ", theme.status_fg, theme.status_bg);
-    let right = "install and remove modules ";
+    screen.put_str(
+        0,
+        0,
+        &format!(" {title} "),
+        theme.status_fg,
+        theme.status_bg,
+    );
+    let right = format!("{hint} ");
     let x = cols.saturating_sub(right.chars().count() as u32);
     if x > 20 {
-        screen.put_str(x, 0, right, theme.status_fg, theme.status_bg);
+        screen.put_str(x, 0, &right, theme.status_fg, theme.status_bg);
     }
 
     let inner = cols.saturating_sub(6).min(66);
@@ -438,13 +445,11 @@ pub fn draw_software(screen: &mut Screen, theme: &Theme, items: &[SoftwareItem],
         Cell::new('\u{255d}', b, bg),
     );
 
-    for (i, item) in items.iter().enumerate() {
-        let y = first + i as u32;
-        let selected = i == selected;
+    for (index, item) in items.iter().enumerate() {
+        let y = first + index as u32;
+        let selected = index == selected;
         let (fg, row_bg) = if selected {
             (theme.bg, theme.fg)
-        } else if item.state == SoftwareState::System {
-            (theme.dim, bg)
         } else {
             (theme.fg, bg)
         };
@@ -455,31 +460,26 @@ pub fn draw_software(screen: &mut Screen, theme: &Theme, items: &[SoftwareItem],
         }
         let mark = if selected { "\u{25ba}" } else { " " };
         screen.put_str(x0 + 2, y, mark, theme.accent, row_bg);
-        screen.put_str_ellipsis(x0 + 4, y, &item.name, 10, fg, row_bg);
+        screen.put_str_ellipsis(x0 + 4, y, &item.name, 12, fg, row_bg);
         screen.put_str_ellipsis(
-            x0 + 15,
+            x0 + 17,
             y,
-            &item.tagline,
-            inner.saturating_sub(32),
+            &item.detail,
+            inner.saturating_sub(34),
             theme.dim,
             row_bg,
         );
-        let state = match item.state {
-            SoftwareState::System => "system",
-            SoftwareState::Installed => "installed",
-            SoftwareState::Available => "install",
-        };
-        let sx = x0 + inner - 2 - state.chars().count() as u32;
-        screen.put_str(sx, y, state, fg, row_bg);
+        let value_x = x0 + inner - 2 - item.value.chars().count() as u32;
+        screen.put_str(value_x, y, &item.value, fg, row_bg);
     }
 
     let bar = rows.saturating_sub(1);
     screen.fill_row(bar, Cell::blank(theme.status_fg, theme.status_bg));
     screen.put_str(0, bar, " Esc  back ", theme.status_fg, theme.status_bg);
-    let hint = "Enter install or remove";
-    let hx = cols.saturating_sub(hint.chars().count() as u32 + 1);
+    let right = "Enter open ";
+    let hx = cols.saturating_sub(right.chars().count() as u32 + 1);
     if hx > 16 {
-        screen.put_str(hx, bar, hint, theme.status_fg, theme.status_bg);
+        screen.put_str(hx, bar, right, theme.status_fg, theme.status_bg);
     }
 }
 

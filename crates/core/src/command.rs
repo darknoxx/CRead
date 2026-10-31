@@ -324,8 +324,8 @@ pub const SPECS: &[Spec] = &[
         name: "settings",
         aliases: &["set", "cfg"],
         argument: "",
-        summary: "WebDAV settings",
-        scopes: &[Scope::Boot, Scope::Editor],
+        summary: "webdav, theme, font, screen, info",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "help",

@@ -273,6 +273,8 @@ enum BootItem {
     Program(usize),
     /// The install screen.
     Software,
+    /// The system settings.
+    Setup,
 }
 
 impl BootItem {
@@ -307,6 +309,8 @@ enum Mode {
     RiffInsert,
     /// Install and remove modules.
     Software,
+    /// The system settings: WebDAV, theme, font, screen, info.
+    Setup,
 }
 
 /// A program compiled into this build.
@@ -388,6 +392,8 @@ struct App {
     doc: Document,
     /// Highlighted row on the SOFTWARE screen.
     software_selected: usize,
+    /// Highlighted row on the SETTINGS screen.
+    setup_selected: usize,
 
     boot_selected: usize,
 
@@ -610,6 +616,7 @@ impl App {
             typewriter,
             doc,
             software_selected: 0,
+            setup_selected: 0,
 
             boot_selected: 0,
 
@@ -950,7 +957,27 @@ impl App {
         self.riff_at = None;
         if self.mode == Mode::Software {
             let rows = self.software_rows();
-            ui::draw_software(&mut screen, &self.theme, &rows, self.software_selected);
+            ui::draw_menu(
+                &mut screen,
+                &self.theme,
+                "SOFTWARE",
+                "install and remove modules",
+                &rows,
+                self.software_selected,
+            );
+            self.screen = screen;
+            return;
+        }
+        if self.mode == Mode::Setup {
+            let rows = self.setup_rows();
+            ui::draw_menu(
+                &mut screen,
+                &self.theme,
+                "SETTINGS",
+                "the machine, not the document",
+                &rows,
+                self.setup_selected,
+            );
             self.screen = screen;
             return;
         }
@@ -1916,6 +1943,7 @@ impl App {
             Mode::Riff => self.on_key_riff(el, event),
             Mode::RiffInsert => self.on_key_riff_insert(event),
             Mode::Software => self.on_key_software(event),
+            Mode::Setup => self.on_key_setup(event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -2637,7 +2665,7 @@ impl App {
                 Ok(String::new())
             }
             Command::Settings => {
-                self.open_settings();
+                self.open_setup();
                 Ok(String::new())
             }
             Command::Help(argument) => {
@@ -3494,25 +3522,75 @@ impl App {
         self.prefs.installed.iter().any(|have| have == id)
     }
 
-    /// One row per module for the SOFTWARE screen: (entry, tagline, id, state).
-    fn software_rows(&self) -> Vec<ui::SoftwareItem> {
-        let mut rows = vec![ui::SoftwareItem {
+    /// One row per module for the SOFTWARE screen.
+    fn software_rows(&self) -> Vec<ui::MenuItem> {
+        let mut rows = vec![ui::MenuItem {
             name: "INSPIRO".into(),
-            tagline: "where your ideas have room to grow.".into(),
-            state: ui::SoftwareState::System,
+            detail: "where your ideas have room to grow.".into(),
+            value: "system".into(),
         }];
         for program in PROGRAMS {
-            rows.push(ui::SoftwareItem {
+            rows.push(ui::MenuItem {
                 name: program.entry.to_string(),
-                tagline: program.tagline.to_string(),
-                state: if self.is_installed(program.id) {
-                    ui::SoftwareState::Installed
+                detail: program.tagline.to_string(),
+                value: if self.is_installed(program.id) {
+                    "installed".into()
                 } else {
-                    ui::SoftwareState::Available
+                    "install".into()
                 },
             });
         }
         rows
+    }
+
+    /// The system settings: the things that belong to the machine, not to a
+    /// document. WebDAV lived in the editor, which was the wrong place for a
+    /// switch that decides where the whole vault goes.
+    fn setup_rows(&self) -> Vec<ui::MenuItem> {
+        let sync = if !self.sync_cfg.enabled {
+            "off"
+        } else if self.sync_cfg.url.is_empty() {
+            "no server"
+        } else {
+            "on"
+        };
+        let fullscreen = self
+            .window
+            .as_ref()
+            .map(|window| window.fullscreen().is_some())
+            .unwrap_or(false);
+        vec![
+            ui::MenuItem {
+                name: "WEBDAV".into(),
+                detail: "sync the whole vault".into(),
+                value: sync.into(),
+            },
+            ui::MenuItem {
+                name: "THEME".into(),
+                detail: "colour scheme".into(),
+                value: self.theme.name.into(),
+            },
+            ui::MenuItem {
+                name: "FONT".into(),
+                detail: "bitmap face".into(),
+                value: self.font.face().name().into(),
+            },
+            ui::MenuItem {
+                name: "SCREEN".into(),
+                detail: "window or whole screen".into(),
+                value: if fullscreen { "fullscreen" } else { "window" }.into(),
+            },
+            ui::MenuItem {
+                name: "INFO".into(),
+                detail: "version and credits".into(),
+                value: ui::VERSION.into(),
+            },
+            ui::MenuItem {
+                name: "SOFTWARE".into(),
+                detail: "install and remove modules".into(),
+                value: String::new(),
+            },
+        ]
     }
 
     fn open_software(&mut self) {
@@ -3521,6 +3599,71 @@ impl App {
         self.command.clear();
         self.program_prompt = false;
         self.dirty = true;
+    }
+
+    fn open_setup(&mut self) {
+        self.mode = Mode::Setup;
+        self.setup_selected = self.setup_selected.min(5);
+        self.command.clear();
+        self.program_prompt = false;
+        self.dirty = true;
+    }
+
+    /// What Enter does on the SETTINGS screen.
+    fn setup_activate(&mut self) {
+        match self.setup_selected {
+            0 => {
+                // WebDAV is a form, not a value in a row.
+                self.open_settings();
+            }
+            1 => {
+                let _ = self.cycle_theme(1);
+            }
+            2 => {
+                let next = match self.font.face() {
+                    Face::Classic => Face::Thin,
+                    Face::Thin => Face::Classic,
+                };
+                self.font = Font::with_face(next);
+                self.prefs.font = next.name().to_string();
+                self.save_prefs();
+                self.dirty = true;
+                self.set_status(format!("font: {}", next.name()));
+            }
+            3 => {
+                if let Some(window) = self.window.as_ref() {
+                    let going_fullscreen = window.fullscreen().is_none();
+                    window.set_fullscreen(going_fullscreen.then_some(Fullscreen::Borderless(None)));
+                    self.set_status(if going_fullscreen {
+                        "fullscreen"
+                    } else {
+                        "windowed"
+                    });
+                }
+            }
+            4 => {
+                self.help_about = true;
+                self.mode = Mode::Help;
+                self.dirty = true;
+            }
+            _ => self.open_software(),
+        }
+    }
+
+    fn on_key_setup(&mut self, event: KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => self.to_write(),
+            Key::Named(NamedKey::Enter) => self.setup_activate(),
+            Key::Named(NamedKey::ArrowUp) => {
+                self.setup_selected = self.setup_selected.saturating_sub(1);
+                self.poke();
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                self.setup_selected = (self.setup_selected + 1).min(5);
+                self.poke();
+            }
+            _ => {}
+        }
     }
 
     /// Enter on the SOFTWARE screen: install or remove, with the bar in between.
@@ -3614,6 +3757,7 @@ impl App {
         items.push(BootItem::Rule);
         items.push(BootItem::Software);
         items.push(BootItem::Documents);
+        items.push(BootItem::Setup);
         items
     }
 
@@ -3655,6 +3799,13 @@ impl App {
             rule: false,
             bare: true,
         });
+        rows.push(ui::BootItem {
+            label: "SETTINGS".into(),
+            detail: "webdav, theme, font, screen".into(),
+            broken: false,
+            rule: false,
+            bare: true,
+        });
         rows
     }
 
@@ -3673,6 +3824,7 @@ impl App {
             BootItem::Inspiro => self.start_loading(Pending::Inspiro),
             BootItem::Program(index) => self.start_loading(Pending::Program(index)),
             BootItem::Software => self.open_software(),
+            BootItem::Setup => self.open_setup(),
         }
     }
 
@@ -4150,7 +4302,8 @@ impl ApplicationHandler for App {
 
         match self.opts.show.as_str() {
             "palette" => self.open_palette(),
-            "settings" => self.open_settings(),
+            "settings" => self.open_setup(),
+            "webdav" => self.open_settings(),
             "help" => {
                 self.mode = Mode::Help;
             }
@@ -4677,7 +4830,7 @@ mod tests {
         };
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "", "SOFTWARE", "DOCUMENTS"]
+            vec!["A: INSPIRO", "", "SOFTWARE", "DOCUMENTS", "SETTINGS"]
         );
 
         // Row 0 is Inspiro, the system: it refuses to go.
@@ -4697,7 +4850,14 @@ mod tests {
         assert_eq!(app.prefs.installed, vec!["softhand"]);
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "B: SOFTHAND", "", "SOFTWARE", "DOCUMENTS"]
+            vec![
+                "A: INSPIRO",
+                "B: SOFTHAND",
+                "",
+                "SOFTWARE",
+                "DOCUMENTS",
+                "SETTINGS"
+            ]
         );
 
         // And removing it takes the row away again.
@@ -4708,7 +4868,7 @@ mod tests {
         assert_eq!(app.prefs.installed.len(), 0);
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "", "SOFTWARE", "DOCUMENTS"]
+            vec!["A: INSPIRO", "", "SOFTWARE", "DOCUMENTS", "SETTINGS"]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4728,7 +4888,8 @@ mod tests {
                 "C: SOFTHAND",
                 "",
                 "SOFTWARE",
-                "DOCUMENTS"
+                "DOCUMENTS",
+                "SETTINGS"
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -4740,13 +4901,13 @@ mod tests {
         let mut app = app_in(&dir);
         let rows = app.software_rows();
         assert_eq!(rows[0].name, "INSPIRO");
-        assert_eq!(rows[0].state, ui::SoftwareState::System);
+        assert_eq!(rows[0].value, "system");
         let softhand = rows.iter().find(|row| row.name == "SOFTHAND").unwrap();
-        assert_eq!(softhand.state, ui::SoftwareState::Available);
+        assert_eq!(softhand.value, "install");
         app.prefs.installed.push("softhand".into());
         let rows = app.software_rows();
         let softhand = rows.iter().find(|row| row.name == "SOFTHAND").unwrap();
-        assert_eq!(softhand.state, ui::SoftwareState::Installed);
+        assert_eq!(softhand.value, "installed");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4760,7 +4921,11 @@ mod tests {
         app.boot_step(1);
         assert_eq!(app.boot_selected, 3, "onto DOCUMENTS");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 3, "the end is the end");
+        assert_eq!(app.boot_selected, 4, "onto SETTINGS");
+        app.boot_step(1);
+        assert_eq!(app.boot_selected, 4, "the end is the end");
+        app.boot_step(-1);
+        assert_eq!(app.boot_selected, 3);
         app.boot_step(-1);
         assert_eq!(app.boot_selected, 2);
         app.boot_step(-1);

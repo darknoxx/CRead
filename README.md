@@ -77,6 +77,7 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        ─────────────────────────────────────────
                        SOFTWARE       install and remove modules
                        DOCUMENTS      open a file from the vault
+                       SETTINGS       webdav, theme, font, screen
 ```
 
 The letters are the modules, handed out in the order you installed them: install
@@ -156,6 +157,28 @@ still save a modified document, so you cannot lose the last paragraph that way.
 usual `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work with the system clipboard. Marked text
 is drawn inverted, and typing or `Backspace` replaces it. The mouse does the
 obvious thing: click places the cursor, dragging marks, the wheel scrolls.
+
+## SETTINGS
+
+The last row of the boot screen is the machine's own control panel: the things
+that belong to the device and not to a document.
+
+```
+SETTINGS                                     the machine, not the document
+  ┌──────────────────────────────────────────────────────────┐
+  │ ► WEBDAV    sync the whole vault                    off    │
+  │   THEME     colour scheme                          paper   │
+  │   FONT      bitmap face                            classic │
+  │   SCREEN    window or whole screen                 window  │
+  │   INFO      version and credits                   0.14.0  │
+  │   SOFTWARE  install and remove modules                     │
+  └──────────────────────────────────────────────────────────┘
+```
+
+WebDAV syncs the *vault* — documents, pictures and ROMs — so it is set up here,
+next to the other switches that belong to the machine. `Enter` acts on the
+selected row: WebDAV opens the form, the rest cycle or open in place. `settings`
+reachable from any prompt opens the same screen.
 
 ## SOFTWARE
 
