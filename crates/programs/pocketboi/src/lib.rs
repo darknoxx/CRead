@@ -205,6 +205,41 @@ impl Drop for Machine {
 
 /// The order [`Shared::buttons`] uses. `JoypadButton` is not `Copy`, so the
 /// table is a function rather than a constant.
+/// Feed one stick reading into the button table.
+///
+/// gilrs reports the stick's vertical axis positive *upwards*, which is the
+/// opposite of the screen's y. Getting this wrong makes the pad fight the
+/// player: up becomes down.
+fn apply_axis(shared: &Shared, stick: &mut [i8; 4], axis: Axis, value: f32) {
+    const DEAD: f32 = 0.5;
+    let (slot, positive, negative) = match axis {
+        Axis::LeftStickX => (0, JoypadButton::Right, JoypadButton::Left),
+        Axis::LeftStickY => (1, JoypadButton::Up, JoypadButton::Down),
+        _ => return,
+    };
+    let lean = if value > DEAD {
+        1
+    } else if value < -DEAD {
+        -1
+    } else {
+        0
+    };
+    if lean == stick[slot] {
+        return;
+    }
+    stick[slot] = lean;
+    let Ok(mut buttons) = shared.buttons.lock() else {
+        return;
+    };
+    let mut set = |button: JoypadButton, down: bool| {
+        if let Some(index) = button_index(&button) {
+            buttons[index] = down;
+        }
+    };
+    set(positive, lean > 0);
+    set(negative, lean < 0);
+}
+
 fn button_at(index: usize) -> JoypadButton {
     match index {
         0 => JoypadButton::Up,
@@ -227,9 +262,9 @@ fn button_index(button: &JoypadButton) -> Option<usize> {
 /// already running at 60 Hz, so asking gilrs "anything new?" costs nothing.
 struct Pad {
     gilrs: Gilrs,
-    /// Which directions the left stick is holding down, so it only reports a
-    /// change when it crosses the dead zone.
-    stick: [bool; 4],
+    /// Which way the stick leans on each axis: -1, 0 or 1. A flag was not
+    /// enough — flicking from up to down kept "up" pressed.
+    stick: [i8; 4],
 }
 
 impl Pad {
@@ -237,7 +272,7 @@ impl Pad {
         let gilrs = Gilrs::new().ok()?;
         Some(Self {
             gilrs,
-            stick: [false; 4],
+            stick: [0; 4],
         })
     }
 
@@ -272,29 +307,7 @@ impl Pad {
     }
 
     fn axis(&mut self, shared: &Shared, axis: Axis, value: f32) {
-        const DEAD: f32 = 0.5;
-        let (slot, positive, negative) = match axis {
-            Axis::LeftStickX => (0, JoypadButton::Right, JoypadButton::Left),
-            Axis::LeftStickY => (1, JoypadButton::Down, JoypadButton::Up),
-            _ => return,
-        };
-        let held = value.abs() > DEAD;
-        if held != self.stick[slot] {
-            self.stick[slot] = held;
-            if let Ok(mut buttons) = shared.buttons.lock() {
-                let mut set = |button: JoypadButton, down: bool| {
-                    if let Some(index) = button_index(&button) {
-                        buttons[index] = down;
-                    }
-                };
-                if held {
-                    set(if value > 0.0 { positive } else { negative }, true);
-                } else {
-                    set(positive, false);
-                    set(negative, false);
-                }
-            }
-        }
+        apply_axis(shared, &mut self.stick, axis, value);
     }
 }
 
@@ -1023,6 +1036,41 @@ mod tests {
         resampler.feed(&[0.5], &mut out);
         assert_eq!(out.len(), 4);
         assert!((out[3] - 0.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_stick_points_where_the_thumb_goes() {
+        let shared = Shared {
+            frame: Mutex::new(Vec::new()),
+            buttons: Mutex::new([false; 8]),
+            muted: AtomicBool::new(false),
+            fault: Mutex::new(None),
+        };
+        let mut stick = [0i8; 4];
+        let held = |shared: &Shared, button: JoypadButton| {
+            let index = button_index(&button).unwrap();
+            shared.buttons.lock().unwrap()[index]
+        };
+
+        // Positive Y is up, as gilrs reports it.
+        apply_axis(&shared, &mut stick, Axis::LeftStickY, 1.0);
+        assert!(held(&shared, JoypadButton::Up), "stick up is up");
+        assert!(!held(&shared, JoypadButton::Down));
+
+        apply_axis(&shared, &mut stick, Axis::LeftStickY, -1.0);
+        assert!(held(&shared, JoypadButton::Down), "stick down is down");
+        assert!(!held(&shared, JoypadButton::Up));
+
+        // Back to the middle: nothing held.
+        apply_axis(&shared, &mut stick, Axis::LeftStickY, 0.0);
+        assert!(!held(&shared, JoypadButton::Up));
+        assert!(!held(&shared, JoypadButton::Down));
+
+        // Horizontal stays as it was: right is positive.
+        apply_axis(&shared, &mut stick, Axis::LeftStickX, 1.0);
+        assert!(held(&shared, JoypadButton::Right));
+        apply_axis(&shared, &mut stick, Axis::LeftStickX, -1.0);
+        assert!(held(&shared, JoypadButton::Left));
     }
 
     #[test]
