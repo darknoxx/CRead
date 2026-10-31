@@ -25,7 +25,8 @@ ultrawide.
 ## Build and run
 
 Requires Rust (2024 edition) and, on Linux, the usual Wayland/X11 development
-headers plus ALSA for the music player (`libasound2-dev` on Debian/Ubuntu).
+headers, ALSA for the music player (`libasound2-dev`) and udev for game pads
+(`libudev-dev`), all on Debian/Ubuntu.
 
 ```bash
 cargo build --release
@@ -278,7 +279,10 @@ sit where they sit on every keyboard layout — `Space` is A, `C` is B, `Enter` 
 the right `Ctrl` is Start, the left `Ctrl` is Select — so a German or French
 keyboard does not shuffle them. The picture is drawn in four greys by default;
 `P` cycles to the classic green and to amber. The first `exit` puts the cartridge
-back on the shelf, the second leaves the module. Sound comes from Mizu's APU on
+back on the shelf, the second leaves the module. A game pad works too — any
+controller the system knows about (a SNES-style one maps A to east, B to south,
+Start and Select to their names, and the left stick doubles the D-pad); when one
+is connected, the legend says so. The keyboard keeps working either way. Sound comes from Mizu's APU on
 the shell's own audio device — the sound server's PCM, so it follows whichever
 output the desktop is set to. The cartridge saves its battery RAM next to the ROM
 when you leave.

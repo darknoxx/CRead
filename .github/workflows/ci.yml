@@ -29,7 +29,7 @@ jobs:
             build-essential pkg-config \
             libxkbcommon-dev libxkbcommon-x11-dev \
             libwayland-dev wayland-protocols \
-            libasound2-dev \
+            libasound2-dev libudev-dev \
             libssl-dev
 
       - uses: dtolnay/rust-toolchain@stable

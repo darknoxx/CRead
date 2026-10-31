@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use cread_core::program::{KeyPress, Outcome, PointerEvent, Program};
 use cread_core::{Cell, Raster, Screen};
+use gilrs::{Axis, Button, EventType, Gilrs};
 use mizu_core::{GameBoy, JoypadButton};
 use rodio::buffer::SamplesBuffer;
 use rodio::queue::{SourcesQueueInput, queue};
@@ -51,6 +52,84 @@ struct Game {
     title: String,
     /// Set when the emulator gave up: the picture freezes, the shell lives.
     fault: Option<String>,
+}
+
+/// A game pad, polled once per frame. No thread: the emulation loop is
+/// already running at 60 Hz, so asking gilrs "anything new?" costs nothing.
+struct Pad {
+    gilrs: Gilrs,
+    /// Which directions the left stick is holding down, so it only reports a
+    /// change when it crosses the dead zone.
+    stick: [bool; 4],
+}
+
+impl Pad {
+    fn open() -> Option<Self> {
+        let gilrs = Gilrs::new().ok()?;
+        Some(Self {
+            gilrs,
+            stick: [false; 4],
+        })
+    }
+
+    /// Any pad plugged in right now.
+    fn connected(&self) -> bool {
+        self.gilrs.gamepads().next().is_some()
+    }
+
+    fn poll(&mut self, gb: &mut GameBoy) {
+        while let Some(event) = self.gilrs.next_event() {
+            match event.event {
+                EventType::ButtonPressed(button, _) => {
+                    if let Some(button) = pad_button(button) {
+                        gb.press_joypad(button);
+                    }
+                }
+                EventType::ButtonReleased(button, _) => {
+                    if let Some(button) = pad_button(button) {
+                        gb.release_joypad(button);
+                    }
+                }
+                EventType::AxisChanged(axis, value, _) => self.axis(gb, axis, value),
+                _ => {}
+            }
+        }
+    }
+
+    fn axis(&mut self, gb: &mut GameBoy, axis: Axis, value: f32) {
+        const DEAD: f32 = 0.5;
+        let (slot, positive, negative) = match axis {
+            Axis::LeftStickX => (0, JoypadButton::Right, JoypadButton::Left),
+            Axis::LeftStickY => (1, JoypadButton::Down, JoypadButton::Up),
+            _ => return,
+        };
+        let held = value.abs() > DEAD;
+        if held != self.stick[slot] {
+            self.stick[slot] = held;
+            if held {
+                gb.press_joypad(if value > 0.0 { positive } else { negative });
+            } else {
+                gb.release_joypad(positive);
+                gb.release_joypad(negative);
+            }
+        }
+    }
+}
+
+/// The pad's buttons, in the order a Super Nintendo has them: A is east, B is
+/// south.
+fn pad_button(button: Button) -> Option<JoypadButton> {
+    Some(match button {
+        Button::East => JoypadButton::A,
+        Button::South => JoypadButton::B,
+        Button::Start => JoypadButton::Start,
+        Button::Select => JoypadButton::Select,
+        Button::DPadUp => JoypadButton::Up,
+        Button::DPadDown => JoypadButton::Down,
+        Button::DPadLeft => JoypadButton::Left,
+        Button::DPadRight => JoypadButton::Right,
+        _ => return None,
+    })
 }
 
 /// The machine's speaker, in the shell's own audio device.
@@ -128,6 +207,8 @@ pub struct Pocketboi {
     game: Option<Game>,
     sound: Option<Sound>,
     sound_failed: bool,
+    pad: Option<Pad>,
+    pad_failed: bool,
     /// The shell's page and ink, so the module does not paint a black box of
     /// its own over a paper screen.
     paper: u8,
@@ -148,6 +229,8 @@ impl Pocketboi {
             game: None,
             sound: None,
             sound_failed: false,
+            pad: None,
+            pad_failed: false,
             paper: 0,
             ink: 15,
             palette: 0,
@@ -221,10 +304,17 @@ impl Pocketboi {
             self.sound = Sound::open();
             self.sound_failed = self.sound.is_none();
         }
+        if self.pad.is_none() && !self.pad_failed {
+            self.pad = Pad::open();
+            self.pad_failed = self.pad.is_none();
+        }
         {
             let Some(game) = self.game.as_mut() else {
                 return;
             };
+            if let Some(pad) = self.pad.as_mut() {
+                pad.poll(&mut game.gb);
+            }
             if game.fault.is_none() {
                 // A malformed cartridge must not take CRead down with it: the
                 // emulator is allowed exactly one panic, and it costs the game.
@@ -242,7 +332,8 @@ impl Pocketboi {
             }
             paint(&game.gb, raster, PALETTES[self.palette].1, self.ink);
         }
-        draw_legend(screen, self.ink);
+        let pad = self.pad.as_ref().is_some_and(Pad::connected);
+        draw_legend(screen, self.ink, pad);
     }
 
     fn status(&self) -> String {
@@ -440,11 +531,18 @@ impl Program for Pocketboi {
 ///
 /// The keys are chosen to sit in the same place on every layout: Space is a
 /// thumb, C is next to it, and the two Controls are the small buttons.
-fn draw_legend(screen: &mut Screen, ink: u8) {
+fn draw_legend(screen: &mut Screen, ink: u8, pad: bool) {
     let line = "arrows move    C B    Space A    Enter/R-Ctrl start    L-Ctrl select";
     let width = line.chars().count() as u32;
     let x = screen.cols().saturating_sub(width) / 2;
     screen.put_str(x, 22, line, ink, Cell::BG_TRANSPARENT);
+
+    if pad {
+        let line = "Gamepad recognized! Lean back and relax.";
+        let width = line.chars().count() as u32;
+        let x = screen.cols().saturating_sub(width) / 2;
+        screen.put_str(x, 23, line, ink, Cell::BG_TRANSPARENT);
+    }
 }
 
 fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
@@ -567,6 +665,24 @@ mod tests {
         assert!(is(KeyPress::Char('c'), JoypadButton::B));
         assert!(is(KeyPress::Char(' '), JoypadButton::A));
         assert!(button(KeyPress::Char('q')).is_none());
+    }
+
+    #[test]
+    fn a_pad_gets_a_line_of_its_own_under_the_keys() {
+        let mut screen = Screen::new(80, 25);
+        draw_legend(&mut screen, 0, true);
+        let text: Vec<String> = (22..24)
+            .map(|y| (0..80).map(|x| screen.get(x, y).unwrap().ch).collect())
+            .collect();
+        assert!(text[0].contains("Space A"), "{:?}", text[0]);
+        assert!(text[1].contains("Gamepad recognized!"), "{:?}", text[1]);
+
+        let mut screen = Screen::new(80, 25);
+        draw_legend(&mut screen, 0, false);
+        let text: Vec<String> = (22..24)
+            .map(|y| (0..80).map(|x| screen.get(x, y).unwrap().ch).collect())
+            .collect();
+        assert!(!text[1].contains("Gamepad"), "no pad, no line");
     }
 
     #[test]

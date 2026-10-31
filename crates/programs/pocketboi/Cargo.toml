@@ -6,4 +6,5 @@ edition.workspace = true
 [dependencies]
 cread-core.workspace = true
 mizu-core = "1.3.0"
+gilrs = "0.11"
 rodio = "0.21"
