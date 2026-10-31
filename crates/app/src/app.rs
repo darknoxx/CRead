@@ -50,10 +50,39 @@ const BOOT_SECONDS: f32 = 2.0;
 /// What the bar says while the "system" starts.
 const BOOT_LABEL: &str = "Starting CRead OS...";
 
-/// Bar fill at `seconds` in, 0 to 1. The bar is full a little before the wait
-/// ends, so it never stops short of the right edge.
+/// (fraction of the wait, fraction of the bar) — a drive seeking: it moves in
+/// jumps and then sits still for a moment before the next one.
+const BOOT_CURVE: &[(f32, f32)] = &[
+    (0.00, 0.00),
+    (0.05, 0.03),
+    (0.11, 0.03),
+    (0.15, 0.12),
+    (0.29, 0.12),
+    (0.33, 0.20),
+    (0.45, 0.21),
+    (0.49, 0.38),
+    (0.58, 0.38),
+    (0.62, 0.55),
+    (0.71, 0.56),
+    (0.75, 0.72),
+    (0.84, 0.72),
+    (0.88, 0.89),
+    (0.92, 1.00),
+];
+
+/// Bar fill at `seconds` in, 0 to 1.
+///
+/// Deliberately not a smooth ease: a real drive fills a bar in jumps with
+/// pauses between them. Full a little before the wait ends, so it never stops
+/// short of the right edge.
 fn boot_progress(seconds: f32) -> f32 {
-    (seconds / (BOOT_SECONDS * 0.8)).powf(0.8).clamp(0.0, 1.0)
+    let at = (seconds / BOOT_SECONDS).clamp(0.0, 1.0);
+    BOOT_CURVE
+        .iter()
+        .rev()
+        .find(|(from, _)| at >= *from)
+        .map(|(_, level)| *level)
+        .unwrap_or(0.0)
 }
 
 pub fn run(opts: Options) -> Result<(), String> {
@@ -841,7 +870,8 @@ impl App {
         self.softhand_at = None;
         if let Some(started) = self.boot_at {
             let progress = boot_progress(started.elapsed().as_secs_f32());
-            ui::draw_loading(&mut screen, &self.theme, BOOT_LABEL, progress);
+            let blink = ((started.elapsed().as_secs_f32() * 2.5) as u32).is_multiple_of(2);
+            ui::draw_loading(&mut screen, &self.theme, BOOT_LABEL, progress, blink);
             self.screen = screen;
             return;
         }
@@ -864,7 +894,8 @@ impl App {
                 Some(Pending::NewDocument) => "New document...".to_string(),
                 None => "Loading...".to_string(),
             };
-            ui::draw_loading(&mut screen, &self.theme, &label, progress);
+            let blink = ((elapsed * 2.5) as u32).is_multiple_of(2);
+            ui::draw_loading(&mut screen, &self.theme, &label, progress, blink);
             self.screen = screen;
             return;
         }
@@ -3799,20 +3830,33 @@ mod tests {
     }
 
     #[test]
-    fn the_launch_bar_fills_before_the_wait_ends() {
+    fn the_launch_bar_is_lumpy_but_never_goes_back() {
         assert_eq!(boot_progress(0.0), 0.0);
-        assert!(boot_progress(0.5) > 0.0 && boot_progress(0.5) < 1.0);
         assert_eq!(
-            boot_progress(BOOT_SECONDS * 0.8),
+            boot_progress(BOOT_SECONDS * 0.92),
             1.0,
-            "full a fifth before the end"
+            "full before the end"
         );
         assert_eq!(boot_progress(BOOT_SECONDS * 1.5), 1.0, "and stays full");
-        // Monotonic, so the bar never jumps back.
+
+        // It holds still at times: that pause is the whole point.
+        assert_eq!(
+            boot_progress(BOOT_SECONDS * 0.18),
+            boot_progress(BOOT_SECONDS * 0.28),
+            "a seek pause"
+        );
+        // Then jumps to the next step in one frame.
+        assert!(
+            boot_progress(BOOT_SECONDS * 0.34) > boot_progress(BOOT_SECONDS * 0.32),
+            "the bar moves in jumps"
+        );
+
+        // Monotonic, and never past 1.
         let mut last = 0.0;
-        for step in 0..=20 {
-            let value = boot_progress(step as f32 * 0.1);
-            assert!(value >= last);
+        for step in 0..=400 {
+            let value = boot_progress(step as f32 * BOOT_SECONDS / 400.0);
+            assert!(value >= last, "went backwards at {step}");
+            assert!((0.0..=1.0).contains(&value));
             last = value;
         }
     }

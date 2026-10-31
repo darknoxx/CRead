@@ -4,7 +4,9 @@
 
 - **The launch is a small boot.** A `Starting CRead OS...` bar runs for two
   seconds, the speaker beeps, and only then is the boot screen drawn — nothing of
-  it appears before the bar is full. Any key skips the wait.
+  it appears before the bar is full. The bar does not fill smoothly: it jumps and
+  pauses like a drive seeking, with a blinking block beside the percentage. Any
+  key skips the wait.
 
 ## 0.8.0
 

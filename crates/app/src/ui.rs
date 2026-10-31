@@ -361,7 +361,7 @@ pub fn draw_program_line(
 // ── loading ─────────────────────────────────────────────────────────────────
 
 /// The fake loading bar: a boxed meter, because an OS loads things.
-pub fn draw_loading(screen: &mut Screen, theme: &Theme, label: &str, progress: f32) {
+pub fn draw_loading(screen: &mut Screen, theme: &Theme, label: &str, progress: f32, blink: bool) {
     let cols = screen.cols();
     let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
@@ -421,6 +421,13 @@ pub fn draw_loading(screen: &mut Screen, theme: &Theme, label: &str, progress: f
         &percent,
         theme.fg,
         theme.bg,
+    );
+
+    // The drive light, in text: a block that comes and goes while it thinks.
+    screen.put(
+        x0 + width.saturating_sub(2),
+        y0 + 3,
+        Cell::new(if blink { '\u{2588}' } else { ' ' }, theme.accent, theme.bg),
     );
 
     put_centered(

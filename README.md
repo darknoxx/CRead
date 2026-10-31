@@ -56,9 +56,10 @@ cread
 
 ## Two modes
 
-On launch a bar runs for two seconds (`Starting CRead OS...`), the PC speaker
-beeps once, and only then does the boot screen appear — nothing of it is drawn
-before the bar is full. Any key skips the wait. `beep off` silences the beep;
+On launch a bar runs for two seconds (`Starting CRead OS...`), in the uneven
+jumps of a drive seeking rather than a smooth fill, the PC speaker beeps once,
+and only then does the boot screen appear — nothing of it is drawn before the bar
+is full. Any key skips the wait. `beep off` silences the beep;
 `--boot` replays the bar (handy with `--screenshot`).
 
 Then you get the boot screen: the logo, a greeting and a short drive list.
