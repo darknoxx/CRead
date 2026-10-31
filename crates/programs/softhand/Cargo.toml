@@ -1,0 +1,7 @@
+[package]
+name = "cread-softhand"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cread-core.workspace = true

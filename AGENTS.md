@@ -14,7 +14,7 @@ Rust, edition 2024, no async in the UI thread, no web view.
 
 ```bash
 cargo build                     # debug build, optimised deps (see Cargo.toml)
-cargo test                      # 110 tests, under a second
+cargo test                      # 160 tests, under a second
 cargo fmt --all                 # CI enforces --check
 cargo clippy --all-targets      # CI enforces -D warnings
 cargo run -p cread -- --demo -w # run without taking over the screen
@@ -42,6 +42,7 @@ command state.
 | `crates/render` | bitmap font, CPU compositor, wgpu pipeline, CRT shader | owns everything that touches the GPU |
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never on the UI thread |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition | glue; keep logic out of it when it can live in core |
+| `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
 
 ## Invariants
 
@@ -77,6 +78,17 @@ would be painted over. Overlays therefore hide the splash.
 **Bitmaps only.** The font is 1-bit; styles are synthesised (bold = right shift
 or, italic = row shear). No anti-aliasing, no sub-pixel positioning, no TTF
 rasterising. Two faces ship: `Face::Classic` (VGA) and `Face::Thin` (ISO 9241).
+
+**Programs are compiled in; the diskette is the mount.** A module is a crate in
+`crates/programs` plus a row in the registry in `app.rs`. A `.dsk` whose header
+says `program=<id>` puts that row on the boot screen under its own letter and
+nothing more: there is no runtime, no loading of code, and `Disks` is a mount
+point, not a plugin directory.
+
+**Two surfaces, one raster.** A program draws pixels into `Raster` (16 fixed
+colours, 640x368) and text into the `Screen` on top; cells can be transparent so
+menus sit over a picture. The framebuffer only ever sees one composited image,
+so the CRT pass stays the same for text and pictures.
 
 **The clipboard handle must outlive the copy.** On Wayland the data is served by
 the owning process; `arboard::Clipboard` is kept in `App` for exactly that

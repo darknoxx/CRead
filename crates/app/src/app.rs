@@ -5,15 +5,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cread_core::{
-    Editor, Position, Prefs, ScaleMode, Screen, Stats, Theme, Viewport,
+    Editor, KeyPress, Position, Prefs, Raster, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
     disk::Disk,
+    picture,
+    program::{Outcome, PointerEvent, PointerKind, Program},
     resolution::target_line_px_for_scale_factor,
     storage,
 };
 use cread_render::{
     CrtSettings, Face, Font, FrameStatus, Framebuffer, Renderer, Splash, SplashStyle, raster,
 };
+use cread_softhand::{CANVAS_W, SURFACE_H as SOFTHAND_H, Softhand};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -76,6 +79,7 @@ impl Document {
 #[derive(Clone)]
 enum Action {
     Open(PathBuf),
+    OpenPicture(PathBuf),
     NewFile,
     SyncNow,
 }
@@ -100,6 +104,8 @@ struct Palette {
     selected: usize,
     title: String,
     mode: PaletteMode,
+    /// Pictures cannot be renamed or deleted from here, so the hint differs.
+    pictures: bool,
 }
 
 impl Palette {
@@ -111,6 +117,7 @@ impl Palette {
             selected: 0,
             title: "OPEN".into(),
             mode: PaletteMode::Browse,
+            pictures: false,
         }
     }
 
@@ -159,17 +166,22 @@ struct DiskEntry {
 }
 
 /// Which home screen the shell is showing when nothing is open.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Home {
     /// The boot screen: drives and diskettes.
     Boot,
     /// Inspiro's own front door: logo, tagline, new/open.
     Inspiro,
+    /// Softhand's front door: same shape, its own logo and tagline.
+    SoftHand,
 }
 
 /// What happens when the loading bar finishes.
 enum Pending {
     Inspiro,
+    SoftHand,
+    NewPicture,
+    Picture(PathBuf),
     Document(PathBuf),
     NewDocument,
 }
@@ -182,7 +194,7 @@ enum BootItem {
     Disk(usize),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     /// Typing into the document.
     Write,
@@ -202,6 +214,18 @@ enum Mode {
     Settings,
     /// Full-screen help or about.
     Help,
+    /// A program owns the screen.
+    Program,
+}
+
+/// The programs compiled into this build. A diskette whose header says
+/// `program=<id>` mounts one on the boot screen; the code itself is not on the
+/// disk, the disk is what puts the drive there.
+fn program_by_id(id: &str) -> Option<(&'static str, &'static str)> {
+    match id {
+        "softhand" => Some(("SOFTHAND", "16 colors, endless possibilities.")),
+        _ => None,
+    }
 }
 
 struct App {
@@ -267,6 +291,17 @@ struct App {
     pending: Option<Pending>,
     loading_started: Instant,
     inspiro_logo: Option<Splash>,
+    softhand_logo: Option<Splash>,
+    /// Where the Softhand logo sits this frame.
+    softhand_at: Option<(i32, i32, u32)>,
+    /// The running program, if any.
+    program: Option<Box<dyn Program>>,
+    /// Pixel layer handed to programs.
+    raster: Raster,
+    /// File the current picture came from or was last saved to.
+    picture_path: Option<PathBuf>,
+    /// The program's command line is open (Esc between drawing and typing).
+    program_prompt: bool,
     mode: Mode,
     palette: Palette,
     form: FormState,
@@ -447,6 +482,14 @@ impl App {
             inspiro_logo: Splash::from_png(include_bytes!("../../../assets/inspiro.png"))
                 .map_err(|e| eprintln!("cread: inspiro logo: {e}"))
                 .ok(),
+            softhand_logo: Splash::from_png(include_bytes!("../../../assets/softhand.png"))
+                .map_err(|e| eprintln!("cread: softhand logo: {e}"))
+                .ok(),
+            softhand_at: None,
+            program: None,
+            raster: Raster::new(CANVAS_W, SOFTHAND_H),
+            picture_path: None,
+            program_prompt: false,
             mode: if has_document {
                 Mode::Write
             } else {
@@ -603,7 +646,12 @@ impl App {
                 self.fb.resize(vp.virt_w, vp.virt_h);
             }
             self.compose();
-            self.fb.draw_screen(&self.screen, &self.theme, &self.font);
+            if self.program.is_some() {
+                self.fb
+                    .draw_program(&self.screen, &self.raster, &self.theme, &self.font);
+            } else {
+                self.fb.draw_screen(&self.screen, &self.theme, &self.font);
+            }
             if let (Some(splash), Some((x, y, divisor))) = (self.splash.as_ref(), self.splash_at) {
                 // The artwork is black on transparency, so the shape comes from
                 // the alpha channel and the ink follows the theme: dark on
@@ -613,6 +661,12 @@ impl App {
             }
             if let (Some(logo), Some((x, y, divisor))) =
                 (self.inspiro_logo.as_ref(), self.inspiro_at)
+            {
+                let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
+                self.fb.draw_splash(logo, x, y, divisor, &style);
+            }
+            if let (Some(logo), Some((x, y, divisor))) =
+                (self.softhand_logo.as_ref(), self.softhand_at)
             {
                 let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
                 self.fb.draw_splash(logo, x, y, divisor, &style);
@@ -694,6 +748,7 @@ impl App {
         // palette or the boot screen.
         self.splash_at = None;
         self.inspiro_at = None;
+        self.softhand_at = None;
         if self.mode == Mode::Loading {
             let elapsed = self.loading_started.elapsed().as_secs_f32();
             // The meter is full before the wait ends, so the last thing you see
@@ -703,6 +758,9 @@ impl App {
                 .clamp(0.0, 1.0);
             let label = match &self.pending {
                 Some(Pending::Inspiro) => "Loading INSPIRO...",
+                Some(Pending::SoftHand) => "Loading SOFTHAND...",
+                Some(Pending::NewPicture) => "New picture...",
+                Some(Pending::Picture(_)) => "Loading picture...",
                 Some(Pending::Document(_)) => "Loading document...",
                 Some(Pending::NewDocument) => "New document...",
                 None => "Loading...",
@@ -743,10 +801,12 @@ impl App {
         let hint = if !question.is_empty() {
             String::new()
         } else if self.command.is_empty() {
-            if self.has_document {
+            if self.program.is_some() {
+                "save   open   undo   exit".to_string()
+            } else if self.has_document {
                 // Left empty on purpose: the prompt then shows how to leave.
                 String::new()
-            } else if self.home == Home::Inspiro {
+            } else if matches!(self.home, Home::SoftHand | Home::Inspiro) {
                 "new   open   help for commands".to_string()
             } else {
                 "↑↓ select   Enter run   help for commands".to_string()
@@ -762,7 +822,35 @@ impl App {
             question
         };
 
-        if self.mode == Mode::View {
+        if self.program.is_some() {
+            let mut raster = std::mem::replace(&mut self.raster, Raster::new(1, 1));
+            if let Some(program) = self.program.as_mut() {
+                program.draw(&mut screen, &mut raster);
+            }
+            self.raster = raster;
+
+            let title = self
+                .program
+                .as_ref()
+                .map(|p| p.title().to_string())
+                .unwrap_or_default();
+            let state = self
+                .program
+                .as_ref()
+                .map(|p| p.status())
+                .unwrap_or_default();
+            let status = if state.is_empty() {
+                "Esc commands".to_string()
+            } else {
+                format!("{state}    Esc commands")
+            };
+            let prompt = self.program_prompt.then_some((
+                self.command.as_str(),
+                hint.as_str(),
+                error.as_str(),
+            ));
+            ui::draw_program_line(&mut screen, &self.theme, &title, &status, prompt);
+        } else if self.mode == Mode::View {
             let (width, _) = ui::layout(cols);
             if width != self.view_width {
                 self.view_rows = cread_core::markdown::render(self.doc.editor.lines(), width);
@@ -803,54 +891,46 @@ impl App {
             // raster genuinely cannot hold it.
             let max_w = cols * cread_core::FONT_W;
             let max_h = rows.saturating_sub(8) * cread_core::FONT_H;
-            let mut divisor = 1;
-            while let Some(splash) = &self.splash {
-                if splash.width() / divisor <= max_w && splash.height() / divisor <= max_h {
-                    break;
-                }
-                divisor += 1;
-                if divisor > 8 {
-                    break;
-                }
-            }
-            let fits = self
-                .splash
-                .as_ref()
-                .is_some_and(|s| s.width() / divisor <= max_w && s.height() / divisor <= max_h);
-
             // An overlay (palette, settings) covers the front door's logo the
             // same way it covers the boot screen's.
             let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
             if self.home == Home::Inspiro {
-                let img_rows = match (
-                    &self.inspiro_logo,
-                    fit_logo(&self.inspiro_logo, max_w, max_h),
-                ) {
-                    (Some(_), Some((rows_img, divisor))) => {
-                        let block = rows_img + 1 + 3;
-                        let top = rows.saturating_sub(block) / 2;
-                        let width = (self.inspiro_logo.as_ref().unwrap().width() / divisor) as i32;
-                        self.inspiro_at = (!overlay_open).then(|| {
-                            (
-                                (cols * cread_core::FONT_W) as i32 / 2 - width / 2,
-                                (top * cread_core::FONT_H) as i32,
-                                divisor,
-                            )
-                        });
-                        rows_img
-                    }
-                    _ => {
-                        self.inspiro_at = None;
-                        0
-                    }
-                };
-                let block = img_rows + 1 + 3;
-                let top = rows.saturating_sub(block) / 2;
-                let title_row = top + img_rows + u32::from(img_rows > 0);
+                let title_row =
+                    match front_door_layout(&self.inspiro_logo, max_w, max_h, cols, rows) {
+                        Some((x, y, divisor, img_rows)) => {
+                            self.inspiro_at = (!overlay_open).then_some((x, y, divisor));
+                            rows.saturating_sub(img_rows + 1 + 3) / 2 + img_rows + 1
+                        }
+                        None => {
+                            self.inspiro_at = None;
+                            rows.saturating_sub(3) / 2
+                        }
+                    };
                 ui::draw_inspiro(
                     &mut screen,
                     &self.theme,
                     title_row,
+                    &self.command,
+                    &hint,
+                    &error,
+                );
+            } else if self.home == Home::SoftHand {
+                let title_row =
+                    match front_door_layout(&self.softhand_logo, max_w, max_h, cols, rows) {
+                        Some((x, y, divisor, img_rows)) => {
+                            self.softhand_at = (!overlay_open).then_some((x, y, divisor));
+                            rows.saturating_sub(img_rows + 1 + 3) / 2 + img_rows + 1
+                        }
+                        None => {
+                            self.softhand_at = None;
+                            rows.saturating_sub(3) / 2
+                        }
+                    };
+                ui::draw_front_door(
+                    &mut screen,
+                    &self.theme,
+                    title_row,
+                    "16 colors, endless possibilities.",
                     &self.command,
                     &hint,
                     &error,
@@ -865,13 +945,16 @@ impl App {
 
                 // The whole group - logo, greeting, drives - is centred vertically,
                 // like the old welcome screen was; pinning the logo to the top made
-                // it look like a different screen.
-                let img_rows = match (&self.splash, fits) {
-                    (Some(splash), true) => {
-                        (splash.height() / divisor).div_ceil(cread_core::FONT_H)
-                    }
-                    _ => 0,
-                };
+                // it look like a different screen. A long drive list shrinks the
+                // logo by a whole step rather than losing rows off the bottom.
+                let (divisor, img_rows) = boot_logo(
+                    &self.splash,
+                    max_w,
+                    max_h,
+                    rows,
+                    items.len() as u32,
+                    !note.is_empty(),
+                );
                 let gap = u32::from(img_rows > 0);
                 let block =
                     img_rows + gap + 1 + 1 + items.len() as u32 + u32::from(!note.is_empty());
@@ -1013,6 +1096,9 @@ impl App {
                 let items = self.palette.items();
                 let question;
                 let (prompt, input, hint) = match &self.palette.mode {
+                    PaletteMode::Browse if self.palette.pictures => {
+                        (">", self.palette.input.as_str(), "Enter open   Esc back")
+                    }
                     PaletteMode::Browse => (
                         ">",
                         self.palette.input.as_str(),
@@ -1431,6 +1517,7 @@ impl App {
         };
         match action {
             Action::Open(path) => self.start_loading(Pending::Document(path)),
+            Action::OpenPicture(path) => self.start_loading(Pending::Picture(path)),
             Action::NewFile => self.start_loading(Pending::NewDocument),
             Action::SyncNow => {
                 if self.sync_cfg.enabled && self.sync.is_some() {
@@ -1460,6 +1547,7 @@ impl App {
             Mode::View => self.on_key_view(event),
             Mode::DiskBrowser => self.on_key_disk_browser(event),
             Mode::Loading => self.finish_loading(),
+            Mode::Program => self.on_key_program(el, event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -1629,7 +1717,7 @@ impl App {
                 if !self.command.is_empty() {
                     self.command.clear();
                     self.command_error.clear();
-                } else if !self.has_document && self.home == Home::Inspiro {
+                } else if !self.has_document && self.home != Home::Boot {
                     self.home = Home::Boot;
                     self.disks_dirty = true;
                 } else if self.has_document {
@@ -1685,6 +1773,101 @@ impl App {
         }
     }
 
+    /// A program's own keys: Esc opens the command line, everything else is
+    /// the program's gesture.
+    fn on_key_program(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
+        if self.program_prompt {
+            // An empty Esc closes the prompt; otherwise this is the ordinary
+            // command line, history and completion included.
+            if matches!(&event.logical_key, Key::Named(NamedKey::Escape)) && self.command.is_empty()
+            {
+                self.program_prompt = false;
+                self.poke();
+                return;
+            }
+            self.on_key_action(el, event);
+            return;
+        }
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.program_prompt = true;
+                self.command.clear();
+                self.command_error.clear();
+                self.poke();
+            }
+            _ => {
+                let Some(key) = self.program_key(&event) else {
+                    return;
+                };
+                let mut done = false;
+                if let Some(program) = self.program.as_mut() {
+                    done = program.key(key) == Outcome::Exit;
+                }
+                if done {
+                    self.leave_to_boot();
+                }
+                self.poke();
+            }
+        }
+    }
+
+    /// Translate a winit key into the program's vocabulary.
+    fn program_key(&self, event: &KeyEvent) -> Option<KeyPress> {
+        let ctrl = self.mods.control_key() || self.mods.super_key();
+        Some(match &event.logical_key {
+            Key::Character(text) => {
+                let ch = text.chars().next()?;
+                if ctrl {
+                    KeyPress::Ctrl(ch.to_ascii_lowercase())
+                } else {
+                    KeyPress::Char(ch)
+                }
+            }
+            Key::Named(NamedKey::Enter) => KeyPress::Enter,
+            Key::Named(NamedKey::Backspace) => KeyPress::Backspace,
+            Key::Named(NamedKey::Delete) => KeyPress::Delete,
+            Key::Named(NamedKey::Tab) => KeyPress::Tab,
+            Key::Named(NamedKey::ArrowLeft) => KeyPress::Left,
+            Key::Named(NamedKey::ArrowRight) => KeyPress::Right,
+            Key::Named(NamedKey::ArrowUp) => KeyPress::Up,
+            Key::Named(NamedKey::ArrowDown) => KeyPress::Down,
+            Key::Named(NamedKey::Home) => KeyPress::Home,
+            Key::Named(NamedKey::End) => KeyPress::End,
+            Key::Named(NamedKey::PageUp) => KeyPress::PageUp,
+            Key::Named(NamedKey::PageDown) => KeyPress::PageDown,
+            _ => return None,
+        })
+    }
+
+    /// Pointer position in emulated raster pixels.
+    fn raster_point(&self) -> (i32, i32) {
+        match self.vp.as_ref() {
+            Some(vp) => {
+                let scale = vp.scale.max(1) as f64;
+                (
+                    ((self.pointer.0 - vp.offset_x as f64) / scale) as i32,
+                    ((self.pointer.1 - vp.offset_y as f64) / scale) as i32,
+                )
+            }
+            None => (self.pointer.0 as i32, self.pointer.1 as i32),
+        }
+    }
+
+    /// Hand a pointer event to the running program, if it should get one.
+    fn program_pointer(&mut self, kind: PointerKind) -> bool {
+        if self.mode != Mode::Program || self.program_prompt {
+            return false;
+        }
+        let (x, y) = self.raster_point();
+        if let Some(program) = self.program.as_mut() {
+            if program.pointer(PointerEvent { x, y, kind }) == Outcome::Exit {
+                self.leave_to_boot();
+            }
+            self.poke();
+        }
+        true
+    }
+
     fn submit_command(&mut self, el: &ActiveEventLoop) {
         let line = self.command.trim().to_string();
         let command = match command::parse(&line) {
@@ -1723,6 +1906,11 @@ impl App {
                 if self.mode == Mode::Action && self.confirm.is_none() {
                     self.to_write();
                 }
+                // A program's prompt closes again after a command, so you are
+                // back to drawing without another keypress.
+                if self.mode == Mode::Program {
+                    self.program_prompt = false;
+                }
             }
             Err(e) => {
                 // Keep the typed line so it can be corrected.
@@ -1734,13 +1922,37 @@ impl App {
 
     fn run_command(&mut self, el: &ActiveEventLoop, command: Command) -> Result<String, String> {
         match command {
-            Command::Save => self.save(),
-            Command::SaveAs(name) => self.save_as(&name),
+            Command::Save => {
+                if self.in_softhand() {
+                    self.save_picture(None)
+                } else {
+                    self.save()
+                }
+            }
+            Command::SaveAs(name) => {
+                if self.in_softhand() {
+                    self.save_picture(Some(&name))
+                } else {
+                    self.save_as(&name)
+                }
+            }
             Command::Open(None) => {
-                self.open_palette();
+                if self.in_softhand() {
+                    self.open_pictures();
+                } else {
+                    self.open_palette();
+                }
                 Ok(String::new())
             }
             Command::Open(Some(name)) => {
+                if self.in_softhand() {
+                    let path = picture::resolve(&self.vault(), &name);
+                    if !path.is_file() {
+                        return Err(format!("no such picture: {name}"));
+                    }
+                    self.start_loading(Pending::Picture(path));
+                    return Ok(String::new());
+                }
                 let path = self
                     .find_document(&name)
                     .ok_or_else(|| format!("no such document: {name}"))?;
@@ -1748,7 +1960,11 @@ impl App {
                 Ok(String::new())
             }
             Command::New => {
-                self.start_loading(Pending::NewDocument);
+                if self.in_softhand() {
+                    self.start_loading(Pending::NewPicture);
+                } else {
+                    self.start_loading(Pending::NewDocument);
+                }
                 Ok(String::new())
             }
             Command::Rename(name) => self.rename_current(&name),
@@ -1844,7 +2060,11 @@ impl App {
                 Ok(if on { "fullscreen" } else { "windowed" }.to_string())
             }
             Command::Undo => {
-                if self.doc.editor.undo() {
+                let done = match self.program.as_mut() {
+                    Some(program) => program.undo(),
+                    None => self.doc.editor.undo(),
+                };
+                if done {
                     self.dirty = true;
                     Ok("undone".into())
                 } else {
@@ -1852,7 +2072,11 @@ impl App {
                 }
             }
             Command::Redo => {
-                if self.doc.editor.redo() {
+                let done = match self.program.as_mut() {
+                    Some(program) => program.redo(),
+                    None => self.doc.editor.redo(),
+                };
+                if done {
                     self.dirty = true;
                     Ok("redone".into())
                 } else {
@@ -1893,24 +2117,11 @@ impl App {
                     format!("{} disk(s): {}", names.len(), names.join(", "))
                 })
             }
-            Command::Welcome => {
-                self.disks_dirty = true;
+            Command::Exit => {
                 if self.has_document && self.doc.editor.modified() {
                     self.save()?;
                 }
-                self.doc = Document {
-                    path: None,
-                    read_only: false,
-                    title_hint: None,
-                    editor: Editor::new(),
-                    last_edit: Instant::now(),
-                };
-                self.discard_scratch();
-                self.has_document = false;
-                self.home = Home::Boot;
-                self.disks_dirty = true;
-                self.mode = Mode::Action;
-                self.dirty = true;
+                self.leave_to_boot();
                 Ok(String::new())
             }
             Command::Settings => {
@@ -1929,9 +2140,14 @@ impl App {
                 self.dirty = true;
                 Ok(String::new())
             }
-            Command::Quit => {
+            Command::ExitForce => {
                 if self.has_document {
                     self.save()?;
+                }
+                // A picture that was never saved keeps no file behind: quitting
+                // must not silently create one.
+                if self.program.is_some() && self.picture_path.is_some() {
+                    let _ = self.save_picture(None);
                 }
                 el.exit();
                 Ok(String::new())
@@ -1951,6 +2167,16 @@ impl App {
 
     #[allow(clippy::wrong_self_convention)]
     fn to_write(&mut self) {
+        if self.program.is_some() {
+            self.mode = Mode::Program;
+            self.program_prompt = false;
+            self.command.clear();
+            self.command_error.clear();
+            self.history_pos = None;
+            self.confirm = None;
+            self.dirty = true;
+            return;
+        }
         if self.doc.read_only {
             self.doc = Document {
                 path: None,
@@ -2230,6 +2456,22 @@ impl App {
                 self.mode = Mode::Action;
                 self.command.clear();
             }
+            Pending::SoftHand => {
+                self.home = Home::SoftHand;
+                self.mode = Mode::Action;
+                self.command.clear();
+            }
+            Pending::NewPicture => {
+                self.new_picture();
+            }
+            Pending::Picture(path) => match self.open_picture(path) {
+                Ok(()) => {}
+                Err(e) => {
+                    self.set_status(e);
+                    self.home = Home::SoftHand;
+                    self.mode = Mode::Action;
+                }
+            },
             Pending::Document(path) => match self.open_document(path) {
                 Ok(()) => self.mode = Mode::Write,
                 Err(e) => {
@@ -2251,6 +2493,115 @@ impl App {
             },
         }
         self.dirty = true;
+    }
+
+    // ── programs ────────────────────────────────────────────────────────────
+
+    /// Drop everything and stand on the boot screen again.
+    fn leave_to_boot(&mut self) {
+        self.program = None;
+        self.picture_path = None;
+        self.program_prompt = false;
+        self.discard_scratch();
+        self.doc = Document {
+            path: None,
+            read_only: false,
+            title_hint: None,
+            editor: Editor::new(),
+            last_edit: Instant::now(),
+        };
+        self.has_document = false;
+        self.home = Home::Boot;
+        self.disks_dirty = true;
+        self.mode = Mode::Action;
+        self.command.clear();
+        self.command_error.clear();
+        self.dirty = true;
+    }
+
+    /// A fresh canvas on an empty sheet.
+    fn new_picture(&mut self) {
+        self.program = Some(Box::new(Softhand::new()));
+        self.picture_path = None;
+        self.program_prompt = false;
+        self.mode = Mode::Program;
+        self.dirty = true;
+    }
+
+    fn open_picture(&mut self, path: PathBuf) -> Result<(), String> {
+        let image = picture::load(&path)?;
+        self.program = Some(Box::new(Softhand::with_picture(&image)));
+        self.picture_path = Some(path.clone());
+        self.program_prompt = false;
+        self.mode = Mode::Program;
+        self.dirty = true;
+        self.set_status(format!(
+            "opened {}",
+            path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        ));
+        Ok(())
+    }
+
+    /// Write the running program's picture. `None` keeps the current name, or
+    /// picks the next free one.
+    fn save_picture(&mut self, name: Option<&str>) -> Result<String, String> {
+        let vault = self.vault();
+        let path = match name {
+            Some(name) => picture::resolve(&vault, name),
+            None => match self.picture_path.clone() {
+                Some(path) => path,
+                None => picture::free_name(&vault),
+            },
+        };
+        let Some(program) = self.program.as_ref() else {
+            return Err("no picture open".into());
+        };
+        let Some(canvas) = program.picture() else {
+            return Err("this program has no picture".into());
+        };
+        picture::save(&path, canvas)?;
+        self.picture_path = Some(path.clone());
+        Ok(format!(
+            "saved {}",
+            path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        ))
+    }
+
+    /// The picture picker: same list as the document palette, other files.
+    fn open_pictures(&mut self) {
+        self.palette = Palette::empty();
+        self.palette.title = "PICTURES".into();
+        self.palette.pictures = true;
+        match picture::list(&self.vault()) {
+            Ok(files) => {
+                for path in files {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    self.palette.entries.push((name, Action::OpenPicture(path)));
+                }
+            }
+            Err(e) => self.set_status(format!("pictures: {e}")),
+        }
+        if self.palette.entries.is_empty() {
+            self.set_status(format!(
+                "no pictures in {}",
+                picture::dir(&self.vault()).display()
+            ));
+        }
+        self.palette.refilter();
+        self.mode = Mode::Palette;
+        self.dirty = true;
+    }
+
+    /// True while Softhand is the thing in front: its front door or its canvas.
+    fn in_softhand(&self) -> bool {
+        self.program.is_some() || (!self.has_document && self.home == Home::SoftHand)
     }
 
     // ── disks and the boot screen ───────────────────────────────────────────
@@ -2329,15 +2680,24 @@ impl App {
         for (i, entry) in self.disks.iter().enumerate() {
             let letter = letter(i + 2);
             match &entry.disk {
-                Some(disk) => rows.push(ui::BootItem {
-                    label: format!("{letter}: {}", disk.name),
-                    detail: if disk.about.is_empty() {
-                        format!("{} file(s)", disk.files.len())
-                    } else {
-                        disk.about.clone()
-                    },
-                    broken: false,
-                }),
+                Some(disk) => {
+                    let (label, detail) = match program_by_id(&disk.program) {
+                        Some((entry, tagline)) => (entry.to_string(), tagline.to_string()),
+                        None => (
+                            disk.name.clone(),
+                            if disk.about.is_empty() {
+                                format!("{} file(s)", disk.files.len())
+                            } else {
+                                disk.about.clone()
+                            },
+                        ),
+                    };
+                    rows.push(ui::BootItem {
+                        label: format!("{letter}: {label}"),
+                        detail,
+                        broken: false,
+                    })
+                }
                 None => rows.push(ui::BootItem {
                     label: format!("{letter}: {}", entry.stem.to_uppercase()),
                     detail: entry.error.clone().unwrap_or_default(),
@@ -2360,8 +2720,24 @@ impl App {
         match item {
             BootItem::Editor => self.start_loading(Pending::Inspiro),
             BootItem::Documents => self.open_palette(),
-            BootItem::Disk(index) => self.open_disk(index),
+            BootItem::Disk(index) => self.launch_disk(index),
         }
+    }
+
+    /// Enter on a diskette: a program disk runs the program, a data disk opens
+    /// the browser. Same letter, same row, different destination.
+    fn launch_disk(&mut self, index: usize) {
+        let program = self
+            .disks
+            .get(index)
+            .and_then(|entry| entry.disk.as_ref())
+            .map(|disk| disk.program.clone())
+            .unwrap_or_default();
+        if program_by_id(&program).is_some() {
+            self.start_loading(Pending::SoftHand);
+            return;
+        }
+        self.open_disk(index);
     }
 
     fn open_disk(&mut self, index: usize) {
@@ -2388,6 +2764,19 @@ impl App {
         }
         if matches!(wanted.as_str(), "documents" | "files" | "b") {
             self.open_palette();
+            return Ok(String::new());
+        }
+        if let Some((_, _)) = program_by_id(&wanted) {
+            let mounted = self.disks.iter().any(|entry| {
+                entry
+                    .disk
+                    .as_ref()
+                    .is_some_and(|disk| disk.program == wanted)
+            });
+            if !mounted {
+                return Err(format!("no diskette called {wanted} - put one in Disks"));
+            }
+            self.start_loading(Pending::SoftHand);
             return Ok(String::new());
         }
         let index = self
@@ -2915,6 +3304,24 @@ impl ApplicationHandler for App {
                 self.home = Home::Inspiro;
                 self.mode = Mode::Action;
             }
+            "softhand" => {
+                self.home = Home::SoftHand;
+                self.mode = Mode::Action;
+            }
+            "picture" => {
+                self.new_picture();
+                if !self.opts.command.is_empty() {
+                    self.command = self.opts.command.clone();
+                    self.program_prompt = true;
+                }
+            }
+            "pictures" => self.open_pictures(),
+            other if other.starts_with("picture:") => {
+                let path = PathBuf::from(&other["picture:".len()..]);
+                if let Err(e) = self.open_picture(path) {
+                    eprintln!("cread: {e}");
+                }
+            }
             "loading" => self.start_loading(Pending::Inspiro),
             "disk" => {
                 self.refresh_disks();
@@ -2960,19 +3367,41 @@ impl ApplicationHandler for App {
             WindowEvent::ScaleFactorChanged { .. } => self.recompute_viewport(),
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = (position.x, position.y);
-                self.on_mouse_drag();
+                if !self.program_pointer(PointerKind::Move) {
+                    self.on_mouse_drag();
+                }
             }
-            WindowEvent::MouseInput { state, button, .. } => match (button, state) {
-                (MouseButton::Left, ElementState::Pressed) => self.on_mouse_press(),
-                (MouseButton::Left, ElementState::Released) => self.on_mouse_release(),
-                _ => {}
-            },
+            WindowEvent::MouseInput { state, button, .. } => {
+                if self.program.is_some() {
+                    let code = match button {
+                        MouseButton::Left => Some(cread_core::program::BUTTON_LEFT),
+                        MouseButton::Right => Some(cread_core::program::BUTTON_RIGHT),
+                        MouseButton::Middle => Some(cread_core::program::BUTTON_MIDDLE),
+                        _ => None,
+                    };
+                    if let Some(code) = code {
+                        let kind = match state {
+                            ElementState::Pressed => PointerKind::Down(code),
+                            ElementState::Released => PointerKind::Up(code),
+                        };
+                        self.program_pointer(kind);
+                    }
+                } else {
+                    match (button, state) {
+                        (MouseButton::Left, ElementState::Pressed) => self.on_mouse_press(),
+                        (MouseButton::Left, ElementState::Released) => self.on_mouse_release(),
+                        _ => {}
+                    }
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => (y * 3.0).round() as isize,
                     MouseScrollDelta::PixelDelta(pos) => (pos.y / 16.0).round() as isize,
                 };
-                self.on_wheel(-lines);
+                if !self.program_pointer(PointerKind::Wheel(lines as i32)) {
+                    self.on_wheel(-lines);
+                }
             }
             WindowEvent::RedrawRequested => self.frame(el),
             WindowEvent::KeyboardInput { event, .. } => self.on_key(el, event),
@@ -3017,6 +3446,57 @@ fn fit_logo(logo: &Option<Splash>, max_w: u32, max_h: u32) -> Option<(u32, u32)>
         }
     }
     None
+}
+
+/// Where a front door's logo goes: (x, y, divisor, rows it occupies).
+fn front_door_layout(
+    logo: &Option<Splash>,
+    max_w: u32,
+    max_h: u32,
+    cols: u32,
+    rows: u32,
+) -> Option<(i32, i32, u32, u32)> {
+    let (img_rows, divisor) = fit_logo(logo, max_w, max_h)?;
+    let block = img_rows + 1 + 3;
+    let top = rows.saturating_sub(block) / 2;
+    let width = (logo.as_ref()?.width() / divisor) as i32;
+    Some((
+        (cols * cread_core::FONT_W) as i32 / 2 - width / 2,
+        (top * cread_core::FONT_H) as i32,
+        divisor,
+        img_rows,
+    ))
+}
+
+/// Logo divisor and row count for the boot screen, chosen so the whole group
+/// (logo, greeting, drives) still fits above the prompt.
+fn boot_logo(
+    splash: &Option<Splash>,
+    max_w: u32,
+    max_h: u32,
+    rows: u32,
+    items: u32,
+    note: bool,
+) -> (u32, u32) {
+    let Some(splash) = splash.as_ref() else {
+        return (1, 0);
+    };
+    for divisor in 1..=8u32 {
+        if splash.width() / divisor > max_w || splash.height() / divisor > max_h {
+            continue;
+        }
+        let img_rows = (splash.height() / divisor).div_ceil(cread_core::FONT_H);
+        let gap = u32::from(img_rows > 0);
+        let block = img_rows + gap + 1 + 1 + items + u32::from(note);
+        let top = rows.saturating_sub(block) / 2;
+        let last_row = top + img_rows + gap + 2 + items.saturating_sub(1) + u32::from(note);
+        // The list must end above the prompt line, which keeps three rows for
+        // itself and a little air.
+        if last_row < rows.saturating_sub(3) {
+            return (divisor, img_rows);
+        }
+    }
+    (1, 0)
 }
 
 fn report_word(report: &SyncReport) -> String {
@@ -3091,6 +3571,132 @@ mod tests {
         app.discard_scratch();
         assert!(path.is_file());
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_program_disk_is_a_boot_row_of_its_own() {
+        let dir = vault("program-disk");
+        std::fs::create_dir_all(dir.join("Disks")).unwrap();
+        std::fs::write(
+            dir.join("Disks/SOFTHAND.DSK"),
+            include_str!("../../../examples/disks/SOFTHAND.DSK"),
+        )
+        .unwrap();
+        let mut app = app_in(&dir);
+        app.refresh_disks();
+        let rows = app.boot_rows();
+        let row = rows
+            .iter()
+            .find(|row| row.label.contains("SOFTHAND"))
+            .expect("mounted on the boot screen");
+        assert!(
+            row.label.starts_with("C: "),
+            "the first disk is C:, got {}",
+            row.label
+        );
+        assert!(row.detail.contains("16 colors"));
+        assert!(!row.broken);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_disk_without_the_program_header_stays_a_data_disk() {
+        let dir = vault("data-disk");
+        std::fs::create_dir_all(dir.join("Disks")).unwrap();
+        std::fs::write(
+            dir.join("Disks/HELLO.DSK"),
+            "CRead Disk 1\nname=HELLO\n\n---FILE A.TXT\nhi\n",
+        )
+        .unwrap();
+        let mut app = app_in(&dir);
+        app.refresh_disks();
+        let rows = app.boot_rows();
+        let row = rows
+            .iter()
+            .find(|row| row.label.contains("HELLO"))
+            .expect("listed");
+        assert!(row.label.ends_with("HELLO"));
+        assert!(row.detail.contains("file"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn exit_leaves_a_program_and_the_boot_screen_is_next() {
+        let dir = vault("leave-program");
+        let mut app = app_in(&dir);
+        app.home = Home::SoftHand;
+        app.new_picture();
+        assert_eq!(app.mode, Mode::Program);
+        app.leave_to_boot();
+        assert!(app.program.is_none());
+        assert_eq!(app.mode, Mode::Action);
+        assert_eq!(app.home, Home::Boot);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_click_on_the_canvas_reaches_the_program() {
+        let dir = vault("pointer");
+        let mut app = app_in(&dir);
+        app.new_picture();
+        let vp = Viewport::compute(1280, 800, ScaleMode::DEFAULT).unwrap();
+        let scale = vp.scale as f64;
+        app.vp = Some(vp);
+        // A pointer position in real pixels lands on the raster pixel under it.
+        app.pointer = (320.0 * scale, 200.0 * scale);
+        assert_eq!(app.raster_point(), (320, 200));
+        assert!(app.program_pointer(PointerKind::Down(cread_core::program::BUTTON_LEFT)));
+        let canvas = app.program.as_ref().unwrap().picture().unwrap();
+        assert_eq!(canvas.get(320, 200), Some(0), "pencil writes the colour");
+        assert_eq!(canvas.get(10, 10), Some(cread_core::PAPER));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_pointer_is_ignored_while_the_prompt_is_open() {
+        let dir = vault("pointer-prompt");
+        let mut app = app_in(&dir);
+        app.new_picture();
+        app.program_prompt = true;
+        app.vp = Viewport::compute(1280, 800, ScaleMode::DEFAULT);
+        app.pointer = (200.0, 200.0);
+        assert!(!app.program_pointer(PointerKind::Down(cread_core::program::BUTTON_LEFT)));
+        let canvas = app.program.as_ref().unwrap().picture().unwrap();
+        assert_eq!(canvas.get(100, 100), Some(cread_core::PAPER));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saving_a_picture_writes_a_png_next_to_the_documents() {
+        let dir = vault("save-picture");
+        let mut app = app_in(&dir);
+        app.new_picture();
+        let message = app.save_picture(None).unwrap();
+        assert!(message.starts_with("saved picture"), "{message}");
+        let files = picture::list(&dir).unwrap();
+        assert_eq!(files.len(), 1);
+        let back = picture::load(&files[0]).unwrap();
+        assert_eq!(back.width(), CANVAS_W);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_picture_picker_lists_saved_pictures() {
+        let dir = vault("pictures");
+        let mut app = app_in(&dir);
+        app.home = Home::SoftHand;
+        app.open_pictures();
+        assert_eq!(app.mode, Mode::Palette);
+        assert!(app.palette.entries.is_empty(), "nothing saved yet");
+
+        app.new_picture();
+        app.save_picture(None).unwrap();
+        app.leave_to_boot();
+        app.home = Home::SoftHand;
+        app.open_pictures();
+        assert_eq!(app.palette.entries.len(), 1);
+        assert!(matches!(app.palette.entries[0].1, Action::OpenPicture(_)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -105,7 +105,7 @@ the right tells you what the command does before you commit to it.
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
 | `find [text]` | `search` | search the document (`Ctrl+F`) |
 | `view` | `read` | reading mode: markup stripped, nothing to edit |
-| `welcome` | `home` | back to the start screen |
+| `exit` | `welcome`, `home` | back to the boot screen |
 | `run [name]` | `exec` | run a diskette (bare: whatever the boot screen has selected) |
 | `dir` | `disks` | list the diskettes in the drive folder |
 | `font [classic\|thin\|cga]` | `weight` | typeface; bare `font` cycles |
@@ -119,7 +119,7 @@ the right tells you what the command does before you commit to it.
 | `settings` | `set`, `cfg` | WebDAV setup |
 | `help` | `?`, `h` | the list above, on screen |
 | `about` | | version and credits |
-| `quit` | `q`, `x` | save and exit |
+| `exit!` | `quit`, `q`, `x` | save and exit from anywhere |
 
 Autosave runs 1.5 seconds after you stop typing, so a forgotten `save` costs at
 most a sentence.
@@ -168,6 +168,27 @@ the next step; the container is designed to carry them.
 
 `examples/disks/HELLO.DSK` is a working sample.
 
+### Program disks
+
+A diskette can mount a program instead of carrying documents. The header gets a
+`program=` line naming one of the programs built into CRead:
+
+```
+CRead Disk 1
+name=SOFTHAND
+api=1
+about=16 colors, endless possibilities.
+program=softhand
+```
+
+While that file sits in `Disks`, its row on the boot screen becomes the program
+(`G: SOFTHAND`) and Enter runs it. Take the diskette away and the row is gone —
+the code never leaves the binary, the diskette is the mount. `exit` returns to
+the boot screen, `exit!` quits CRead from anywhere.
+
+`examples/disks/SOFTHAND.DSK` is the sample: drop it into `<vault>/Disks` and the
+paint program appears.
+
 ## View mode
 
 `view` renders the document the way a reader sees it: `#`, `**` and backticks
@@ -182,6 +203,24 @@ were last editing.
 cursor jumps to the first hit at or after where you were. `F3` and `Shift+F3`
 walk the hits, also after the prompt is closed; `Enter` keeps the cursor where
 it landed, `Esc` puts it back.
+
+## Softhand
+
+Softhand is the paint program, and the first module with pixels under the text
+layer. Its front door looks like Inspiro's (logo, tagline, `new`/`open`), and the
+canvas is the full 640x368 raster with a sixteen-colour VGA palette along the
+bottom. Pictures are PNGs in `<vault>/Pictures`; `save` picks `picture.png`,
+`picture-2.png` and so on, `saveas` names one.
+
+Drawing is a gesture, so it has keys: `b` pencil, `e` eraser, `l` line, `r` rect,
+`f` fill, `i` pick colour, `,`/`.` previous/next colour, `-`/`+` brush size, `u`
+and `Ctrl+Z` undo, `y` and `Ctrl+Y` redo. Click the palette strip to pick a
+colour, drag to draw, wheel for the brush. `Esc` turns the system line into a
+prompt for `save`, `saveas`, `open`, `undo`, `exit`; `Esc` again goes back to the
+canvas.
+
+Undo keeps the last eight full-canvas snapshots — a paint program without undo
+is a trap, and 240 KB per step is nothing.
 
 ## How the picture is built
 
@@ -276,9 +315,11 @@ crates/core      buffer, cursor, soft wrap, undo, markdown spans, file IO
 crates/render    emulated framebuffer, bitmap font, wgpu CRT pass
 crates/sync      WebDAV client, conflict policy, background worker
 crates/app       window, input, frame loop, UI composition
+crates/programs/ modules: one crate per program, compiled in
 assets/          bitmap faces, boot logo
 assets/splash…   pixel art, blitted into the emulated framebuffer
 assets/inspiro…  the same, for Inspiro's front door
+assets/softhand… and for Softhand's
 ```
 
 `crates/core` has no GPU, window or network dependency, so the tricky parts are
@@ -290,8 +331,9 @@ Two bitmap faces ship with it: the classic IBM VGA 8x16 and the thinner ISO 9241
 variant from the same pack. `font thin` swaps them at runtime and the choice is
 remembered.
 
-The boot logo (`assets/splash.png`) and the Inspiro logo (`assets/inspiro.png`)
-are blitted at their native size in emulated pixels, so they keep hard edges
+The boot logo (`assets/splash.png`), the Inspiro logo (`assets/inspiro.png`) and
+the Softhand logo (`assets/softhand.png`) are blitted at their native size in
+emulated pixels, so they keep hard edges
 through the CRT upscale. Themes tint them with the text colour: ink on paper,
 light on the dark schemes.
 

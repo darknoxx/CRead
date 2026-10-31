@@ -300,14 +300,29 @@ pub fn draw_inspiro(
     hint: &str,
     error: &str,
 ) {
-    screen.fill(Cell::blank(theme.fg, theme.bg));
-    put_centered(
+    draw_front_door(
         screen,
+        theme,
         title_row,
         "where your ideas have room to grow",
-        theme.status_dim,
-        theme.bg,
+        input,
+        hint,
+        error,
     );
+}
+
+/// A program's front door: logo (blitted by the caller), tagline, prompt.
+pub fn draw_front_door(
+    screen: &mut Screen,
+    theme: &Theme,
+    title_row: u32,
+    tagline: &str,
+    input: &str,
+    hint: &str,
+    error: &str,
+) {
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+    put_centered(screen, title_row, tagline, theme.status_dim, theme.bg);
     put_centered(
         screen,
         title_row + 2,
@@ -316,6 +331,31 @@ pub fn draw_inspiro(
         theme.bg,
     );
     draw_prompt(screen, theme, ">", input, hint, error);
+}
+
+// ── program system line ─────────────────────────────────────────────────────
+
+/// The bottom row while a program runs: its name on the left, its state on the
+/// right, or the command prompt when it is open.
+pub fn draw_program_line(
+    screen: &mut Screen,
+    theme: &Theme,
+    title: &str,
+    status: &str,
+    prompt: Option<(&str, &str, &str)>,
+) {
+    if let Some((input, hint, error)) = prompt {
+        draw_prompt(screen, theme, ">", input, hint, error);
+        return;
+    }
+    let cols = screen.cols();
+    let bar = screen.rows().saturating_sub(1);
+    let (fg, bg) = (theme.status_fg, theme.status_bg);
+    screen.fill_row(bar, Cell::blank(fg, bg));
+    screen.put_str(1, bar, title, theme.accent, bg);
+    let width = status.chars().count() as u32;
+    let x = cols.saturating_sub(width + 1);
+    screen.put_str(x, bar, status, theme.status_dim, bg);
 }
 
 // ── loading ─────────────────────────────────────────────────────────────────
@@ -701,13 +741,7 @@ pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool) {
 
     let bar = rows.saturating_sub(1);
     screen.fill_row(bar, Cell::blank(theme.status_fg, theme.status_bg));
-    screen.put_str(
-        0,
-        bar,
-        " Esc  back to write mode ",
-        theme.status_fg,
-        theme.status_bg,
-    );
+    screen.put_str(0, bar, " Esc  back ", theme.status_fg, theme.status_bg);
     let right = "type any command name to run it ";
     let x = cols.saturating_sub(right.chars().count() as u32 + 1);
     if x > 30 {

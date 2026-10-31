@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **Softhand.** The first program with pixels: a 16-colour paint program with
+  pencil, eraser, line, rect, fill and pick, eight undo steps, and pictures saved
+  as PNG in `<vault>/Pictures`. Its front door looks like Inspiro's, and it runs
+  from a program diskette.
+- **Program disks.** A `.dsk` whose header says `program=softhand` mounts the
+  program on the boot screen under its own drive letter; remove the diskette and
+  the row is gone. The code ships in the binary — the diskette is the mount.
+- **A pixel layer under the text grid.** Programs draw into a 640x368
+  sixteen-colour raster; cells can be transparent so menus sit on top of a
+  picture, and everything still goes through one CRT pass.
+- **`exit` and `exit!`.** `exit` (was `welcome`) returns to the boot screen from
+  anywhere; `exit!` (was `quit`) saves and quits. `q` still quits, now spelled
+  `exit!`.
+- The boot screen shrinks the logo by a whole step when the drive list is long,
+  instead of dropping rows off the bottom.
+
 ## 0.6.1
 
 - **Inspiro is in main.** The editor has a name, a front door and a loading bar:

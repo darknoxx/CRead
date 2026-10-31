@@ -23,6 +23,7 @@ shell. Type a command, press `Enter`, and you are back in the text.
 - `open` shows the file list, `open <name>` opens it directly.
 - `rename <name>` and `delete` tidy up the vault.
 - `sync` pushes everything to WebDAV.
+- `exit` goes back to the boot screen, `exit!` quits from anywhere.
 - `help` lists the rest, including the screen effects.
 
 ## Marking text
