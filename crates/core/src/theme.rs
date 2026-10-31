@@ -48,6 +48,23 @@ impl Theme {
         (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) > 140.0
     }
 
+    /// The accent, unless it would vanish on the status bar.
+    ///
+    /// The paper scheme puts dark ink on a pale page, but its status bar is
+    /// black — a dark blue prompt sigil on it is nearly invisible, so the bar's
+    /// own foreground is used instead. Every other scheme already contrasts.
+    pub fn accent_on_status(&self) -> u8 {
+        let luma =
+            |rgb: Rgb| 0.2126 * rgb[0] as f32 + 0.7152 * rgb[1] as f32 + 0.0722 * rgb[2] as f32;
+        let accent = luma(self.color(self.accent));
+        let bar = luma(self.color(self.status_bg));
+        if accent - bar < 60.0 {
+            self.status_fg
+        } else {
+            self.accent
+        }
+    }
+
     /// The classic 16-colour CGA/VGA table.
     pub const CGA: [Rgb; 16] = [
         [0x00, 0x00, 0x00],

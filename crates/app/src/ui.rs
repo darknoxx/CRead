@@ -276,7 +276,7 @@ fn draw_prompt(
     let (fg, bg) = (theme.status_fg, theme.status_bg);
     screen.fill_row(bar, Cell::blank(fg, bg));
 
-    screen.put_str(0, bar, sigil, theme.accent, bg);
+    screen.put_str(0, bar, sigil, theme.accent_on_status(), bg);
     screen.put(1, bar, Cell::blank(fg, bg));
 
     // Long command lines scroll, keeping the tail (and the cursor) visible.
@@ -372,7 +372,7 @@ pub fn draw_program_line(
     let bar = screen.rows().saturating_sub(1);
     let (fg, bg) = (theme.status_fg, theme.status_bg);
     screen.fill_row(bar, Cell::blank(fg, bg));
-    screen.put_str(1, bar, title, theme.accent, bg);
+    screen.put_str(1, bar, title, theme.accent_on_status(), bg);
     let width = status.chars().count() as u32;
     let x = cols.saturating_sub(width + 1);
     screen.put_str(x, bar, status, theme.status_dim, bg);
