@@ -49,7 +49,7 @@ jobs:
           # The sample diskettes travel with the binary: without RIFF.DSK
           # there is no Riff on the boot screen of a fresh download.
           mkdir -p dist/disks
-          cp examples/disks/*.dsk dist/disks/
+          cp examples/disks/*.DSK dist/disks/
           printf '%s\n' \
             "commit: ${GITHUB_SHA}" \
             "ref:    ${GITHUB_REF_NAME}" \
