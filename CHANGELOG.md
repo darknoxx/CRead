@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 
 - **Pocketboi, second pass.** Four greys instead of the DMG green (`P` cycles
   green and amber), a bezel around the glass, and `exit` steps back to the shelf

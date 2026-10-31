@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "cread"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "arboard",
  "cread-core",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "cread-core"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "png",
  "serde",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "cread-pocketboi"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "cread-core",
  "mizu-core",
@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "cread-render"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "bytemuck",
  "cread-core",
@@ -639,14 +639,14 @@ dependencies = [
 
 [[package]]
 name = "cread-softhand"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "cread-core",
 ]
 
 [[package]]
 name = "cread-sync"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "cread-core",
  "reqwest_dav",
