@@ -899,12 +899,13 @@ impl App {
         // frame clock at all: sleep until the blink is due and redraw then.
         if self.boot_at.is_some() || self.mode == Mode::Loading {
             self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
-        } else if self.riff.playing {
-            // The tape counter and the end of a track: twice a second is enough.
-            self.next_frame = frame_start + Duration::from_millis(500);
         } else if crt.roll > 0.0 && crt.scanline > 0.0 {
-            // The raster moves, so this is the one case that needs a clock.
+            // The raster moves, so this is the one case that needs a full clock.
             self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
+        } else if self.riff.playing {
+            // No raster movement: the tape counter and the end of a track only
+            // need twice a second.
+            self.next_frame = frame_start + Duration::from_millis(500);
         } else {
             let phase = (time * CURSOR_BLINK_HZ) as u32;
             let next_toggle = (phase as f32 + 1.0) / CURSOR_BLINK_HZ;

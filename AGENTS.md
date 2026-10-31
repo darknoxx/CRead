@@ -68,7 +68,9 @@ blink. Two consequences:
   bringing a frame clock back deliberately, not by accident. There are exactly
   four: scanline drift, the fake loading bar, the launch bar (`boot_at`), and
   the music clock (`riff_tick`: twice a second while a track plays, which is what
-  starts the next track).
+  starts the next track). They are ordered in `frame()` and the **fastest one
+  wins**: the roll is checked before the music clock, or playing a track would
+  drop the frame rate to 2 fps and freeze the raster.
 
 **The CRT uniform layout must match the WGSL struct byte for byte.** `CrtUniforms`
 is 32 bytes and has a `const` assertion; the shader pads to the same size. A
