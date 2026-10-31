@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.0
+
+- **SOFTWARE replaces the diskettes.** The boot screen lists the modules first,
+  with drive letters handed out in the order they were installed; below a rule
+  sit `SOFTWARE` and `DOCUMENTS`, left-aligned with the modules, because they are
+  not drives. SOFTWARE is a shelf with one row per compiled module: Enter
+  installs or removes it behind a short loading bar, the choice is remembered and
+  the boot screen follows at once. Inspiro is the system and cannot be removed;
+  Softhand and Riff ship switched off, so a fresh start is a system with a shelf.
+- **The diskette machinery is gone.** No `Disks` folder, no `.DSK` files, no
+  `run`, `dir` or `eject`, no read-only reader, no copy step in the release. The
+  modules are compiled in and nothing is loaded at runtime.
+- **Autosave is opt-in.** Nothing is written until you run `save`; `autosave on`
+  restores the old behaviour, and quitting still saves a modified document.
+- **Now playing everywhere.** While a track runs, the status line of the other
+  screens shows `♪ title · mm:ss`; on a narrow bar the hint makes room for it.
+- Two fixes: playing music no longer stops the scanline drift (the music clock
+  was checked before the raster clock), and the prompt sigil is readable in the
+  paper theme (the accent falls back to the bar's own foreground when the two do
+  not contrast).
+
 ## 0.10.1
 
 - **The sample diskettes are in the release tarball.** `disks/RIFF.DSK` and
