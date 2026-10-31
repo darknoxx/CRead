@@ -56,11 +56,11 @@ cread
 
 ## Two modes
 
-On launch CRead does what a 1987 machine did: the picture stutters on like a
-monitor looking for a signal, the PC speaker beeps once, a bar runs
-(`Starting CRead OS...`), the monitor syncs once more, and then the boot screen
-holds. Two seconds in all, any key skips it. `beep off` silences the beep and
-`--boot` replays the sequence (handy with `--screenshot`).
+On launch CRead does what a 1987 machine did: an empty screen stutters on like a
+monitor looking for a signal, a bar runs (`Starting CRead OS...`), the PC speaker
+beeps once and only then does the boot screen appear. Under two seconds in all,
+and any key skips it. `beep off` silences the beep; `--boot` replays the sequence
+(handy with `--screenshot`).
 
 Then you get the boot screen: the logo, a greeting and a short drive list.
 

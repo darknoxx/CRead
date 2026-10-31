@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cread_core::{
-    Editor, KeyPress, Position, Prefs, Raster, ScaleMode, Screen, Stats, Theme, Viewport,
+    Cell, Editor, KeyPress, Position, Prefs, Raster, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError},
     disk::Disk,
     picture,
@@ -48,7 +48,6 @@ const STATUS_TTL: Duration = Duration::from_secs(4);
 /// the picture holds. Short enough to read as a PC starting rather than a wait.
 const BOOT_FLICKER_SECONDS: f32 = 0.7;
 const BOOT_LOADING_SECONDS: f32 = 1.0;
-const BOOT_SETTLE_SECONDS: f32 = 0.4;
 /// What the bar says while the "system" starts.
 const BOOT_LABEL: &str = "Starting CRead OS...";
 /// (seconds into the phase, brightness) — a monitor looking for a signal.
@@ -64,8 +63,6 @@ const BOOT_WARMUP_STEPS: &[(f32, f32)] = &[
     (0.58, 0.45),
     (0.62, 1.0),
 ];
-/// The second sync, once the bar is full: shorter, and it ends settled.
-const BOOT_SETTLE_STEPS: &[(f32, f32)] = &[(0.00, 0.0), (0.07, 1.0), (0.13, 0.35), (0.20, 1.0)];
 
 pub fn run(opts: Options) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| format!("event loop: {e}"))?;
@@ -181,20 +178,19 @@ struct Search {
 /// Where the launch sequence is: flicker, bar, flicker, picture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BootPhase {
+    /// An empty screen stuttering on: the monitor, before there is a picture.
     Warmup,
+    /// The bar, still on an empty screen.
     Loading,
-    Settle,
 }
 
 /// What just happened at a phase boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BootEvent {
-    /// A phase ended; the speaker says the machine is alive.
-    Beep,
-    /// The bar is over: redraw without it.
-    Settle,
-    /// The whole sequence is finished: show the normal screen.
-    Done,
+    /// Warm-up over: the bar starts.
+    Loading,
+    /// Bar full: beep once and draw the real screen.
+    Ready,
 }
 
 struct BootState {
@@ -218,7 +214,6 @@ impl BootState {
         match self.phase {
             BootPhase::Warmup => level_at(BOOT_WARMUP_STEPS, self.elapsed()),
             BootPhase::Loading => 1.0,
-            BootPhase::Settle => level_at(BOOT_SETTLE_STEPS, self.elapsed()),
         }
     }
 
@@ -231,16 +226,9 @@ impl BootState {
 
     fn tick(&mut self) -> Option<BootEvent> {
         let event = boot_advance(self.phase, self.elapsed())?;
-        match event {
-            BootEvent::Beep => {
-                self.phase = BootPhase::Loading;
-                self.started = Instant::now();
-            }
-            BootEvent::Settle => {
-                self.phase = BootPhase::Settle;
-                self.started = Instant::now();
-            }
-            BootEvent::Done => {}
+        if event == BootEvent::Loading {
+            self.phase = BootPhase::Loading;
+            self.started = Instant::now();
         }
         Some(event)
     }
@@ -251,15 +239,13 @@ fn boot_advance(phase: BootPhase, elapsed: f32) -> Option<BootEvent> {
     let done = match phase {
         BootPhase::Warmup => elapsed >= BOOT_FLICKER_SECONDS,
         BootPhase::Loading => elapsed >= BOOT_LOADING_SECONDS,
-        BootPhase::Settle => elapsed >= BOOT_SETTLE_SECONDS,
     };
     if !done {
         return None;
     }
     Some(match phase {
-        BootPhase::Warmup => BootEvent::Beep,
-        BootPhase::Loading => BootEvent::Settle,
-        BootPhase::Settle => BootEvent::Done,
+        BootPhase::Warmup => BootEvent::Loading,
+        BootPhase::Loading => BootEvent::Ready,
     })
 }
 
@@ -818,9 +804,11 @@ impl App {
 
         if let Some(boot) = self.boot.as_mut() {
             match boot.tick() {
-                Some(BootEvent::Beep) => self.beep(),
-                Some(BootEvent::Settle) => self.dirty = true,
-                Some(BootEvent::Done) => {
+                Some(BootEvent::Loading) => {}
+                Some(BootEvent::Ready) => {
+                    // The bar is full: the speaker says so, then the picture
+                    // appears. Nothing of the boot screen is drawn before.
+                    self.beep();
                     self.boot = None;
                     self.dirty = true;
                 }
@@ -958,10 +946,16 @@ impl App {
         self.splash_at = None;
         self.inspiro_at = None;
         self.softhand_at = None;
-        if let Some(boot) = self.boot.as_ref()
-            && boot.phase == BootPhase::Loading
-        {
-            ui::draw_loading(&mut screen, &self.theme, BOOT_LABEL, boot.progress());
+        if let Some(boot) = self.boot.as_ref() {
+            match boot.phase {
+                BootPhase::Warmup => {
+                    // An empty screen stuttering on, not the boot screen yet.
+                    screen.fill(Cell::blank(self.theme.fg, self.theme.bg));
+                }
+                BootPhase::Loading => {
+                    ui::draw_loading(&mut screen, &self.theme, BOOT_LABEL, boot.progress());
+                }
+            }
             self.screen = screen;
             return;
         }
@@ -3919,17 +3913,12 @@ mod tests {
     }
 
     #[test]
-    fn the_launch_sequence_is_flicker_bar_flicker() {
+    fn the_launch_is_flicker_then_bar_then_the_picture() {
         use BootEvent::*;
-        // Warm-up: nothing happens until its time is up, then the beep.
         assert_eq!(boot_advance(BootPhase::Warmup, 0.3), None);
-        assert_eq!(boot_advance(BootPhase::Warmup, 0.7), Some(Beep));
-        // The bar runs, then hands over to the second sync.
+        assert_eq!(boot_advance(BootPhase::Warmup, 0.7), Some(Loading));
         assert_eq!(boot_advance(BootPhase::Loading, 0.9), None);
-        assert_eq!(boot_advance(BootPhase::Loading, 1.0), Some(Settle));
-        // And the settle ends the sequence.
-        assert_eq!(boot_advance(BootPhase::Settle, 0.2), None);
-        assert_eq!(boot_advance(BootPhase::Settle, 0.4), Some(Done));
+        assert_eq!(boot_advance(BootPhase::Loading, 1.0), Some(Ready));
     }
 
     #[test]
@@ -3938,9 +3927,6 @@ mod tests {
         assert_eq!(level_at(BOOT_WARMUP_STEPS, 0.08), 0.9);
         assert_eq!(level_at(BOOT_WARMUP_STEPS, 0.15), 0.0);
         assert_eq!(level_at(BOOT_WARMUP_STEPS, 0.65), 1.0, "holds once warm");
-        // The bar is readable, and the settle ends at full brightness.
-        assert_eq!(level_at(BOOT_SETTLE_STEPS, 0.0), 0.0);
-        assert_eq!(level_at(BOOT_SETTLE_STEPS, 0.3), 1.0);
     }
 
     #[test]

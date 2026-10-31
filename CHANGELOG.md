@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- **The launch is a small boot.** Flicker, beep, `Starting CRead OS...` bar,
-  a second sync of the monitor, then the boot screen. Two seconds in all, any
-  key skips it.
+- **The launch is a small boot.** An empty screen flickers on, a
+  `Starting CRead OS...` bar fills, the speaker beeps, and only then is the boot
+  screen drawn. Under two seconds, any key skips it.
 
 ## 0.8.0
 
