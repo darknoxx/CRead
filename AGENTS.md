@@ -82,11 +82,12 @@ would be painted over. Overlays therefore hide the splash.
 or, italic = row shear). No anti-aliasing, no sub-pixel positioning, no TTF
 rasterising. Two faces ship: `Face::Classic` (VGA) and `Face::Thin` (ISO 9241).
 
-**Programs are compiled in; the diskette is the mount.** A module is a crate in
-`crates/programs` plus a row in the registry in `app.rs`. A `.dsk` whose header
-says `program=<id>` puts that row on the boot screen under its own letter and
-nothing more: there is no runtime, no loading of code, and `Disks` is a mount
-point, not a plugin directory.
+**Programs are compiled in; SOFTWARE is the shelf.** A module is a crate in
+`crates/programs` plus an entry in `PROGRAMS` in `app.rs`. Nothing is loaded at
+runtime: the `SOFTWARE` screen only toggles which ones the boot screen shows, and
+the choice lives in the preferences. Installing shows the loading bar on purpose
+— the moment is part of the fiction — and Inspiro is the system, never removable.
+There is no plugin directory and no file to copy.
 
 **Sound belongs to the shell.** The music deck (`crates/app/src/audio.rs`) lives
 in `App`, not in the Riff program, because playback has to outlive the screen and

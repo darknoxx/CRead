@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 use cread_core::{
     Editor, KeyPress, Position, Prefs, Raster, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError, RiffAction},
-    disk::Disk,
     music, picture,
     program::{Outcome, PointerEvent, PointerKind, Program},
     resolution::target_line_px_for_scale_factor,
@@ -49,6 +48,8 @@ const STATUS_TTL: Duration = Duration::from_secs(4);
 const BOOT_SECONDS: f32 = 1.5;
 /// What the bar says while the "system" starts.
 const BOOT_LABEL: &str = "Starting CRead OS...";
+/// Installing a module takes a moment, and the moment is the point.
+const SOFTWARE_SECONDS: f32 = 0.9;
 
 /// (fraction of the wait, fraction of the bar) — a drive seeking: it moves in
 /// jumps and then sits still for a moment before the next one.
@@ -96,8 +97,6 @@ pub fn run(opts: Options) -> Result<(), String> {
 
 struct Document {
     path: Option<PathBuf>,
-    /// Opened from a diskette: shown in the reader, never written back.
-    read_only: bool,
     /// Shown when there is no path yet, e.g. the built-in demo document.
     title_hint: Option<String>,
     editor: Editor,
@@ -228,21 +227,10 @@ struct Explorer {
     selected: usize,
 }
 
-/// A diskette found in the vault, parsed or not — a broken disk still shows up
-/// on the boot screen so its owner can see what went wrong.
-struct DiskEntry {
-    /// Where it came from, so it can be ejected again by path.
-    path: PathBuf,
-    /// File name without extension, for the label when the disk is broken.
-    stem: String,
-    disk: Option<Disk>,
-    error: Option<String>,
-}
-
 /// Which home screen the shell is showing when nothing is open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Home {
-    /// The boot screen: drives and diskettes.
+    /// The boot screen: the vault, the modules and the shelf.
     Boot,
     /// Inspiro's own front door: logo, tagline, new/open.
     Inspiro,
@@ -259,6 +247,11 @@ enum Pending {
     Program(usize),
     NewPicture,
     Picture(PathBuf),
+    /// Install or remove a module once the bar has run.
+    Software {
+        id: &'static str,
+        install: bool,
+    },
     Document(PathBuf),
     NewDocument,
 }
@@ -274,7 +267,8 @@ enum BootItem {
     Inspiro,
     /// Index into [`PROGRAMS`].
     Program(usize),
-    Disk(usize),
+    /// The install screen.
+    Software,
 }
 
 impl BootItem {
@@ -291,8 +285,6 @@ enum Mode {
     Search,
     /// Reader mode: markup stripped, not editable.
     View,
-    /// Browsing the files on a diskette.
-    DiskBrowser,
     /// A fake loading bar before a program appears.
     Loading,
     /// A command line at the bottom, like a shell.
@@ -309,6 +301,8 @@ enum Mode {
     Riff,
     /// The music folder browser.
     RiffInsert,
+    /// Install and remove modules.
+    Software,
 }
 
 /// A program compiled into this build.
@@ -317,10 +311,6 @@ pub struct ProgramInfo {
     /// What the boot row and the loading bar call it.
     pub entry: &'static str,
     pub tagline: &'static str,
-    /// Installed programs always have a row. The others need a diskette whose
-    /// header says `program=<id>`; the code is in the binary either way, the
-    /// diskette is only what puts the drive on the shelf.
-    pub installed: bool,
 }
 
 pub const PROGRAMS: &[ProgramInfo] = &[
@@ -328,19 +318,13 @@ pub const PROGRAMS: &[ProgramInfo] = &[
         id: "softhand",
         entry: "SOFTHAND",
         tagline: "16 colors, endless possibilities.",
-        installed: true,
     },
     ProgramInfo {
         id: "riff",
         entry: "RIFF",
         tagline: "a Soundtrack for your life.",
-        installed: false,
     },
 ];
-
-fn program_index_by_id(id: &str) -> Option<usize> {
-    PROGRAMS.iter().position(|program| program.id == id)
-}
 
 /// The home screen a program opens onto.
 fn program_home(index: usize) -> Home {
@@ -364,6 +348,7 @@ fn push_boot_row(
         detail,
         broken,
         rule: false,
+        bare: false,
     });
     *letter += 1;
 }
@@ -392,17 +377,11 @@ struct App {
     typewriter: bool,
 
     doc: Document,
-    /// Diskettes in `<vault>/Disks`, refreshed when the boot screen appears.
-    disks: Vec<DiskEntry>,
-    /// Set when the boot screen should re-read the disk folder.
-    disks_dirty: bool,
-    /// Diskettes taken out for this session. The files are untouched; the boot
-    /// screen simply pretends the drive is empty until CRead restarts.
-    ejected: Vec<PathBuf>,
+    /// Highlighted row on the SOFTWARE screen.
+    software_selected: usize,
+
     boot_selected: usize,
-    /// Index into `disks` while the browser is open.
-    disk_open: usize,
-    disk_selected: usize,
+
     splash: Option<Splash>,
     /// Where the logo was blitted this frame: x, y and the integer divisor.
     splash_at: Option<(i32, i32, u32)>,
@@ -621,12 +600,10 @@ impl App {
             mods: ModifiersState::empty(),
             typewriter,
             doc,
-            disks: Vec::new(),
-            disks_dirty: true,
-            ejected: Vec::new(),
+            software_selected: 0,
+
             boot_selected: 0,
-            disk_open: 0,
-            disk_selected: 0,
+
             splash: Splash::from_png(include_bytes!("../../../assets/splash.png"))
                 .map_err(|e| eprintln!("cread: {e}"))
                 .ok(),
@@ -703,7 +680,6 @@ impl App {
                     return (
                         Document {
                             path: Some(path.clone()),
-                            read_only: false,
                             title_hint: None,
                             editor: Editor::from_text(&text),
                             last_edit: Instant::now(),
@@ -719,7 +695,6 @@ impl App {
             return (
                 Document {
                     path: None,
-                    read_only: false,
                     title_hint: Some("welcome.md".into()),
                     editor: Editor::from_text(WELCOME),
                     last_edit: Instant::now(),
@@ -731,7 +706,6 @@ impl App {
         (
             Document {
                 path: None,
-                read_only: false,
                 title_hint: None,
                 editor: Editor::new(),
                 last_edit: Instant::now(),
@@ -949,6 +923,12 @@ impl App {
         self.inspiro_at = None;
         self.softhand_at = None;
         self.riff_at = None;
+        if self.mode == Mode::Software {
+            let rows = self.software_rows();
+            ui::draw_software(&mut screen, &self.theme, &rows, self.software_selected);
+            self.screen = screen;
+            return;
+        }
         if self.mode == Mode::RiffInsert {
             if let Some(explorer) = self.riff.explorer.as_ref() {
                 let entries: Vec<(String, bool)> = explorer
@@ -1059,9 +1039,11 @@ impl App {
             let elapsed = self.loading_started.elapsed().as_secs_f32();
             // The meter is full before the wait ends, so the last thing you see
             // is a complete bar rather than a stalled one.
-            let progress = (elapsed / (LOADING_SECONDS * 0.78))
-                .powf(0.8)
-                .clamp(0.0, 1.0);
+            let seconds = match &self.pending {
+                Some(Pending::Software { .. }) => SOFTWARE_SECONDS,
+                _ => LOADING_SECONDS,
+            };
+            let progress = (elapsed / (seconds * 0.78)).powf(0.8).clamp(0.0, 1.0);
             let label = match &self.pending {
                 Some(Pending::Inspiro) => "Loading INSPIRO...".to_string(),
                 Some(Pending::Program(index)) => format!(
@@ -1072,27 +1054,21 @@ impl App {
                 Some(Pending::Picture(_)) => "Loading picture...".to_string(),
                 Some(Pending::Document(_)) => "Loading document...".to_string(),
                 Some(Pending::NewDocument) => "New document...".to_string(),
+                Some(Pending::Software { id, install }) => {
+                    let name = PROGRAMS
+                        .iter()
+                        .find(|program| program.id == *id)
+                        .map(|program| program.entry)
+                        .unwrap_or("module");
+                    format!(
+                        "{} {name}...",
+                        if *install { "Installing" } else { "Removing" }
+                    )
+                }
                 None => "Loading...".to_string(),
             };
             let blink = ((elapsed * 2.5) as u32).is_multiple_of(2);
             ui::draw_loading(&mut screen, &self.theme, &label, progress, blink);
-            self.screen = screen;
-            return;
-        }
-        if self.mode == Mode::DiskBrowser {
-            self.splash_at = None;
-            if let Some(entry) = self.disks.get(self.disk_open)
-                && let Some(disk) = &entry.disk
-            {
-                let files: Vec<String> = disk.files.iter().map(|f| f.name.clone()).collect();
-                let view = ui::DiskView {
-                    title: &format!("{}:", disk.name),
-                    about: &disk.about,
-                    files: &files,
-                    selected: self.disk_selected,
-                };
-                ui::draw_disk(&mut screen, &self.theme, &view);
-            }
             self.screen = screen;
             return;
         }
@@ -1208,18 +1184,10 @@ impl App {
                 rows: &self.view_rows,
                 top: self.view_top,
                 words: stats.words,
-                hint: if self.doc.read_only {
-                    "Esc back to the diskette"
-                } else {
-                    "Esc back to write mode"
-                },
+                hint: "Esc back to write mode",
             };
             ui::draw_reader(&mut screen, &self.theme, &view);
         } else if !self.has_document {
-            if self.disks_dirty {
-                self.refresh_disks();
-                self.disks_dirty = false;
-            }
             let show_prompt = matches!(self.mode, Mode::Action | Mode::Search);
 
             // Pixel art shrinks by a whole factor at most, and only when the
@@ -1294,11 +1262,7 @@ impl App {
                 );
             } else {
                 let items = self.boot_rows();
-                let note = if self.disks.is_empty() {
-                    format!("no disks - put .dsk files in {}", self.short_disk_dir())
-                } else {
-                    String::new()
-                };
+                let note = String::new();
 
                 // The whole group - logo, greeting, drives - is centred vertically,
                 // like the old welcome screen was; pinning the logo to the top made
@@ -1507,7 +1471,7 @@ impl App {
         if self.mode != Mode::Write {
             return;
         }
-        if self.doc.read_only || !self.doc.editor.modified() {
+        if !self.doc.editor.modified() {
             return;
         }
         if self.doc.last_edit.elapsed() < AUTOSAVE_DELAY {
@@ -1637,9 +1601,6 @@ impl App {
     }
 
     fn save(&mut self) -> Result<String, String> {
-        if self.doc.read_only {
-            return Err("this came from a diskette - read only".into());
-        }
         let path = match self.doc.path.clone() {
             Some(path) => path,
             None => self.free_untitled_path(),
@@ -1654,7 +1615,6 @@ impl App {
         let path = self.free_untitled_path();
         self.doc = Document {
             path: None,
-            read_only: false,
             title_hint: None,
             editor: Editor::new(),
             last_edit: Instant::now(),
@@ -1736,7 +1696,6 @@ impl App {
             storage::load(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
         self.doc = Document {
             path: Some(path.clone()),
-            read_only: false,
             title_hint: None,
             editor: Editor::from_text(&text),
             last_edit: Instant::now(),
@@ -1772,7 +1731,6 @@ impl App {
         }
         self.doc = Document {
             path: None,
-            read_only: false,
             title_hint: None,
             editor: Editor::new(),
             last_edit: Instant::now(),
@@ -1840,7 +1798,6 @@ impl App {
         if self.doc.path.as_deref() == Some(path.as_path()) {
             self.doc = Document {
                 path: None,
-                read_only: false,
                 title_hint: None,
                 editor: Editor::new(),
                 last_edit: Instant::now(),
@@ -1890,9 +1847,9 @@ impl App {
                 }
             }
         }
-        // Loading and the browser are their own destinations; anything else
-        // drops back to the document or the home screen.
-        if !matches!(self.mode, Mode::Loading | Mode::DiskBrowser) {
+        // Loading is its own destination; anything else drops back to the
+        // document or the home screen.
+        if self.mode != Mode::Loading {
             self.to_write();
         }
     }
@@ -1913,11 +1870,11 @@ impl App {
             Mode::Write => self.on_key_write(el, event),
             Mode::Search => self.on_key_search(event),
             Mode::View => self.on_key_view(event),
-            Mode::DiskBrowser => self.on_key_disk_browser(event),
             Mode::Loading => self.finish_loading(),
             Mode::Program => self.on_key_program(el, event),
             Mode::Riff => self.on_key_riff(el, event),
             Mode::RiffInsert => self.on_key_riff_insert(event),
+            Mode::Software => self.on_key_software(event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -2089,7 +2046,6 @@ impl App {
                     self.command_error.clear();
                 } else if !self.has_document && self.home != Home::Boot {
                     self.home = Home::Boot;
-                    self.disks_dirty = true;
                 } else if self.has_document {
                     self.to_write();
                 }
@@ -2607,30 +2563,11 @@ impl App {
                 self.start_search(query);
                 Ok(String::new())
             }
-            Command::Eject(target) => self.eject(target),
-            Command::Riff(action) => self.run_riff(action),
-            Command::Run(None) => {
-                self.boot_activate();
+            Command::Software => {
+                self.open_software();
                 Ok(String::new())
             }
-            Command::Run(Some(name)) => self.run_named(&name),
-            Command::Dir => {
-                self.disks_dirty = true;
-                self.refresh_disks();
-                let names: Vec<String> = self
-                    .disks
-                    .iter()
-                    .map(|e| match &e.disk {
-                        Some(d) => d.name.clone(),
-                        None => format!("{} (bad)", e.stem),
-                    })
-                    .collect();
-                Ok(if names.is_empty() {
-                    format!("no disks in {}", self.disk_dir().display())
-                } else {
-                    format!("{} disk(s): {}", names.len(), names.join(", "))
-                })
-            }
+            Command::Riff(action) => self.run_riff(action),
             Command::Exit => {
                 if self.has_document && self.doc.editor.modified() {
                     self.save()?;
@@ -2721,20 +2658,6 @@ impl App {
             self.command_error.clear();
             self.history_pos = None;
             self.confirm = None;
-            self.dirty = true;
-            return;
-        }
-        if self.doc.read_only {
-            self.doc = Document {
-                path: None,
-                read_only: false,
-                title_hint: None,
-                editor: Editor::new(),
-                last_edit: Instant::now(),
-            };
-            self.has_document = false;
-            self.mode = Mode::DiskBrowser;
-            self.command.clear();
             self.dirty = true;
             return;
         }
@@ -3039,6 +2962,10 @@ impl App {
                     self.mode = Mode::Action;
                 }
             },
+            Pending::Software { id, install } => {
+                self.apply_software(id, install);
+                self.mode = Mode::Software;
+            }
             Pending::NewDocument => match self.new_document() {
                 Ok(msg) => {
                     if !msg.is_empty() {
@@ -3066,14 +2993,12 @@ impl App {
         self.discard_scratch();
         self.doc = Document {
             path: None,
-            read_only: false,
             title_hint: None,
             editor: Editor::new(),
             last_edit: Instant::now(),
         };
         self.has_document = false;
         self.home = Home::Boot;
-        self.disks_dirty = true;
         self.mode = Mode::Action;
         self.command.clear();
         self.command_error.clear();
@@ -3236,6 +3161,9 @@ impl App {
     }
 
     fn run_riff(&mut self, action: RiffAction) -> Result<String, String> {
+        if !self.is_installed("riff") {
+            return Err("Riff is not installed - open SOFTWARE".into());
+        }
         match action {
             RiffAction::Insert => {
                 if !self.riff_is_front() {
@@ -3496,86 +3424,121 @@ impl App {
         true
     }
 
-    // ── disks and the boot screen ───────────────────────────────────────────
+    // ── software ────────────────────────────────────────────────────────────
 
-    fn disk_dir(&self) -> PathBuf {
-        storage::disk_dir(&self.vault())
+    fn is_installed(&self, id: &str) -> bool {
+        self.prefs.installed.iter().any(|have| have == id)
     }
 
-    /// The disk folder with `~` instead of the home directory.
-    fn short_disk_dir(&self) -> String {
-        let dir = self.disk_dir();
-        match dir.strip_prefix(storage::home_dir()) {
-            Ok(rest) => format!("~/{}", rest.display()),
-            Err(_) => dir.display().to_string(),
+    /// One row per module for the SOFTWARE screen: (entry, tagline, id, state).
+    fn software_rows(&self) -> Vec<ui::SoftwareItem> {
+        let mut rows = vec![ui::SoftwareItem {
+            name: "INSPIRO".into(),
+            tagline: "where your ideas have room to grow".into(),
+            state: ui::SoftwareState::System,
+        }];
+        for program in PROGRAMS {
+            rows.push(ui::SoftwareItem {
+                name: program.entry.to_string(),
+                tagline: program.tagline.to_string(),
+                state: if self.is_installed(program.id) {
+                    ui::SoftwareState::Installed
+                } else {
+                    ui::SoftwareState::Available
+                },
+            });
         }
+        rows
     }
 
-    fn refresh_disks(&mut self) {
-        let dir = self.disk_dir();
-        self.disks = match storage::list_disks(&dir) {
-            Ok(entries) => entries
-                .into_iter()
-                .filter(|(path, _)| !self.ejected.contains(path))
-                .map(|(path, text)| {
-                    let stem = path
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    match text
-                        .map_err(|e| e.to_string())
-                        .and_then(|t| Disk::parse(&t).map_err(|e| e.to_string()))
-                    {
-                        Ok(disk)
-                            if !disk.program.is_empty()
-                                && program_index_by_id(&disk.program).is_none() =>
-                        {
-                            DiskEntry {
-                                path,
-                                stem,
-                                disk: None,
-                                error: Some(format!(
-                                    "needs program {}, which is not installed",
-                                    disk.program
-                                )),
-                            }
-                        }
-                        Ok(disk) => DiskEntry {
-                            path,
-                            stem,
-                            disk: Some(disk),
-                            error: None,
-                        },
-                        Err(error) => DiskEntry {
-                            path,
-                            stem,
-                            disk: None,
-                            error: Some(error),
-                        },
-                    }
-                })
-                .collect(),
-            Err(e) => {
-                self.set_status(format!("cannot list disks: {e}"));
-                Vec::new()
-            }
+    fn open_software(&mut self) {
+        self.mode = Mode::Software;
+        self.software_selected = self.software_selected.min(PROGRAMS.len());
+        self.command.clear();
+        self.program_prompt = false;
+        self.dirty = true;
+    }
+
+    /// Enter on the SOFTWARE screen: install or remove, with the bar in between.
+    fn software_activate(&mut self) {
+        // Row 0 is Inspiro, the system; it cannot be removed.
+        if self.software_selected == 0 {
+            self.set_status("Inspiro is the system - it stays");
+            return;
+        }
+        let Some(program) = PROGRAMS.get(self.software_selected - 1) else {
+            return;
         };
+        let install = !self.is_installed(program.id);
+        self.start_loading(Pending::Software {
+            id: program.id,
+            install,
+        });
+    }
+
+    /// The change itself, once the bar has run.
+    fn apply_software(&mut self, id: &'static str, install: bool) {
+        let Some(program) = PROGRAMS.iter().find(|program| program.id == id) else {
+            return;
+        };
+        if install {
+            if !self.is_installed(id) {
+                self.prefs.installed.push(id.to_string());
+            }
+        } else {
+            if program.id == "riff" {
+                // The deck is the shell's; removing the player silences it.
+                if let Some(audio) = self.audio.as_mut() {
+                    audio.stop();
+                }
+                self.riff.playing = false;
+            }
+            self.prefs.installed.retain(|have| have != id);
+        }
+        self.save_prefs();
+        self.set_status(format!(
+            "{} {}",
+            if install { "installed" } else { "removed" },
+            program.entry
+        ));
         if self.boot_selected >= self.boot_items().len() {
             self.boot_selected = 0;
         }
     }
 
+    fn on_key_software(&mut self, event: KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Enter) => {
+                if matches!(&event.logical_key, Key::Named(NamedKey::Escape)) {
+                    self.to_write();
+                } else {
+                    self.software_activate();
+                }
+            }
+            Key::Named(NamedKey::ArrowUp) => {
+                self.software_selected = self.software_selected.saturating_sub(1);
+                self.poke();
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                let last = PROGRAMS.len();
+                self.software_selected = (self.software_selected + 1).min(last);
+                self.poke();
+            }
+            _ => {}
+        }
+    }
+
+    // ── the boot screen ─────────────────────────────────────────────────────
+
     fn boot_items(&self) -> Vec<BootItem> {
         let mut items = vec![BootItem::Documents, BootItem::Rule, BootItem::Inspiro];
         for (index, program) in PROGRAMS.iter().enumerate() {
-            if program.installed {
+            if self.is_installed(program.id) {
                 items.push(BootItem::Program(index));
             }
         }
-        if !self.disks.is_empty() {
-            items.push(BootItem::Rule);
-        }
-        items.extend((0..self.disks.len()).map(BootItem::Disk));
+        items.push(BootItem::Rule);
+        items.push(BootItem::Software);
         items
     }
 
@@ -3591,7 +3554,6 @@ impl App {
             false,
         );
         rows.push(ui::BootItem::rule());
-
         push_boot_row(
             &mut rows,
             &mut letter,
@@ -3599,7 +3561,7 @@ impl App {
             "where your ideas have room to grow".into(),
             false,
         );
-        for program in PROGRAMS.iter().filter(|program| program.installed) {
+        for program in PROGRAMS.iter().filter(|p| self.is_installed(p.id)) {
             push_boot_row(
                 &mut rows,
                 &mut letter,
@@ -3608,40 +3570,14 @@ impl App {
                 false,
             );
         }
-        // The shelf for what is actually mounted: diskettes sit below it, so
-        // the row above the line is the machine and the rows below are media.
-        if !self.disks.is_empty() {
-            rows.push(ui::BootItem::rule());
-        }
-        for entry in &self.disks {
-            match &entry.disk {
-                Some(disk) if program_index_by_id(&disk.program).is_some() => {
-                    let program = &PROGRAMS[program_index_by_id(&disk.program).unwrap()];
-                    push_boot_row(
-                        &mut rows,
-                        &mut letter,
-                        program.entry.into(),
-                        program.tagline.into(),
-                        false,
-                    );
-                }
-                Some(disk) => {
-                    let detail = if disk.about.is_empty() {
-                        format!("{} file(s)", disk.files.len())
-                    } else {
-                        disk.about.clone()
-                    };
-                    push_boot_row(&mut rows, &mut letter, disk.name.clone(), detail, false)
-                }
-                None => push_boot_row(
-                    &mut rows,
-                    &mut letter,
-                    entry.stem.to_uppercase(),
-                    entry.error.clone().unwrap_or_default(),
-                    true,
-                ),
-            }
-        }
+        rows.push(ui::BootItem::rule());
+        rows.push(ui::BootItem {
+            label: "SOFTWARE".into(),
+            detail: "install and remove modules".into(),
+            broken: false,
+            rule: false,
+            bare: true,
+        });
         rows
     }
 
@@ -3659,68 +3595,8 @@ impl App {
             BootItem::Rule => {}
             BootItem::Inspiro => self.start_loading(Pending::Inspiro),
             BootItem::Program(index) => self.start_loading(Pending::Program(index)),
-            BootItem::Disk(index) => self.launch_disk(index),
+            BootItem::Software => self.open_software(),
         }
-    }
-
-    /// Take a diskette out for this session. Bare `eject` takes whatever the
-    /// boot screen has selected.
-    fn eject(&mut self, target: Option<String>) -> Result<String, String> {
-        let index = match target {
-            None => match self.boot_items().get(self.boot_selected) {
-                Some(BootItem::Disk(index)) => *index,
-                _ => return Err("select a diskette first".into()),
-            },
-            Some(target) => self.disk_index_for(&target)?,
-        };
-        if index >= self.disks.len() {
-            return Err("no such diskette".into());
-        }
-        let entry = self.disks.remove(index);
-        let name = match &entry.disk {
-            Some(disk) => disk.name.clone(),
-            None => entry.stem.to_uppercase(),
-        };
-        self.ejected.push(entry.path);
-        if self.boot_selected >= self.boot_items().len() {
-            self.boot_selected = 0;
-        }
-        self.disks_dirty = true;
-        Ok(format!("ejected {name} - back at the next start"))
-    }
-
-    /// A drive letter (`d`), a stem (`hello`) or a diskette name (`HELLO`).
-    fn disk_index_for(&self, target: &str) -> Result<usize, String> {
-        let target = target.trim();
-        if target.chars().count() == 1
-            && let Some(letter) = target.chars().next()
-            && letter.is_ascii_alphabetic()
-        {
-            let mut next = b'A';
-            for item in self.boot_items() {
-                if !item.selectable() {
-                    continue;
-                }
-                if next as char == letter.to_ascii_uppercase() {
-                    return match item {
-                        BootItem::Disk(index) => Ok(index),
-                        _ => Err(format!("{} is not a diskette", letter.to_ascii_uppercase())),
-                    };
-                }
-                next += 1;
-            }
-            return Err(format!("no drive {}", letter.to_ascii_uppercase()));
-        }
-        self.disks
-            .iter()
-            .position(|entry| {
-                entry.stem.eq_ignore_ascii_case(target)
-                    || entry
-                        .disk
-                        .as_ref()
-                        .is_some_and(|disk| disk.name.eq_ignore_ascii_case(target))
-            })
-            .ok_or_else(|| format!("no diskette called {target}"))
     }
 
     /// Move the boot selection, stepping over rows that are not selectable
@@ -3739,135 +3615,6 @@ impl App {
             }
         }
     }
-
-    /// Enter on a diskette: a program disk runs the program, a data disk opens
-    /// the browser. Same letter, same row, different destination.
-    fn launch_disk(&mut self, index: usize) {
-        let program = self
-            .disks
-            .get(index)
-            .and_then(|entry| entry.disk.as_ref())
-            .map(|disk| disk.program.clone())
-            .unwrap_or_default();
-        if let Some(position) = program_index_by_id(&program)
-            && !PROGRAMS[position].installed
-        {
-            self.start_loading(Pending::Program(position));
-            return;
-        }
-        self.open_disk(index);
-    }
-
-    fn open_disk(&mut self, index: usize) {
-        let Some(entry) = self.disks.get(index) else {
-            return;
-        };
-        if let Some(error) = entry.error.clone() {
-            let stem = entry.stem.clone();
-            self.set_status(format!("{stem}: {error}"));
-            return;
-        }
-        self.disk_open = index;
-        self.disk_selected = 0;
-        self.mode = Mode::DiskBrowser;
-        self.dirty = true;
-    }
-
-    /// Run a disk by name, or one of the built-ins.
-    fn run_named(&mut self, name: &str) -> Result<String, String> {
-        let wanted = name.trim().to_ascii_lowercase();
-        if matches!(wanted.as_str(), "editor" | "a") {
-            self.new_document()?;
-            return Ok(String::new());
-        }
-        if matches!(wanted.as_str(), "documents" | "files" | "b") {
-            self.open_palette();
-            return Ok(String::new());
-        }
-        if let Some(index) = program_index_by_id(&wanted) {
-            if !PROGRAMS[index].installed {
-                let mounted = self.disks.iter().any(|entry| {
-                    entry
-                        .disk
-                        .as_ref()
-                        .is_some_and(|disk| disk.program == wanted)
-                });
-                if !mounted {
-                    return Err(format!("no diskette called {wanted} - put one in Disks"));
-                }
-            }
-            self.start_loading(Pending::Program(index));
-            return Ok(String::new());
-        }
-        let index = self
-            .disks
-            .iter()
-            .position(|entry| {
-                entry.stem.eq_ignore_ascii_case(&wanted)
-                    || entry
-                        .disk
-                        .as_ref()
-                        .is_some_and(|d| d.name.eq_ignore_ascii_case(&wanted))
-            })
-            .ok_or_else(|| format!("no disk called {name}"))?;
-        self.open_disk(index);
-        Ok(String::new())
-    }
-
-    fn open_disk_file(&mut self) {
-        let Some(entry) = self.disks.get(self.disk_open) else {
-            return;
-        };
-        let Some(disk) = &entry.disk else {
-            return;
-        };
-        let Some(file) = disk.files.get(self.disk_selected) else {
-            return;
-        };
-        let title = format!("{}:{}", disk.name, file.name);
-        let text = file.text.clone();
-
-        self.discard_scratch();
-        self.doc = Document {
-            path: None,
-            read_only: true,
-            title_hint: Some(title),
-            editor: Editor::from_text(&text),
-            last_edit: Instant::now(),
-        };
-        self.has_document = true;
-        self.enter_view();
-    }
-
-    fn on_key_disk_browser(&mut self, event: KeyEvent) {
-        let count = self
-            .disks
-            .get(self.disk_open)
-            .and_then(|d| d.disk.as_ref())
-            .map(|d| d.files.len())
-            .unwrap_or(0);
-        match &event.logical_key {
-            Key::Named(NamedKey::Escape) => {
-                self.mode = Mode::Action;
-                self.disks_dirty = true;
-                self.dirty = true;
-            }
-            Key::Named(NamedKey::Enter) | Key::Named(NamedKey::Space) => self.open_disk_file(),
-            Key::Named(NamedKey::ArrowDown) => {
-                if self.disk_selected + 1 < count {
-                    self.disk_selected += 1;
-                }
-                self.poke();
-            }
-            Key::Named(NamedKey::ArrowUp) => {
-                self.disk_selected = self.disk_selected.saturating_sub(1);
-                self.poke();
-            }
-            _ => {}
-        }
-    }
-
-    // ── reader mode ─────────────────────────────────────────────────────────
 
     fn enter_view(&mut self) {
         if !self.has_document {
@@ -3984,9 +3731,9 @@ impl App {
                 self.doc.editor.set_cursor(*pos);
             }
         }
-        // Loading and the browser are their own destinations; anything else
-        // drops back to the document or the home screen.
-        if !matches!(self.mode, Mode::Loading | Mode::DiskBrowser) {
+        // Loading is its own destination; anything else drops back to the
+        // document or the home screen.
+        if self.mode != Mode::Loading {
             self.to_write();
         }
     }
@@ -3996,9 +3743,9 @@ impl App {
         if let Some(search) = self.search.take() {
             self.doc.editor.set_cursor(search.origin);
         }
-        // Loading and the browser are their own destinations; anything else
-        // drops back to the document or the home screen.
-        if !matches!(self.mode, Mode::Loading | Mode::DiskBrowser) {
+        // Loading is its own destination; anything else drops back to the
+        // document or the home screen.
+        if self.mode != Mode::Loading {
             self.to_write();
         }
     }
@@ -4372,21 +4119,7 @@ impl ApplicationHandler for App {
                 }
             }
             "loading" => self.start_loading(Pending::Inspiro),
-            "disk" => {
-                self.refresh_disks();
-                let name = self.opts.command.clone();
-                if let Err(e) = self.run_named(&name) {
-                    eprintln!("cread: {e}");
-                }
-            }
-            "diskfile" => {
-                self.refresh_disks();
-                let name = self.opts.command.clone();
-                match self.run_named(&name) {
-                    Ok(_) => self.open_disk_file(),
-                    Err(e) => eprintln!("cread: {e}"),
-                }
-            }
+            "software" => self.open_software(),
             "search" => {
                 let query = self.opts.command.clone();
                 self.start_search((!query.is_empty()).then_some(query));
@@ -4650,7 +4383,7 @@ mod tests {
     fn reopening_riff_with_a_disc_goes_straight_to_the_player() {
         let dir = vault("riff-reopen");
         let mut app = app_in(&dir);
-        let index = program_index_by_id("riff").expect("registered");
+        let index = PROGRAMS.iter().position(|p| p.id == "riff").expect("known");
 
         app.pending = Some(Pending::Program(index));
         app.finish_loading();
@@ -4670,6 +4403,9 @@ mod tests {
         let dir = vault("riff-empty");
         let mut app = app_in(&dir);
         app.prefs.riff_last.clear();
+        // Not installed yet: the deck refuses to even talk.
+        assert!(app.run_riff(RiffAction::Status).is_err());
+        app.prefs.installed.push("riff".into());
         assert!(app.riff_status().contains("no disc"));
         let error = app.run_riff(RiffAction::Play(None)).unwrap_err();
         assert!(error.contains("no music"), "{error}");
@@ -4774,96 +4510,71 @@ mod tests {
     }
 
     #[test]
-    fn the_boot_screen_is_documents_then_a_rule_then_the_modules() {
-        let dir = vault("boot-order");
-        std::fs::create_dir_all(dir.join("Disks")).unwrap();
-        std::fs::write(
-            dir.join("Disks/HELLO.DSK"),
-            "CRead Disk 1\nname=HELLO\n\n---FILE A.TXT\nhi\n",
-        )
-        .unwrap();
+    fn software_installs_and_removes_modules() {
+        let dir = vault("software");
         let mut app = app_in(&dir);
-        app.refresh_disks();
-        let rows = app.boot_rows();
-        let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
+        // Fresh: only the system and the shelf.
+        let labels = |app: &App| -> Vec<String> {
+            app.boot_rows().into_iter().map(|row| row.label).collect()
+        };
         assert_eq!(
-            labels,
+            labels(&app),
+            vec!["A: DOCUMENTS", "", "B: INSPIRO", "", "SOFTWARE"]
+        );
+
+        // Row 0 is Inspiro, the system: it refuses to go.
+        app.software_selected = 0;
+        app.software_activate();
+        assert_eq!(app.status, "Inspiro is the system - it stays");
+        assert_eq!(app.mode, Mode::Action, "no bar for a refusal");
+
+        // Enter on Softhand starts the bar; the bar is what finishes the job.
+        app.software_selected = 1;
+        app.software_activate();
+        assert_eq!(app.mode, Mode::Loading);
+        assert!(!app.is_installed("softhand"), "not until the bar is done");
+        app.finish_loading();
+        assert_eq!(app.mode, Mode::Software, "back to the shelf");
+        assert!(app.is_installed("softhand"));
+        assert_eq!(app.prefs.installed, vec!["softhand"]);
+        assert_eq!(
+            labels(&app),
             vec![
                 "A: DOCUMENTS",
                 "",
                 "B: INSPIRO",
                 "C: SOFTHAND",
                 "",
-                "D: HELLO"
+                "SOFTWARE"
             ]
         );
-        assert!(
-            rows[1].rule,
-            "the rule separates the vault from the modules"
+
+        // And removing it takes the row away again.
+        app.software_selected = 1;
+        app.software_activate();
+        app.finish_loading();
+        assert!(!app.is_installed("softhand"));
+        assert_eq!(app.prefs.installed.len(), 0);
+        assert_eq!(
+            labels(&app),
+            vec!["A: DOCUMENTS", "", "B: INSPIRO", "", "SOFTWARE"]
         );
-        assert!(rows[4].rule, "and one separates the modules from the disks");
-        assert!(rows[2].detail.contains("your ideas"));
-        assert!(rows[3].detail.contains("16 colors"));
-        assert!(!rows[3].broken, "SOFTHAND is installed, no diskette needed");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn ejecting_a_drive_hides_it_for_this_session_only() {
-        let dir = vault("eject");
-        std::fs::create_dir_all(dir.join("Disks")).unwrap();
-        std::fs::write(
-            dir.join("Disks/HELLO.DSK"),
-            "CRead Disk 1\nname=HELLO\n\n---FILE A.TXT\nhi\n",
-        )
-        .unwrap();
+    fn the_software_screen_lists_the_system_and_the_modules() {
+        let dir = vault("software-rows");
         let mut app = app_in(&dir);
-        app.refresh_disks();
-        assert!(app.boot_rows().iter().any(|row| row.label == "D: HELLO"));
-
-        // By drive letter, as on the boot screen.
-        let message = app.eject(Some("D".into())).unwrap();
-        assert!(message.contains("HELLO"), "{message}");
-        assert!(
-            !app.boot_rows()
-                .iter()
-                .any(|row| row.label.contains("HELLO"))
-        );
-        // A refresh does not bring it back: the list is what is inserted.
-        app.refresh_disks();
-        assert!(
-            !app.boot_rows()
-                .iter()
-                .any(|row| row.label.contains("HELLO"))
-        );
-
-        // The file is still there, so a new session sees it again.
-        assert!(dir.join("Disks/HELLO.DSK").is_file());
-        let mut fresh = app_in(&dir);
-        fresh.refresh_disks();
-        assert!(fresh.boot_rows().iter().any(|row| row.label == "D: HELLO"));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn ejecting_by_name_works_and_built_in_drives_refuse() {
-        let dir = vault("eject-name");
-        std::fs::create_dir_all(dir.join("Disks")).unwrap();
-        std::fs::write(
-            dir.join("Disks/HELLO.DSK"),
-            "CRead Disk 1\nname=HELLO\n\n---FILE A.TXT\nhi\n",
-        )
-        .unwrap();
-        let mut app = app_in(&dir);
-        app.refresh_disks();
-        assert!(app.eject(Some("hello".into())).is_ok());
-        assert!(app.eject(Some("hello".into())).is_err(), "already out");
-
-        // A: is the vault, B: is Inspiro; neither is a diskette.
-        assert!(app.eject(Some("A".into())).is_err());
-        assert!(app.eject(Some("B".into())).is_err());
-        assert!(app.eject(Some("Z".into())).is_err(), "no such drive");
+        let rows = app.software_rows();
+        assert_eq!(rows[0].name, "INSPIRO");
+        assert_eq!(rows[0].state, ui::SoftwareState::System);
+        let softhand = rows.iter().find(|row| row.name == "SOFTHAND").unwrap();
+        assert_eq!(softhand.state, ui::SoftwareState::Available);
+        app.prefs.installed.push("softhand".into());
+        let rows = app.software_rows();
+        let softhand = rows.iter().find(|row| row.name == "SOFTHAND").unwrap();
+        assert_eq!(softhand.state, ui::SoftwareState::Installed);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4875,55 +4586,13 @@ mod tests {
         app.boot_step(1);
         assert_eq!(app.boot_selected, 2, "over the rule, onto INSPIRO");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 3, "onto SOFTHAND");
+        assert_eq!(app.boot_selected, 4, "over the second rule, onto SOFTWARE");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 3, "no diskette, no row, no wrap");
+        assert_eq!(app.boot_selected, 4, "the end is the end");
         app.boot_step(-1);
-        assert_eq!(app.boot_selected, 2);
+        assert_eq!(app.boot_selected, 2, "back over the rule");
         app.boot_step(-1);
-        assert_eq!(app.boot_selected, 0, "back over the rule");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_disk_naming_an_unknown_program_says_so() {
-        let dir = vault("unknown-program");
-        std::fs::create_dir_all(dir.join("Disks")).unwrap();
-        std::fs::write(
-            dir.join("Disks/MAIL.DSK"),
-            "CRead Disk 1\nname=MAIL\nprogram=mailbox\n",
-        )
-        .unwrap();
-        let mut app = app_in(&dir);
-        app.refresh_disks();
-        let rows = app.boot_rows();
-        let row = rows
-            .iter()
-            .find(|row| row.label.contains("MAIL"))
-            .expect("listed");
-        assert!(row.broken);
-        assert!(row.detail.contains("not installed"), "{}", row.detail);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_disk_without_the_program_header_stays_a_data_disk() {
-        let dir = vault("data-disk");
-        std::fs::create_dir_all(dir.join("Disks")).unwrap();
-        std::fs::write(
-            dir.join("Disks/HELLO.DSK"),
-            "CRead Disk 1\nname=HELLO\n\n---FILE A.TXT\nhi\n",
-        )
-        .unwrap();
-        let mut app = app_in(&dir);
-        app.refresh_disks();
-        let rows = app.boot_rows();
-        let row = rows
-            .iter()
-            .find(|row| row.label.contains("HELLO"))
-            .expect("listed");
-        assert!(row.label.ends_with("HELLO"));
-        assert!(row.detail.contains("file"));
+        assert_eq!(app.boot_selected, 0, "back over the first");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -44,13 +44,8 @@ pub enum Command {
     Colour(Option<u8>),
     /// Toggle reader mode.
     View,
-    /// Run a diskette by name; bare `run` runs what the boot screen has
-    /// selected.
-    Run(Option<String>),
-    /// List the diskettes in the drive folder.
-    Dir,
-    /// Take a diskette out for this session: bare means the selected one.
-    Eject(Option<String>),
+    /// Open the install screen.
+    Software,
     /// Back to the boot screen: leave whatever is open, without quitting.
     Exit,
     /// `exit!` - save and quit, from anywhere.
@@ -84,7 +79,7 @@ pub enum RiffAction {
 /// screen you are standing on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
-    /// The boot screen: drives, disks, settings.
+    /// The boot screen: the vault, the modules and the shelf.
     Boot,
     /// The editor (Inspiro): documents and the writing screen.
     Editor,
@@ -289,27 +284,6 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
-        name: "eject",
-        aliases: &["unmount"],
-        argument: "[drive]",
-        summary: "take a diskette out until the next start",
-        scopes: &[Scope::Boot],
-    },
-    Spec {
-        name: "run",
-        aliases: &["exec"],
-        argument: "[name]",
-        summary: "run a diskette (bare: the one selected on the boot screen)",
-        scopes: &[Scope::Boot],
-    },
-    Spec {
-        name: "dir",
-        aliases: &["disks"],
-        argument: "",
-        summary: "list the diskettes in the drive folder",
-        scopes: &[Scope::Boot],
-    },
-    Spec {
         name: "tool",
         aliases: &["tools"],
         argument: "[name]",
@@ -329,6 +303,13 @@ pub const SPECS: &[Spec] = &[
         argument: "[n]",
         summary: "palette colour, 0 to 15",
         scopes: &[Scope::Program],
+    },
+    Spec {
+        name: "software",
+        aliases: &["install", "modules"],
+        argument: "",
+        summary: "install or remove modules",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "settings",
@@ -455,9 +436,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "redo" => Command::Redo,
         "view" => Command::View,
         "find" => Command::Find(optional(rest)),
-        "run" => Command::Run(optional(rest)),
-        "dir" => Command::Dir,
-        "eject" => Command::Eject(optional(rest)),
+        "software" => Command::Software,
         "riff" => Command::Riff(parse_riff(rest)?),
         "exit" => {
             if bang {
@@ -644,8 +623,7 @@ mod tests {
     #[test]
     fn help_is_scoped_to_the_screen_you_are_on() {
         let boot = specs_for(Scope::Boot);
-        assert!(boot.iter().any(|s| s.name == "run"));
-        assert!(boot.iter().any(|s| s.name == "dir"));
+        assert!(boot.iter().any(|s| s.name == "software"));
         assert!(
             !boot.iter().any(|s| s.name == "save"),
             "nothing to save yet"

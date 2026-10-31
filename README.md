@@ -40,9 +40,8 @@ Every push to `main` builds a ready-to-run Linux binary in CI:
 1. Open the **Actions** tab and pick the newest *Release build* run.
 2. Download the `cread-linux-x86_64` artifact.
 3. `tar xzf cread-linux-x86_64.tar.gz && ./cread`
-4. `mkdir -p ~/Dokumente/CRead/Disks && cp disks/*.dsk ~/Dokumente/CRead/Disks/`
-   — the tarball ships the sample diskettes, and without `RIFF.DSK` the music
-   player never appears on the boot screen.
+
+Modules are compiled in; `software` in the boot screen's prompt switches them on.
 
 Tagged releases also publish the tarball on the
 [Releases](https://github.com/darknoxx/CRead/releases) page, which is the
@@ -74,14 +73,15 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        ─────────────────────────────────────────
                        B: INSPIRO     where your ideas have room to grow
                        C: SOFTHAND    16 colors, endless possibilities.
-                       ─────────────────────────────────────────
                        D: RIFF        a Soundtrack for your life.
-                       E: HELLO       a sample diskette
+                       ─────────────────────────────────────────
+                       SOFTWARE      install and remove modules
 ```
 
-`A:` is the vault itself. Below the rule are the modules: `B:` is **Inspiro**,
-the writing terminal, `C:` is **Softhand**, the paint program. Both are installed
-with CRead, and both open with a fake loading bar before their own front door
+`A:` is the vault itself. Below the rule are the modules, and below the second
+rule is `SOFTWARE`. A fresh install has only **Inspiro**, the writing terminal;
+**Softhand** (paint) and **Riff** (music) sit in the shelf until you switch them
+on there. Every module opens with a fake loading bar before its own front door
 appears.
 
 ```
@@ -111,8 +111,8 @@ mode**, where the bottom line turns into a command prompt, like a DOS shell.
 the right tells you what the command does before you commit to it.
 
 `help` is not one big list: it shows the commands that belong to the screen you
-are on — drives and disks on the boot screen, documents and search in the editor,
-tools and colours in Softhand. `help all` shows the whole vocabulary, and on the
+are on — drives and the shelf on the boot screen, documents and search in the
+editor, tools and colours in Softhand. `help all` shows the whole vocabulary, and on the
 help screen the arrow keys walk it while the status line explains each row.
 
 | Command | Aliases | What it does |
@@ -127,10 +127,8 @@ help screen the arrow keys walk it while the status line explains each row.
 | `find [text]` | `search` | search the document (`Ctrl+F`) |
 | `view` | `read` | reading mode: markup stripped, nothing to edit |
 | `exit` | `welcome`, `home` | back to the boot screen |
-| `run [name]` | `exec` | run a diskette (bare: whatever the boot screen has selected) |
-| `eject [drive]` | `unmount` | take a diskette out until CRead restarts |
+| `software` | `install`, `modules` | install or remove modules |
 | `riff <command>` | `music` | the music player: play, stop, next, volume, … |
-| `dir` | `disks` | list the diskettes in the drive folder |
 | `beep [on\|off]` | `bell` | the startup beep; bare `beep` toggles |
 | `font [classic\|thin]` | `weight` | typeface; bare `font` cycles |
 | `sync` | | push the vault to WebDAV now |
@@ -157,68 +155,29 @@ usual `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work with the system clipboard. Marked text
 is drawn inverted, and typing or `Backspace` replaces it. The mouse does the
 obvious thing: click places the cursor, dragging marks, the wheel scrolls.
 
-## Diskettes
+## SOFTWARE
 
 CRead OS is the start screen: the logo, a greeting, the drives and a prompt. The
-vault is `A:`, the modules `B: INSPIRO` and `C: SOFTHAND` follow, and everything
-after that comes from the `Disks` folder inside your vault:
+vault is `A:`, the modules follow, and the last row opens the shelf:
 
 ```
-~/Dokumente/CRead/Disks/MAIL.DSK
+SOFTWARE                                  install and remove modules
+  ┌──────────────────────────────────────────────────────────┐
+  │ ► INSPIRO   where your ideas have room to grow      system│
+  │   SOFTHAND  16 colors, endless possibilities.     install │
+  │   RIFF      a Soundtrack for your life.           install │
+  └──────────────────────────────────────────────────────────┘
 ```
 
-A diskette is a single plain-text file, so it can be read with `type`, mailed
-around, or kept in git. The format:
+`Enter` installs or removes, with a short bar in between — the moment is part of
+the show. The choice is remembered, and the boot screen follows immediately.
+Inspiro is the system and cannot be removed; it is greyed out and stays. Nothing
+is downloaded: every module is compiled into the binary, and the shelf only
+decides what is visible.
 
-```
-CRead Disk 1
-name=MAIL
-api=1
-about=Postfach und Nachrichten
-author=you
-
----FILE README.TXT
-Willkommen in der Post.
----FILE INBOX/1.TXT
-Hallo.
-```
-
-Line one is the magic. Then `key=value` lines (`name` is required, `api` is the
-container version), then files introduced by `---FILE <name>`. A diskette that
-will not parse still shows up on the boot screen, in red, with the reason — you
-can see that something is wrong without digging.
-
-`eject D` takes a diskette out for the session — the row disappears from the boot
-screen, and `dir` no longer lists it. The file is untouched, so it is back at the
-next start; to be rid of it for good, move it out of `Disks`. Bare `eject` takes
-whatever the boot screen has selected.
-
-Data diskettes are read-only: opening a file shows it in the reader, and `Esc`
-takes you back to the disk. Code diskettes (a payload that actually runs) are
-the next step; the container is designed to carry them.
-
-`examples/disks/HELLO.DSK` is a working sample.
-
-### Program disks
-
-A diskette can name a program in its header instead of carrying documents:
-
-```
-CRead Disk 1
-name=MAILBOX
-api=1
-program=mailbox
-```
-
-The code is always in the binary; the diskette is what puts the drive on the
-shelf. A program that ships as a removable module has no boot row until its
-diskette is in `Disks` — take it out and the row is gone again. A diskette that
-names a program this build does not have shows up in red: *needs program
-mailbox, which is not installed*.
-
-Softhand is installed, so it never needs a diskette; a `program=softhand` disk
-would just be a data disk. `exit` returns to the boot screen (and quits CRead
-when you are already there), `exit!` quits from anywhere.
+`software` opens the same screen from any prompt, so you can install Riff while
+writing and find its row on the boot screen afterwards. Removing a module leaves
+your documents and pictures where they are; removing Riff stops the music.
 
 ## View mode
 
@@ -238,7 +197,7 @@ it landed, `Esc` puts it back.
 ## Softhand
 
 Softhand is the paint program, and the first module with pixels under the text
-layer. It is installed with CRead — no diskette needed. Its front door looks like
+layer. It is installed through `software` like Riff. Its front door looks like
 Inspiro's (logo, tagline, `new`/`open`), and the
 canvas is the full 640x368 raster with a sixteen-colour VGA palette along the
 bottom. Pictures are PNGs in `<vault>/Pictures`; `save` picks `picture.png`,
@@ -259,9 +218,9 @@ is a trap, and 240 KB per step is nothing.
 
 ## Riff
 
-Riff is the music player and the first module that ships on a diskette:
-`examples/disks/RIFF.DSK` in `Disks` puts `D: RIFF` on the boot screen, and
-`eject D` takes it away again.
+Riff is the music player. It is installed from the `SOFTWARE` shelf and appears
+on the boot screen under its own letter; remove it there and the row is gone
+again, the music stops, and nothing else changes.
 
 It plays the XDG music folder (`~/Musik` or `~/Music`), not a folder of its own:
 `i` opens the browser, Enter walks into a folder, Enter on a track plays it, and

@@ -386,6 +386,103 @@ pub fn draw_program_line(
     }
 }
 
+// ── software ────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SoftwareState {
+    /// Part of the system, cannot be removed.
+    System,
+    Installed,
+    Available,
+}
+
+pub struct SoftwareItem {
+    pub name: String,
+    pub tagline: String,
+    pub state: SoftwareState,
+}
+
+/// The install screen: one row per module, with what it is and where it stands.
+pub fn draw_software(screen: &mut Screen, theme: &Theme, items: &[SoftwareItem], selected: usize) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    screen.fill_row(0, Cell::blank(theme.status_fg, theme.status_bg));
+    screen.put_str(0, 0, " SOFTWARE ", theme.status_fg, theme.status_bg);
+    let right = "install and remove modules ";
+    let x = cols.saturating_sub(right.chars().count() as u32);
+    if x > 20 {
+        screen.put_str(x, 0, right, theme.status_fg, theme.status_bg);
+    }
+
+    let inner = cols.saturating_sub(6).min(66);
+    let x0 = (cols - inner) / 2;
+    let (b, bg) = (theme.accent, theme.bg);
+    let first = 3;
+    let height = items.len() as u32 + 2;
+    for x in x0 + 1..x0 + inner - 1 {
+        screen.put(x, first - 1, Cell::new('\u{2550}', b, bg));
+        screen.put(x, first + height - 1, Cell::new('\u{2550}', b, bg));
+    }
+    for y in first..first + height - 1 {
+        screen.put(x0, y, Cell::new('\u{2551}', b, bg));
+        screen.put(x0 + inner - 1, y, Cell::new('\u{2551}', b, bg));
+    }
+    screen.put(x0, first - 1, Cell::new('\u{2554}', b, bg));
+    screen.put(x0 + inner - 1, first - 1, Cell::new('\u{2557}', b, bg));
+    screen.put(x0, first + height - 1, Cell::new('\u{255a}', b, bg));
+    screen.put(
+        x0 + inner - 1,
+        first + height - 1,
+        Cell::new('\u{255d}', b, bg),
+    );
+
+    for (i, item) in items.iter().enumerate() {
+        let y = first + i as u32;
+        let selected = i == selected;
+        let (fg, row_bg) = if selected {
+            (theme.bg, theme.fg)
+        } else if item.state == SoftwareState::System {
+            (theme.dim, bg)
+        } else {
+            (theme.fg, bg)
+        };
+        if selected {
+            for px in x0 + 1..x0 + inner - 1 {
+                screen.put(px, y, Cell::blank(theme.bg, theme.fg));
+            }
+        }
+        let mark = if selected { "\u{25ba}" } else { " " };
+        screen.put_str(x0 + 2, y, mark, theme.accent, row_bg);
+        screen.put_str_ellipsis(x0 + 4, y, &item.name, 10, fg, row_bg);
+        screen.put_str_ellipsis(
+            x0 + 15,
+            y,
+            &item.tagline,
+            inner.saturating_sub(32),
+            theme.dim,
+            row_bg,
+        );
+        let state = match item.state {
+            SoftwareState::System => "system",
+            SoftwareState::Installed => "installed",
+            SoftwareState::Available => "install",
+        };
+        let sx = x0 + inner - 2 - state.chars().count() as u32;
+        screen.put_str(sx, y, state, fg, row_bg);
+    }
+
+    let bar = rows.saturating_sub(1);
+    screen.fill_row(bar, Cell::blank(theme.status_fg, theme.status_bg));
+    screen.put_str(0, bar, " Esc  back ", theme.status_fg, theme.status_bg);
+    let hint = "Enter install or remove";
+    let hx = cols.saturating_sub(hint.chars().count() as u32 + 1);
+    if hx > 16 {
+        screen.put_str(hx, bar, hint, theme.status_fg, theme.status_bg);
+    }
+}
+
 // ── riff ────────────────────────────────────────────────────────────────────
 
 pub struct RiffView<'a> {
@@ -677,75 +774,6 @@ pub fn draw_loading(screen: &mut Screen, theme: &Theme, label: &str, progress: f
     );
 }
 
-// ── diskette browser ────────────────────────────────────────────────────────
-
-pub struct DiskView<'a> {
-    pub title: &'a str,
-    pub about: &'a str,
-    pub files: &'a [String],
-    pub selected: usize,
-}
-
-/// The contents of the diskette in the drive.
-pub fn draw_disk(screen: &mut Screen, theme: &Theme, view: &DiskView<'_>) {
-    let cols = screen.cols();
-    let rows = screen.rows();
-    screen.fill(Cell::blank(theme.fg, theme.bg));
-
-    let (bar_fg, bar_bg) = (theme.status_fg, theme.status_bg);
-    screen.fill_row(0, Cell::blank(bar_fg, bar_bg));
-    screen.put_str(1, 0, &format!(" {} ", view.title), bar_fg, bar_bg);
-    let right = format!("{} files ", view.files.len());
-    let x = cols.saturating_sub(right.chars().count() as u32);
-    if x > 20 {
-        screen.put_str(x, 0, &right, bar_fg, bar_bg);
-    }
-
-    if !view.about.is_empty() {
-        screen.put_str_ellipsis(
-            2,
-            2,
-            view.about,
-            cols.saturating_sub(4),
-            theme.status_dim,
-            theme.bg,
-        );
-    }
-
-    let first = 4u32;
-    let height = rows.saturating_sub(first + 2) as usize;
-    let offset = view.selected.saturating_sub(height.saturating_sub(1));
-    for (i, name) in view.files.iter().enumerate().skip(offset).take(height) {
-        let y = first + (i - offset) as u32;
-        let selected = i == view.selected;
-        if selected {
-            for x in 1..cols.saturating_sub(1) {
-                screen.put(x, y, Cell::blank(theme.bg, theme.fg));
-            }
-        }
-        let (fg, bg) = if selected {
-            (theme.bg, theme.fg)
-        } else {
-            (theme.fg, theme.bg)
-        };
-        screen.put_str(2, y, ">", theme.accent, bg);
-        screen.put_str_ellipsis(4, y, name, cols.saturating_sub(6), fg, bg);
-    }
-
-    if view.files.is_empty() {
-        screen.put_str(2, first, "this disk has no files", theme.dim, theme.bg);
-    }
-
-    let bar = rows.saturating_sub(1);
-    screen.fill_row(bar, Cell::blank(bar_fg, bar_bg));
-    screen.put_str(0, bar, " Esc eject ", bar_fg, bar_bg);
-    let hint = "Enter open ";
-    let x = cols.saturating_sub(hint.chars().count() as u32);
-    if x > 20 {
-        screen.put_str(x, bar, hint, bar_fg, bar_bg);
-    }
-}
-
 // ── reader (view mode) ──────────────────────────────────────────────────────
 
 pub struct ReaderView<'a> {
@@ -756,7 +784,7 @@ pub struct ReaderView<'a> {
     /// Index of the first visible row.
     pub top: usize,
     pub words: usize,
-    /// What leaving this view does — differs for diskettes.
+    /// What leaving this view does.
     pub hint: &'a str,
 }
 
@@ -820,11 +848,13 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
 pub struct BootItem {
     pub label: String,
     pub detail: String,
-    /// Shown in the error colour: a disk that would not parse.
+    /// Shown in the error colour.
     pub broken: bool,
     /// A horizontal rule instead of a row: the shelf which separates the vault
     /// from the modules. Never selectable, never counted for the block width.
     pub rule: bool,
+    /// Drawn without a drive letter: the SOFTWARE row.
+    pub bare: bool,
 }
 
 impl BootItem {
@@ -834,6 +864,7 @@ impl BootItem {
             detail: String::new(),
             broken: false,
             rule: true,
+            bare: false,
         }
     }
 }
@@ -844,7 +875,7 @@ pub struct WelcomeView<'a> {
     pub title_row: u32,
     pub items: &'a [BootItem],
     pub selected: usize,
-    /// Shown dimmed under the list, e.g. where the disks live.
+    /// Shown dimmed under the list.
     pub note: &'a str,
     pub input: &'a str,
     pub hint: &'a str,
@@ -904,6 +935,16 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
                 screen.put(x, y, Cell::blank(theme.bg, theme.fg));
             }
         }
+        let (x, label) = if item.bare {
+            // `A: NAME` is nine cells of drive before the text; a row without a
+            // letter lines up with the names instead.
+            (
+                x0 + LABEL_W.saturating_sub(item.label.chars().count() as u32 + 1),
+                item.label.as_str(),
+            )
+        } else {
+            (x0, item.label.as_str())
+        };
         let bar_bg = if selected { theme.fg } else { theme.bg };
         let (label_fg, detail_fg) = if selected {
             (theme.bg, theme.bg)
@@ -913,9 +954,9 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
             (theme.accent, theme.dim)
         };
         screen.put_str(
-            x0,
+            x,
             y,
-            &format!("{:<width$}", item.label, width = LABEL_W as usize),
+            &format!("{:<width$}", label, width = (x0 + LABEL_W - x) as usize),
             label_fg,
             bar_bg,
         );
@@ -1452,6 +1493,7 @@ mod tests {
                 detail: "open a file from the vault".into(),
                 broken: false,
                 rule: false,
+                bare: false,
             },
             BootItem::rule(),
             BootItem {
@@ -1459,18 +1501,15 @@ mod tests {
                 detail: "the writing terminal".into(),
                 broken: false,
                 rule: false,
+                bare: false,
             },
+            BootItem::rule(),
             BootItem {
-                label: "C: MAIL".into(),
-                detail: "Postfach".into(),
+                label: "SOFTWARE".into(),
+                detail: "install and remove modules".into(),
                 broken: false,
                 rule: false,
-            },
-            BootItem {
-                label: "D: BROKEN".into(),
-                detail: "not a CRead disk".into(),
-                broken: true,
-                rule: false,
+                bare: true,
             },
         ];
         draw_welcome(
@@ -1481,7 +1520,7 @@ mod tests {
                 title_row: 4,
                 items: &items,
                 selected: 2,
-                note: "no disks - put .dsk files in ~/Dokumente/CRead/Disks",
+                note: "",
                 input: "ne",
                 hint: "arrows select",
                 error: "",
@@ -1489,10 +1528,9 @@ mod tests {
         );
         let text = rows_as_text(&screen);
         assert!(text.contains("Welcome to CRead"));
-        assert!(text.contains("no disks"));
         assert!(text.contains("A: DOCUMENTS"));
         assert!(text.contains("B: INSPIRO"));
-        assert!(text.contains("C: MAIL"));
+        assert!(text.contains("SOFTWARE"));
         assert!(text.contains("> ne"));
 
         // The rule sits between the vault and the modules, and is not a row.

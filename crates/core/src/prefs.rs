@@ -31,6 +31,9 @@ pub struct Prefs {
     pub riff_last: String,
     /// Shuffle the playlist.
     pub riff_random: bool,
+    /// Ids of the modules installed through SOFTWARE. Inspiro is the system and
+    /// is never in here.
+    pub installed: Vec<String>,
 }
 
 impl Default for Prefs {
@@ -48,6 +51,7 @@ impl Default for Prefs {
             volume: 70,
             riff_last: String::new(),
             riff_random: false,
+            installed: Vec::new(),
         }
     }
 }
@@ -139,6 +143,7 @@ mod tests {
             volume: 40,
             riff_last: "/music/Morgenlicht".into(),
             riff_random: true,
+            installed: vec!["riff".into()],
         };
         saved.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), saved);
