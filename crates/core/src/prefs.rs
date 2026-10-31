@@ -20,6 +20,8 @@ pub struct Prefs {
     pub roll: bool,
     /// "classic" (VGA) or "thin" (ISO), see `cread_render::Face`.
     pub font: String,
+    /// The PC speaker beep once the screen has settled.
+    pub beep: bool,
 }
 
 impl Default for Prefs {
@@ -32,6 +34,7 @@ impl Default for Prefs {
             bloom: crt.1,
             roll: true,
             font: "classic".to_string(),
+            beep: true,
         }
     }
 }
@@ -101,6 +104,7 @@ mod tests {
         assert!(p.roll);
         assert!(p.bloom);
         assert!(!p.typewriter);
+        assert!(p.beep);
     }
 
     #[test]
@@ -114,6 +118,7 @@ mod tests {
             bloom: true,
             roll: false,
             font: "thin".into(),
+            beep: false,
         };
         saved.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), saved);

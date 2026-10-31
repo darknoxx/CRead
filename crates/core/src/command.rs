@@ -24,6 +24,8 @@ pub enum Command {
     /// Let the scanline pattern drift downwards.
     Roll(Option<bool>),
     Typewriter(Option<bool>),
+    /// The PC speaker beep after the screen settles.
+    Beep(Option<bool>),
     /// `Some(name)` picks a face, `None` cycles to the next one.
     Font(Option<String>),
     /// `true` = go fullscreen.
@@ -192,6 +194,13 @@ pub const SPECS: &[Spec] = &[
         argument: "[on|off]",
         summary: "toggle or set typewriter scrolling",
         scopes: &[Scope::Editor],
+    },
+    Spec {
+        name: "beep",
+        aliases: &["bell"],
+        argument: "[on|off]",
+        summary: "the beep once the screen settles",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "font",
@@ -393,6 +402,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "bloom" => Command::Bloom(switch(rest)?),
         "roll" => Command::Roll(switch(rest)?),
         "typewriter" => Command::Typewriter(switch(rest)?),
+        "beep" => Command::Beep(switch(rest)?),
         "font" => Command::Font(optional(rest)),
         "fullscreen" => Command::Fullscreen(true),
         "windowed" => Command::Fullscreen(false),

@@ -44,6 +44,22 @@ const ROLL_SPEED: f32 = 40.0;
 const ANIMATION_FPS: u32 = 60;
 /// How long a status message stays on the line before the mode hint returns.
 const STATUS_TTL: Duration = Duration::from_secs(4);
+/// The CRT warming up: a few stutters, then the picture holds. Short enough
+/// that it reads as power-on rather than as a wait.
+const BOOT_SECONDS: f32 = 0.9;
+/// (from second, brightness) — a monitor looking for a signal.
+const BOOT_STEPS: &[(f32, f32)] = &[
+    (0.00, 0.0),
+    (0.08, 0.9),
+    (0.14, 0.0),
+    (0.20, 0.5),
+    (0.26, 0.0),
+    (0.34, 1.0),
+    (0.42, 0.2),
+    (0.50, 1.0),
+    (0.58, 0.45),
+    (0.66, 1.0),
+];
 
 pub fn run(opts: Options) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| format!("event loop: {e}"))?;
@@ -376,6 +392,10 @@ struct App {
     help_selected: usize,
     /// `help all` shows the whole vocabulary instead of this screen's list.
     help_all: bool,
+    /// Set while the CRT is still flickering on.
+    boot_at: Option<Instant>,
+    /// The startup beep, mirrored from the preferences.
+    beep_on: bool,
 
     sync_cfg: SyncConfig,
     sync: Option<Worker>,
@@ -491,6 +511,7 @@ impl App {
         }
         let theme = opts.theme.unwrap_or_else(|| prefs.theme());
         let typewriter = prefs.typewriter;
+        let beep_on = prefs.beep;
         let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
         Self {
@@ -567,6 +588,8 @@ impl App {
             help_about: false,
             help_selected: 0,
             help_all: false,
+            boot_at: None,
+            beep_on,
             sync_cfg,
             sync: None,
         }
@@ -693,6 +716,16 @@ impl App {
         }
 
         let mut crt = self.crt;
+        if let Some(started) = self.boot_at {
+            match boot_brightness(started.elapsed().as_secs_f32()) {
+                Some(level) => crt.brightness *= level,
+                None => {
+                    // Settled: the picture stays, the speaker says it is ready.
+                    self.boot_at = None;
+                    self.beep();
+                }
+            }
+        }
         if self.theme.is_light() {
             // Glow on paper is ink bleed: keep a trace, not a haze.
             crt.bloom *= 0.3;
@@ -788,7 +821,7 @@ impl App {
 
         // Nothing animates any more except the cursor, so we do not run a
         // frame clock at all: sleep until the blink is due and redraw then.
-        if self.mode == Mode::Loading {
+        if self.boot_at.is_some() || self.mode == Mode::Loading {
             self.next_frame = frame_start + Duration::from_millis(1000 / ANIMATION_FPS as u64);
         } else if crt.roll > 0.0 && crt.scanline > 0.0 {
             // The raster moves, so this is the one case that needs a clock.
@@ -1618,6 +1651,11 @@ impl App {
         if event.state != ElementState::Pressed {
             return;
         }
+        if self.boot_at.take().is_some() {
+            // Impatient: skip the warm-up, and swallow the key that skipped it.
+            self.next_frame = Instant::now();
+            return;
+        }
         match self.mode {
             Mode::Write => self.on_key_write(el, event),
             Mode::Search => self.on_key_search(event),
@@ -2144,6 +2182,13 @@ impl App {
                 self.dirty = true;
                 Ok(format!("scanline roll: {}", on_off(on)))
             }
+            Command::Beep(want) => {
+                self.beep_on = want.unwrap_or(!self.beep_on);
+                self.prefs.beep = self.beep_on;
+                self.save_prefs();
+                self.beep();
+                Ok(format!("beep: {}", on_off(self.beep_on)))
+            }
             Command::Typewriter(want) => {
                 self.typewriter = want.unwrap_or(!self.typewriter);
                 self.save_prefs();
@@ -2524,6 +2569,13 @@ impl App {
     }
 
     /// Cheap "something changed, redraw soon" for non-document keys.
+    /// One PC speaker beep, if the preference is on.
+    fn beep(&mut self) {
+        if self.beep_on {
+            crate::beep::play();
+        }
+    }
+
     fn poke(&mut self) {
         // Render as soon as the event loop comes back around.
         self.next_frame = Instant::now();
@@ -3451,6 +3503,12 @@ impl ApplicationHandler for App {
         self.recompute_viewport();
         self.dirty = true;
 
+        // A screenshot wants the settled picture; `--boot` replays the flicker
+        // so it can be looked at.
+        if self.opts.boot || self.opts.screenshot.is_none() {
+            self.boot_at = Some(Instant::now());
+        }
+
         if self.sync_cfg.enabled {
             self.start_worker();
             self.request_sync();
@@ -3660,6 +3718,20 @@ fn boot_logo(
         }
     }
     (1, 0)
+}
+
+/// Brightness for the warm-up at `seconds`, or `None` once it has settled.
+fn boot_brightness(seconds: f32) -> Option<f32> {
+    if seconds >= BOOT_SECONDS {
+        return None;
+    }
+    let level = BOOT_STEPS
+        .iter()
+        .rev()
+        .find(|(from, _)| seconds >= *from)
+        .map(|(_, level)| *level)
+        .unwrap_or(0.0);
+    Some(level)
 }
 
 fn report_word(report: &SyncReport) -> String {

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **The screen warms up.** On launch the picture stutters three times over nine
+  tenths of a second, like a CRT looking for a signal, then the PC speaker beeps
+  once. Any key skips it; `beep off` turns the sound off and `--boot` replays the
+  flicker for screenshots. The beep is a WAV handed to `paplay`, `pw-play`,
+  `aplay` or `play` — no audio stack in the build, and silence if none is there.
+
 ## 0.7.0
 
 - **Softhand.** The first program with pixels: a 16-colour paint program with

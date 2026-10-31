@@ -56,7 +56,12 @@ cread
 
 ## Two modes
 
-On launch you get the boot screen: the logo, a greeting and a short drive list.
+On launch the picture stutters on like a monitor looking for a signal — three
+flickers over nine tenths of a second — and then the PC speaker beeps once and
+the boot screen settles. Any key skips the warm-up. `beep off` silences it, and
+`--boot` replays the flicker (handy with `--screenshot`).
+
+Then you get the boot screen: the logo, a greeting and a short drive list.
 
 ```
                              Welcome to CRead
@@ -117,7 +122,8 @@ help screen the arrow keys walk it while the status line explains each row.
 | `exit` | `welcome`, `home` | back to the boot screen |
 | `run [name]` | `exec` | run a diskette (bare: whatever the boot screen has selected) |
 | `dir` | `disks` | list the diskettes in the drive folder |
-| `font [classic\|thin\|cga]` | `weight` | typeface; bare `font` cycles |
+| `beep [on\|off]` | `bell` | the startup beep; bare `beep` toggles |
+| `font [classic\|thin]` | `weight` | typeface; bare `font` cycles |
 | `sync` | | push the vault to WebDAV now |
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
 | `scanlines [on\|off] [-r]` | `scan`, `sl` | switch scanlines on; `-r` adds a slow downward drift |

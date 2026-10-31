@@ -65,7 +65,10 @@ blink. Two consequences:
   `App::on_key`). Forgetting this makes that movement lag behind the key repeat
   by up to 620 ms — the exact bug that made Up/Down feel unresponsive.
 - Adding an effect that changes every frame (flicker, drift, animation) means
-  bringing a frame clock back deliberately, not by accident.
+  bringing a frame clock back deliberately, not by accident. There are exactly
+  three: scanline drift, the fake loading bar, and the CRT warm-up on launch
+  (`BOOT_STEPS`, 0.9 s, skipped by any key and by every screenshot unless
+  `--boot`).
 
 **The CRT uniform layout must match the WGSL struct byte for byte.** `CrtUniforms`
 is 32 bytes and has a `const` assertion; the shader pads to the same size. A

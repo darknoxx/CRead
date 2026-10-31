@@ -23,6 +23,7 @@ OPTIONS:
         --no-bloom          Disable bloom only
         --vault DIR         Document folder (default: ~/Documents/CRead)
         --demo              Open the built-in welcome document
+        --boot              Replay the CRT warm-up (use with --screenshot)
         --sync-once         Run one WebDAV sync round, print the result, exit
         --show VIEW         Start in a view: editor | welcome | action | search |
                             view | inspiro | softhand | picture | palette |
@@ -52,6 +53,8 @@ pub struct Options {
     pub sync_once: bool,
     pub show: String,
     pub screenshot_delay: u64,
+    /// Replay the CRT warm-up, even when screenshotting.
+    pub boot: bool,
     pub command: String,
 }
 
@@ -72,6 +75,7 @@ impl Default for Options {
             sync_once: false,
             show: String::from("editor"),
             screenshot_delay: 0,
+            boot: false,
             command: String::new(),
         }
     }
@@ -134,6 +138,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                 opts.vault = Some(PathBuf::from(v));
             }
             "--demo" => opts.demo = true,
+            "--boot" => opts.boot = true,
             "--sync-once" => opts.sync_once = true,
             "--screenshot-delay" => {
                 let v = args.next().ok_or("--screenshot-delay needs a value")?;
