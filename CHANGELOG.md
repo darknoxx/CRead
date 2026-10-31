@@ -7,7 +7,9 @@
   come from `<vault>/Roms`; the module lists folders and `.gb`/`.gbc` files, maps
   the 160x144 screen to four shades and doubles it, prints the key legend under
   the screen — on the page, not in a black box — and plays the APU on its own
-  audio stream. The raster now starts as the theme's page colour and cells can
+  audio stream (at the 88.2 kHz Mizu actually emits, not the 44.1 kHz its
+  source claims — that mistake played everything an octave low and a beat
+  behind). The raster now starts as the theme's page colour and cells can
   carry ink without a background, so a program can sit on the page like the
   rest of the interface. The buttons are `Space`
   (A), `C` (B), `Enter`/right `Ctrl` (Start) and left `Ctrl` (Select) — chosen to

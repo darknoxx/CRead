@@ -15,8 +15,13 @@ use rodio::buffer::SamplesBuffer;
 use rodio::queue::{SourcesQueueInput, queue};
 use rodio::{OutputStream, OutputStreamBuilder, Sink};
 
-/// Mizu's APU hands out 44.1 kHz mono samples.
-const SAMPLE_RATE: u32 = 44_100;
+/// What Mizu's APU actually emits.
+///
+/// Its source says 44.1 kHz, but a frame yields 1476 samples and a frame is
+/// 59.7 Hz, so the rate is 88.2 kHz. Playing those samples at 44.1 kHz made
+/// everything an octave low and half speed, with the queue growing behind.
+/// Measured, not guessed.
+const SAMPLE_RATE: u32 = 88_200;
 
 /// The machine's screen, in its own pixels.
 pub const GB_W: u32 = 160;
