@@ -39,12 +39,13 @@ pub enum Command {
     Run(Option<String>),
     /// List the diskettes in the drive folder.
     Dir,
-    /// Back to the start screen.
-    Welcome,
+    /// Back to the boot screen: leave whatever is open, without quitting.
+    Exit,
+    /// `exit!` - save and quit, from anywhere.
+    ExitForce,
     Settings,
     Help,
     About,
-    Quit,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,7 +92,7 @@ pub const SPECS: &[Spec] = &[
         name: "save",
         aliases: &["w", "safe", "write"],
         argument: "",
-        summary: "write the document to disk",
+        summary: "write it to disk",
     },
     Spec {
         name: "saveas",
@@ -103,13 +104,13 @@ pub const SPECS: &[Spec] = &[
         name: "open",
         aliases: &["o", "e"],
         argument: "[name]",
-        summary: "open a document (bare: file list)",
+        summary: "open a document or picture (bare: list)",
     },
     Spec {
         name: "new",
         aliases: &["n"],
         argument: "",
-        summary: "start an empty document",
+        summary: "start a new document or picture",
     },
     Spec {
         name: "rename",
@@ -214,12 +215,6 @@ pub const SPECS: &[Spec] = &[
         summary: "list the diskettes in the drive folder",
     },
     Spec {
-        name: "welcome",
-        aliases: &["home"],
-        argument: "",
-        summary: "back to the start screen",
-    },
-    Spec {
         name: "settings",
         aliases: &["set", "cfg"],
         argument: "",
@@ -238,10 +233,16 @@ pub const SPECS: &[Spec] = &[
         summary: "version and credits",
     },
     Spec {
-        name: "quit",
-        aliases: &["q", "x", "exit"],
+        name: "exit",
+        aliases: &["welcome", "home"],
         argument: "",
-        summary: "save and quit",
+        summary: "back to the boot screen",
+    },
+    Spec {
+        name: "exit!",
+        aliases: &["quit", "q", "x"],
+        argument: "",
+        summary: "save and quit from anywhere",
     },
 ];
 
@@ -256,6 +257,13 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
     let (word, rest) = match trimmed.split_once(char::is_whitespace) {
         Some((word, rest)) => (word, rest.trim()),
         None => (trimmed, ""),
+    };
+
+    // A trailing bang makes a command unmistakable: `exit` steps back to the
+    // boot screen, `exit!` quits. Accept `exit !` with a space too.
+    let (word, bang) = match word.strip_suffix('!') {
+        Some(stem) => (stem, true),
+        None => (word, rest == "!"),
     };
 
     // Command names are case insensitive: this is a writing tool, not a shell.
@@ -318,11 +326,17 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "find" => Command::Find(optional(rest)),
         "run" => Command::Run(optional(rest)),
         "dir" => Command::Dir,
-        "welcome" => Command::Welcome,
+        "exit" => {
+            if bang {
+                Command::ExitForce
+            } else {
+                Command::Exit
+            }
+        }
+        "exit!" => Command::ExitForce,
         "settings" => Command::Settings,
         "help" => Command::Help,
         "about" => Command::About,
-        "quit" => Command::Quit,
         other => return Err(CommandError::Unknown(other.to_string())),
     })
 }
@@ -438,9 +452,25 @@ mod tests {
     fn aliases_resolve_to_the_same_command() {
         assert_eq!(parse("w"), parse("save"));
         assert_eq!(parse("safe"), parse("save"));
-        assert_eq!(parse("q"), parse("quit"));
+        assert_eq!(parse("q"), Ok(Command::ExitForce));
+        assert_eq!(parse("quit"), Ok(Command::ExitForce));
+        assert_eq!(parse("welcome"), Ok(Command::Exit));
         assert_eq!(parse("?"), parse("help"));
         assert_eq!(parse("o"), parse("open"));
+    }
+
+    #[test]
+    fn exit_steps_back_and_exit_bang_quits() {
+        assert_eq!(parse("exit"), Ok(Command::Exit));
+        assert_eq!(parse("exit!"), Ok(Command::ExitForce));
+        assert_eq!(parse("exit !"), Ok(Command::ExitForce));
+        assert_eq!(parse("EXIT!"), Ok(Command::ExitForce));
+        assert_eq!(parse("home"), Ok(Command::Exit));
+        assert_eq!(
+            parse("exi"),
+            Err(CommandError::Unknown("exi".into())),
+            "no abbreviations"
+        );
     }
 
     #[test]
@@ -557,8 +587,12 @@ mod tests {
         assert_eq!(c.completed, "saveas ");
         assert!(c.hint.starts_with("saveas "));
 
-        let c = complete("qui").unwrap();
-        assert_eq!(c.completed, "quit ");
+        let c = complete("hel").unwrap();
+        assert_eq!(c.completed, "help ");
+
+        // `exit` and `exit!` share a prefix and complete only as far as that.
+        let c = complete("exi").unwrap();
+        assert_eq!(c.completed, "exit");
     }
 
     #[test]

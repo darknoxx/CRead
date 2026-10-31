@@ -1,6 +1,12 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/render", "crates/sync", "crates/app"]
+members = [
+    "crates/core",
+    "crates/render",
+    "crates/sync",
+    "crates/app",
+    "crates/programs/softhand",
+]
 
 [workspace.package]
 version = "0.6.1"
@@ -12,6 +18,7 @@ rust-version = "1.85"
 cread-core = { path = "crates/core" }
 cread-render = { path = "crates/render" }
 cread-sync = { path = "crates/sync" }
+cread-softhand = { path = "crates/programs/softhand" }
 
 [profile.release]
 opt-level = 3

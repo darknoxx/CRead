@@ -11,6 +11,7 @@ path = "src/main.rs"
 arboard = "3.7.0"
 cread-core.workspace = true
 cread-render.workspace = true
+cread-softhand.workspace = true
 cread-sync.workspace = true
 pollster = "1.0.1"
 wgpu = "30.0.1"

@@ -496,6 +496,7 @@ dependencies = [
  "arboard",
  "cread-core",
  "cread-render",
+ "cread-softhand",
  "cread-sync",
  "pollster",
  "wgpu",
@@ -506,6 +507,7 @@ dependencies = [
 name = "cread-core"
 version = "0.6.1"
 dependencies = [
+ "png",
  "serde",
  "serde_json",
  "unicode-segmentation",
@@ -521,6 +523,13 @@ dependencies = [
  "pollster",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "cread-softhand"
+version = "0.6.1"
+dependencies = [
+ "cread-core",
 ]
 
 [[package]]

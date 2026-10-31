@@ -27,6 +27,10 @@ pub struct Disk {
     pub author: String,
     /// Container version the diskette was written for.
     pub api: u32,
+    /// Program this diskette mounts, if it is a program disk rather than a
+    /// data disk. The code ships with CRead; the diskette is what makes the
+    /// drive appear on the boot screen.
+    pub program: String,
     pub files: Vec<DiskFile>,
 }
 
@@ -65,6 +69,7 @@ impl Disk {
         let mut about = String::new();
         let mut author = String::new();
         let mut api = 1u32;
+        let mut program = String::new();
         let mut files: Vec<DiskFile> = Vec::new();
         let mut current: Option<DiskFile> = None;
         let mut in_body = false;
@@ -104,6 +109,7 @@ impl Disk {
                 "name" => name = value.to_string(),
                 "about" => about = value.to_string(),
                 "author" => author = value.to_string(),
+                "program" => program = value.to_ascii_lowercase(),
                 "api" => {
                     api = value
                         .parse()
@@ -121,7 +127,9 @@ impl Disk {
         if api > SUPPORTED_API {
             return Err(DiskError::TooNew(api));
         }
-        if files.is_empty() {
+        // A program disk carries no documents of its own: the program lives in
+        // the binary, the diskette is the mount.
+        if files.is_empty() && program.is_empty() {
             return Err(DiskError::Empty);
         }
         if name.is_empty() {
@@ -133,13 +141,14 @@ impl Disk {
             about,
             author,
             api,
+            program,
             files,
         })
     }
 
-    /// A diskette that is only documents: the shape a data disk has.
+    /// A data diskette: its files are the content.
     pub fn is_data_disk(&self) -> bool {
-        true
+        self.program.is_empty()
     }
 }
 
@@ -220,6 +229,23 @@ Hallo.
     #[test]
     fn rejects_empty_disks() {
         assert_eq!(Disk::parse("CRead Disk 1\nname=X\n"), Err(DiskError::Empty));
+    }
+
+    #[test]
+    fn a_program_disk_mounts_without_carrying_files() {
+        let text = "CRead Disk 1\nname=SOFTHAND\nprogram=softhand\nabout=paint";
+        let disk = Disk::parse(text).unwrap();
+        assert_eq!(disk.program, "softhand");
+        assert!(disk.files.is_empty());
+        assert!(!disk.is_data_disk());
+    }
+
+    #[test]
+    fn the_sample_softhand_disk_mounts() {
+        let text = include_str!("../../../examples/disks/SOFTHAND.DSK");
+        let disk = Disk::parse(text).unwrap();
+        assert_eq!(disk.program, "softhand");
+        assert_eq!(disk.name, "SOFTHAND");
     }
 
     #[test]

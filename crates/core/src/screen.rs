@@ -20,6 +20,14 @@ impl Cell {
     pub const fn blank(fg: u8, bg: u8) -> Self {
         Self::new(' ', fg, bg)
     }
+
+    /// A cell that draws nothing, so the pixel layer underneath shows through.
+    /// Programs fill the grid with this and then put their menus on top.
+    pub const TRANSPARENT: Cell = Self::new('\0', 0, 0);
+
+    pub const fn is_transparent(&self) -> bool {
+        self.ch == '\0'
+    }
 }
 
 impl Default for Cell {

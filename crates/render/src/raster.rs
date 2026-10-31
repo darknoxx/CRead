@@ -4,7 +4,7 @@
 //! it only happens when the text actually changes — so the GPU is free to do
 //! nothing but the CRT post-processing.
 
-use cread_core::{Cell, Rgb, Screen, Theme};
+use cread_core::{Cell, Raster, Rgb, Screen, Theme, VGA};
 
 use crate::font::Font;
 
@@ -76,16 +76,38 @@ impl Framebuffer {
     /// Draw the whole screen, filling any leftover margin with the theme background.
     pub fn draw_screen(&mut self, screen: &Screen, theme: &Theme, font: &Font) {
         self.clear(theme.background());
+        self.draw_cells(screen, theme, font, 0, 0);
+    }
 
+    /// Draw a program: the pixel layer first, then the cell grid on top.
+    ///
+    /// Cells marked transparent are skipped, which is what lets a program put a
+    /// menu over its own picture without punching a hole in it.
+    pub fn draw_program(&mut self, screen: &Screen, raster: &Raster, theme: &Theme, font: &Font) {
+        self.clear(theme.background());
+        for y in 0..raster.height() {
+            for x in 0..raster.width() {
+                if let Some(index) = raster.get(x as i32, y as i32) {
+                    self.put(x as i32, y as i32, VGA[(index & 0x0f) as usize]);
+                }
+            }
+        }
+        self.draw_cells(screen, theme, font, 0, 0);
+    }
+
+    fn draw_cells(&mut self, screen: &Screen, theme: &Theme, font: &Font, ox: i32, oy: i32) {
         for y in 0..screen.rows() {
             for x in 0..screen.cols() {
                 let Some(cell) = screen.get(x, y) else {
                     continue;
                 };
+                if cell.is_transparent() {
+                    continue;
+                }
                 self.draw_cell(
                     cell,
-                    x as i32 * font.cell_w() as i32,
-                    y as i32 * font.cell_h() as i32,
+                    ox + x as i32 * font.cell_w() as i32,
+                    oy + y as i32 * font.cell_h() as i32,
                     theme,
                     font,
                 );
@@ -145,23 +167,16 @@ impl Framebuffer {
 }
 
 /// Write tightly packed RGBA8 pixels as a PNG.
+///
+/// Screenshots and pictures use the same encoder; it lives in core so the
+/// picture format and the screenshot share one implementation.
 pub fn write_png(
     path: impl AsRef<std::path::Path>,
     width: u32,
     height: u32,
     rgba: &[u8],
 ) -> std::io::Result<()> {
-    let file = std::fs::File::create(path)?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width, height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder
-        .write_header()
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    writer
-        .write_image_data(rgba)
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    Ok(())
+    cread_core::write_png(path, width, height, rgba)
 }
 
 #[cfg(test)]
@@ -199,6 +214,23 @@ mod tests {
             let lit = fb.data()[idx] == 255;
             assert_eq!(lit, x == 3, "x={x}");
         }
+    }
+
+    #[test]
+    fn a_program_paints_the_pixel_layer_under_its_cells() {
+        let mut fb = Framebuffer::new(16, 32);
+        let mut raster = Raster::new(16, 32);
+        raster.fill(4); // red, in VGA order
+        let mut screen = Screen::new(2, 2);
+        screen.fill(Cell::TRANSPARENT);
+        screen.put(0, 0, Cell::new('A', 15, 1));
+
+        fb.draw_program(&screen, &raster, &solid_theme(), &Font::new());
+
+        assert_eq!(fb.pixel(8, 0), [170, 0, 0], "transparent cell shows pixels");
+        // Inside the glyph cell the theme background wins.
+        assert_eq!(fb.pixel(0, 0), [0, 0, 0]);
+        assert_eq!(fb.pixel(15, 31), [170, 0, 0]);
     }
 
     #[test]
