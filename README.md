@@ -282,8 +282,9 @@ keyboard does not shuffle them. The picture is drawn in four greys by default;
 back on the shelf, the second leaves the module. A game pad works too — any
 controller the system knows about (a SNES-style one maps A to east, B to south,
 Start and Select to their names, and the left stick doubles the D-pad); when one
-is connected, the legend says so. The keyboard keeps working either way. Sound comes from Mizu's APU on
-the shell's own audio device — the sound server's PCM, so it follows whichever
+is connected, the legend says so. The keyboard keeps working either way. The cartridge runs on a thread of its own, at the machine's 59.7275 Hz, so its
+sound does not depend on how fast the screen is drawn. It comes from Mizu's APU
+on the shell's own audio device — the sound server's PCM, so it follows whichever
 output the desktop is set to. The cartridge saves its battery RAM next to the ROM
 when you leave.
 

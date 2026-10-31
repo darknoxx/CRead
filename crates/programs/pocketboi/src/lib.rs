@@ -7,6 +7,8 @@
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -47,11 +49,178 @@ struct Entry {
 }
 
 /// A running cartridge.
-struct Game {
-    gb: GameBoy,
-    title: String,
+/// What the emulation thread publishes and the screen reads.
+struct Shared {
+    /// The latest 160x144 RGB frame.
+    frame: Mutex<Vec<u8>>,
+    /// Which pad buttons are held, in [`BUTTONS`] order.
+    buttons: Mutex<[bool; 8]>,
+    muted: AtomicBool,
     /// Set when the emulator gave up: the picture freezes, the shell lives.
-    fault: Option<String>,
+    fault: Mutex<Option<String>>,
+}
+
+/// A cartridge running on its own thread at the machine's own rate.
+///
+/// It used to be stepped from the drawing code, which tied the sound to the
+/// compositor: a slow frame was a hole in the audio. The thread keeps its own
+/// clock, fills the audio ring and publishes the picture; the screen only ever
+/// copies the latest frame.
+struct Machine {
+    title: String,
+    shared: Arc<Shared>,
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Machine {
+    /// Load the cartridge (in the thread, because the emulator is not `Send`)
+    /// and let it run at the machine's own pace.
+    fn start(rom: &Path, muted: bool) -> Result<Self, String> {
+        let shared = Arc::new(Shared {
+            frame: Mutex::new(vec![0; (GB_W * GB_H * 3) as usize]),
+            buttons: Mutex::new([false; 8]),
+            muted: AtomicBool::new(muted),
+            fault: Mutex::new(None),
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        let (ready, loaded) = mpsc::channel();
+        let thread_shared = shared.clone();
+        let thread_stop = stop.clone();
+        let rom = rom.to_path_buf();
+        let thread = std::thread::spawn(move || {
+            let mut gb = match GameBoy::builder(&rom).build() {
+                Ok(gb) => {
+                    let _ = ready.send(Ok(gb.game_title().trim().to_string()));
+                    gb
+                }
+                Err(e) => {
+                    let _ = ready.send(Err(format!("{e}")));
+                    return;
+                }
+            };
+            let mut sound = Sound::open();
+            if let Some(sound) = sound.as_mut() {
+                sound.set_muted(thread_shared.muted.load(Ordering::Relaxed));
+            }
+            // One emulated frame in wall time: 59.7275 Hz.
+            let period = Duration::from_micros(16_734);
+            let mut next = std::time::Instant::now();
+            while !thread_stop.load(Ordering::Relaxed) {
+                if let Ok(buttons) = thread_shared.buttons.lock() {
+                    for index in 0..8 {
+                        if buttons[index] {
+                            gb.press_joypad(button_at(index));
+                        } else {
+                            gb.release_joypad(button_at(index));
+                        }
+                    }
+                }
+                let stepped = catch_unwind(AssertUnwindSafe(|| gb.clock_for_frame()));
+                match stepped {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        *thread_shared
+                            .fault
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner()) = Some(format!("{e:?}"));
+                        break;
+                    }
+                    Err(_) => {
+                        *thread_shared
+                            .fault
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner()) =
+                            Some("the emulator crashed".into());
+                        break;
+                    }
+                }
+                if let Some(sound) = sound.as_mut() {
+                    let samples = gb.audio_buffers().all().to_vec();
+                    sound.push(&samples);
+                    let muted = thread_shared.muted.load(Ordering::Relaxed);
+                    if muted != sound.is_muted() {
+                        sound.set_muted(muted);
+                    }
+                }
+                if let Ok(mut frame) = thread_shared.frame.lock() {
+                    frame.copy_from_slice(gb.screen_buffer());
+                }
+                next += period;
+                let now = std::time::Instant::now();
+                if next > now {
+                    std::thread::sleep(next - now);
+                } else {
+                    next = now;
+                }
+            }
+        });
+        let title = match loaded.recv() {
+            Ok(Ok(title)) => title,
+            Ok(Err(e)) => {
+                stop.store(true, Ordering::Relaxed);
+                return Err(e);
+            }
+            Err(_) => {
+                stop.store(true, Ordering::Relaxed);
+                return Err("the emulation thread did not start".into());
+            }
+        };
+        Ok(Self {
+            title,
+            shared,
+            stop,
+            thread: Some(thread),
+        })
+    }
+
+    fn fault(&self) -> Option<String> {
+        self.shared
+            .fault
+            .lock()
+            .ok()
+            .and_then(|fault| fault.clone())
+    }
+
+    /// Which buttons are down, for the key and pad handlers.
+    fn set_button(&self, button: JoypadButton, down: bool) {
+        if let (Ok(mut buttons), Some(index)) = (self.buttons(), button_index(&button)) {
+            buttons[index] = down;
+        }
+    }
+
+    fn buttons(&self) -> Result<std::sync::MutexGuard<'_, [bool; 8]>, ()> {
+        self.shared.buttons.lock().map_err(|_| ())
+    }
+}
+
+impl Drop for Machine {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// The order [`Shared::buttons`] uses. `JoypadButton` is not `Copy`, so the
+/// table is a function rather than a constant.
+fn button_at(index: usize) -> JoypadButton {
+    match index {
+        0 => JoypadButton::Up,
+        1 => JoypadButton::Down,
+        2 => JoypadButton::Left,
+        3 => JoypadButton::Right,
+        4 => JoypadButton::A,
+        5 => JoypadButton::B,
+        6 => JoypadButton::Start,
+        _ => JoypadButton::Select,
+    }
+}
+
+fn button_index(button: &JoypadButton) -> Option<usize> {
+    (0..8)
+        .find(|index| std::mem::discriminant(&button_at(*index)) == std::mem::discriminant(button))
 }
 
 /// A game pad, polled once per frame. No thread: the emulation loop is
@@ -77,26 +246,32 @@ impl Pad {
         self.gilrs.gamepads().next().is_some()
     }
 
-    fn poll(&mut self, gb: &mut GameBoy) {
+    fn poll(&mut self, shared: &Shared) {
         while let Some(event) = self.gilrs.next_event() {
             match event.event {
                 EventType::ButtonPressed(button, _) => {
-                    if let Some(button) = pad_button(button) {
-                        gb.press_joypad(button);
+                    if let (Some(button), Ok(mut buttons)) =
+                        (pad_button(button), shared.buttons.lock())
+                        && let Some(index) = button_index(&button)
+                    {
+                        buttons[index] = true;
                     }
                 }
                 EventType::ButtonReleased(button, _) => {
-                    if let Some(button) = pad_button(button) {
-                        gb.release_joypad(button);
+                    if let (Some(button), Ok(mut buttons)) =
+                        (pad_button(button), shared.buttons.lock())
+                        && let Some(index) = button_index(&button)
+                    {
+                        buttons[index] = false;
                     }
                 }
-                EventType::AxisChanged(axis, value, _) => self.axis(gb, axis, value),
+                EventType::AxisChanged(axis, value, _) => self.axis(shared, axis, value),
                 _ => {}
             }
         }
     }
 
-    fn axis(&mut self, gb: &mut GameBoy, axis: Axis, value: f32) {
+    fn axis(&mut self, shared: &Shared, axis: Axis, value: f32) {
         const DEAD: f32 = 0.5;
         let (slot, positive, negative) = match axis {
             Axis::LeftStickX => (0, JoypadButton::Right, JoypadButton::Left),
@@ -106,11 +281,18 @@ impl Pad {
         let held = value.abs() > DEAD;
         if held != self.stick[slot] {
             self.stick[slot] = held;
-            if held {
-                gb.press_joypad(if value > 0.0 { positive } else { negative });
-            } else {
-                gb.release_joypad(positive);
-                gb.release_joypad(negative);
+            if let Ok(mut buttons) = shared.buttons.lock() {
+                let mut set = |button: JoypadButton, down: bool| {
+                    if let Some(index) = button_index(&button) {
+                        buttons[index] = down;
+                    }
+                };
+                if held {
+                    set(if value > 0.0 { positive } else { negative }, true);
+                } else {
+                    set(positive, false);
+                    set(negative, false);
+                }
             }
         }
     }
@@ -141,7 +323,12 @@ fn pad_button(button: Button) -> Option<JoypadButton> {
 /// sixteen times a second, and every switch was a place for a sample to go
 /// missing. One stream, fed through a ring, has no seams to miss.
 struct Speaker {
-    samples: Arc<Mutex<VecDeque<f32>>>,
+    /// What the emulator has produced and the speaker has not taken yet.
+    shared: Arc<Mutex<VecDeque<f32>>>,
+    /// The block the speaker is reading from, so it does not touch the lock
+    /// once per sample — that was 48 000 locks a second, each one a chance to
+    /// make the callback late.
+    local: VecDeque<f32>,
     rate: u32,
 }
 
@@ -149,12 +336,12 @@ impl Iterator for Speaker {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        Some(
-            self.samples
-                .lock()
-                .map(|mut q| q.pop_front().unwrap_or(0.0))
-                .unwrap_or(0.0),
-        )
+        if self.local.is_empty()
+            && let Ok(mut queue) = self.shared.lock()
+        {
+            std::mem::swap(&mut self.local, &mut *queue);
+        }
+        Some(self.local.pop_front().unwrap_or(0.0))
     }
 }
 
@@ -282,8 +469,18 @@ impl Sound {
         )));
         let sink = Sink::connect_new(stream.mixer());
         sink.set_volume(0.6);
+        // A buffer that starts empty has no margin: the very first late frame
+        // starves it and every one after that ticked. It starts full of
+        // silence instead, so the 40 ms are actually there to absorb jitter.
+        if let Ok(mut queue) = samples.lock() {
+            queue.extend(std::iter::repeat_n(
+                0.0,
+                (TARGET_SECONDS * rate as f32) as usize,
+            ));
+        }
         sink.append(Speaker {
-            samples: samples.clone(),
+            shared: samples.clone(),
+            local: VecDeque::new(),
             rate,
         });
         Some(Self {
@@ -294,6 +491,10 @@ impl Sound {
             rate,
             muted: false,
         })
+    }
+
+    fn is_muted(&self) -> bool {
+        self.muted
     }
 
     fn set_muted(&mut self, muted: bool) {
@@ -338,11 +539,8 @@ pub struct Pocketboi {
     dir: PathBuf,
     entries: Vec<Entry>,
     selected: usize,
-    game: Option<Game>,
-    sound: Option<Sound>,
-    sound_failed: bool,
-    /// Silence, kept here as well so it survives the sound being closed and
-    /// stays testable without a device.
+    game: Option<Machine>,
+    /// Silence, as a flag the emulation thread reads each frame.
     muted: bool,
     pad: Option<Pad>,
     pad_failed: bool,
@@ -364,8 +562,6 @@ impl Pocketboi {
             entries: Vec::new(),
             selected: 0,
             game: None,
-            sound: None,
-            sound_failed: false,
             muted: false,
             pad: None,
             pad_failed: false,
@@ -380,24 +576,11 @@ impl Pocketboi {
 
     /// Load a cartridge directly, skipping the shelf.
     pub fn play(&mut self, path: &Path) -> Result<(), String> {
-        match GameBoy::builder(path).build() {
-            Ok(gb) => {
-                let title = gb.game_title().trim().to_string();
-                self.game = Some(Game {
-                    gb,
-                    title: if title.is_empty() {
-                        path.file_stem()
-                            .map(|s| s.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "cartridge".into())
-                    } else {
-                        title
-                    },
-                    fault: None,
-                });
-                Ok(())
-            }
-            Err(e) => Err(format!("{e}")),
-        }
+        // Stop whatever was running first: one machine at a time.
+        self.game = None;
+        let machine = Machine::start(path, self.muted)?;
+        self.game = Some(machine);
+        Ok(())
     }
 
     fn rescan(&mut self) {
@@ -434,43 +617,17 @@ impl Pocketboi {
 
     /// Step one frame and paint it.
     fn run(&mut self, screen: &mut Screen, raster: &mut Raster) {
-        if self.game.is_none() {
-            return;
-        }
-        // The speaker is opened on the first frame, not on the shelf.
-        if self.sound.is_none() && !self.sound_failed {
-            self.sound = Sound::open();
-            self.sound_failed = self.sound.is_none();
-            if let Some(sound) = self.sound.as_mut() {
-                sound.set_muted(self.muted);
-            }
-        }
         if self.pad.is_none() && !self.pad_failed {
             self.pad = Pad::open();
             self.pad_failed = self.pad.is_none();
         }
+        if let Some(machine) = self.game.as_mut()
+            && let Some(pad) = self.pad.as_mut()
         {
-            let Some(game) = self.game.as_mut() else {
-                return;
-            };
-            if let Some(pad) = self.pad.as_mut() {
-                pad.poll(&mut game.gb);
-            }
-            if game.fault.is_none() {
-                // A malformed cartridge must not take CRead down with it: the
-                // emulator is allowed exactly one panic, and it costs the game.
-                let stepped = catch_unwind(AssertUnwindSafe(|| game.gb.clock_for_frame()));
-                match stepped {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => game.fault = Some(format!("{e:?}")),
-                    Err(_) => game.fault = Some("the emulator crashed".into()),
-                }
-            }
-            if let Some(sound) = self.sound.as_mut() {
-                let samples = game.gb.audio_buffers().all().to_vec();
-                sound.push(&samples);
-            }
-            paint(&game.gb, raster, PALETTES[self.palette].1, self.ink);
+            pad.poll(&machine.shared);
+        }
+        if let Some(machine) = self.game.as_ref() {
+            paint(&machine.shared, raster, PALETTES[self.palette].1, self.ink);
         }
         let pad = self.pad.as_ref().is_some_and(Pad::connected);
         draw_legend(screen, self.ink, pad);
@@ -478,7 +635,7 @@ impl Pocketboi {
 
     fn status(&self) -> String {
         let base = match &self.game {
-            Some(game) => match &game.fault {
+            Some(game) => match game.fault() {
                 Some(fault) => format!("{} — stopped: {fault}", game.title),
                 None => game.title.clone(),
             },
@@ -535,9 +692,12 @@ fn is_cartridge(path: &Path) -> bool {
 }
 
 /// The frame, four shades deep, blown up by two and centred.
-fn paint(gb: &GameBoy, raster: &mut Raster, shades: [u8; 4], ink: u8) {
+fn paint(shared: &Shared, raster: &mut Raster, shades: [u8; 4], ink: u8) {
     // The shell already filled the raster with the page colour; leave it.
-    let frame = gb.screen_buffer();
+    let Ok(frame) = shared.frame.lock() else {
+        return;
+    };
+    let frame = frame.as_slice();
     let width = raster.width();
     let x0 = (width.saturating_sub(GB_W * ZOOM)) / 2;
     // Slightly above the middle: the key legend needs a row of its own below.
@@ -612,9 +772,9 @@ impl Program for Pocketboi {
                 return Outcome::Continue;
             }
             if let Some(button) = button(key)
-                && let Some(game) = self.game.as_mut()
+                && let Some(game) = self.game.as_ref()
             {
-                game.gb.press_joypad(button);
+                game.set_button(button, true);
             }
             return Outcome::Continue;
         }
@@ -631,10 +791,10 @@ impl Program for Pocketboi {
     }
 
     fn key_released(&mut self, key: KeyPress) {
-        if let Some(game) = self.game.as_mut()
+        if let Some(game) = self.game.as_ref()
             && let Some(button) = button(key)
         {
-            game.gb.release_joypad(button);
+            game.set_button(button, false);
         }
     }
 
@@ -651,8 +811,8 @@ impl Program for Pocketboi {
         match command {
             cread_core::Command::Mute => {
                 self.muted = !self.muted;
-                if let Some(sound) = self.sound.as_mut() {
-                    sound.set_muted(self.muted);
+                if let Some(game) = self.game.as_ref() {
+                    game.shared.muted.store(self.muted, Ordering::Relaxed);
                 }
                 Ok(if self.muted { "muted" } else { "sound on" }.into())
             }
@@ -664,7 +824,6 @@ impl Program for Pocketboi {
         // Back to the shelf first; the shell only gets the screen once the
         // cartridge is out.
         if self.game.take().is_some() {
-            self.sound = None;
             self.rescan();
             return true;
         }
@@ -672,7 +831,9 @@ impl Program for Pocketboi {
     }
 
     fn wants_frames(&self) -> bool {
-        self.game.as_ref().is_some_and(|game| game.fault.is_none())
+        self.game
+            .as_ref()
+            .is_some_and(|game| game.fault().is_none())
     }
 
     fn draw(&mut self, screen: &mut Screen, raster: &mut Raster) {
