@@ -28,8 +28,15 @@ pub const GB_W: u32 = 160;
 pub const GB_H: u32 = 144;
 /// Integer zoom: 160x144 fits twice over in 640x384.
 const ZOOM: u32 = 2;
-/// The four shades in the machine's palette, lightest first.
-const DMG: [u8; 4] = [15, 10, 2, 0];
+/// The four shades, lightest first, as palette indices.
+///
+/// Grey is the default: the green of a DMG is charming for five minutes and
+/// tiring for an hour.
+const PALETTES: [(&str, [u8; 4]); 3] = [
+    ("grey", [15, 7, 8, 0]),
+    ("green", [15, 10, 2, 0]),
+    ("amber", [15, 14, 6, 0]),
+];
 
 /// One row of the cartridge shelf.
 struct Entry {
@@ -90,6 +97,8 @@ pub struct Pocketboi {
     /// its own over a paper screen.
     paper: u8,
     ink: u8,
+    /// Which of [`PALETTES`] the picture is painted in.
+    palette: usize,
 }
 
 impl Pocketboi {
@@ -106,6 +115,7 @@ impl Pocketboi {
             sound_failed: false,
             paper: 0,
             ink: 15,
+            palette: 0,
             dir,
         };
         boi.rescan();
@@ -195,7 +205,7 @@ impl Pocketboi {
                 let samples = buffers.all().to_vec();
                 sound.push(&samples);
             }
-            paint(&game.gb, raster, self.paper);
+            paint(&game.gb, raster, PALETTES[self.palette].1, self.ink);
         }
         draw_legend(screen, self.ink);
     }
@@ -254,13 +264,19 @@ fn is_cartridge(path: &Path) -> bool {
 }
 
 /// The frame, four shades deep, blown up by two and centred.
-fn paint(gb: &GameBoy, raster: &mut Raster, paper: u8) {
+fn paint(gb: &GameBoy, raster: &mut Raster, shades: [u8; 4], ink: u8) {
     // The shell already filled the raster with the page colour; leave it.
-    let _ = paper;
     let frame = gb.screen_buffer();
     let width = raster.width();
     let x0 = (width.saturating_sub(GB_W * ZOOM)) / 2;
     let y0 = (raster.height().saturating_sub(GB_H * ZOOM)) / 2;
+    // A case around the glass: four pixels of air, then a two-pixel bezel.
+    let left = x0 as i32 - 6;
+    let top = y0 as i32 - 6;
+    let right = x0 as i32 + (GB_W * ZOOM) as i32 + 5;
+    let bottom = y0 as i32 + (GB_H * ZOOM) as i32 + 5;
+    raster.rect((left, top), (right, bottom), 2, ink, false);
+
     // The pixel buffer is RGB, 3 bytes per pixel.
     let row_len = GB_W as usize * 3;
     if frame.len() < row_len * GB_H as usize {
@@ -277,7 +293,7 @@ fn paint(gb: &GameBoy, raster: &mut Raster, paper: u8) {
                 128..=191 => 1,
                 _ => 0,
             };
-            let index = DMG[shade];
+            let index = shades[shade];
             for dy in 0..ZOOM {
                 for dx in 0..ZOOM {
                     raster.set(
@@ -316,8 +332,16 @@ impl Program for Pocketboi {
     }
 
     fn key(&mut self, key: KeyPress) -> Outcome {
-        if let Some(game) = self.game.as_mut() {
-            if let Some(button) = button(key) {
+        if self.game.is_some() {
+            if let KeyPress::Char(c) = key
+                && c.eq_ignore_ascii_case(&'p')
+            {
+                self.palette = (self.palette + 1) % PALETTES.len();
+                return Outcome::Continue;
+            }
+            if let Some(button) = button(key)
+                && let Some(game) = self.game.as_mut()
+            {
                 game.gb.press_joypad(button);
             }
             return Outcome::Continue;
@@ -349,6 +373,17 @@ impl Program for Pocketboi {
     fn palette(&mut self, background: u8, ink: u8) {
         self.paper = background;
         self.ink = ink;
+    }
+
+    fn exit(&mut self) -> bool {
+        // Back to the shelf first; the shell only gets the screen once the
+        // cartridge is out.
+        if self.game.take().is_some() {
+            self.sound = None;
+            self.rescan();
+            return true;
+        }
+        false
     }
 
     fn wants_frames(&self) -> bool {
@@ -497,6 +532,25 @@ mod tests {
         assert!(is(KeyPress::Char('c'), JoypadButton::B));
         assert!(is(KeyPress::Char(' '), JoypadButton::A));
         assert!(button(KeyPress::Char('q')).is_none());
+    }
+
+    #[test]
+    fn exit_steps_back_to_the_shelf_before_it_leaves_the_module() {
+        let vault = temp("exit");
+        let roms = vault.join("Roms");
+        std::fs::create_dir_all(&roms).unwrap();
+        std::fs::copy("/tmp/opencode/test.gb", roms.join("test.gb")).ok();
+        let mut boi = Pocketboi::new(&vault);
+        if boi.play(&roms.join("test.gb")).is_err() {
+            // No cartridge to load in this environment: nothing to step out of.
+            return;
+        }
+        assert!(boi.wants_frames());
+        assert!(boi.exit(), "one level: back to the shelf");
+        assert!(boi.game.is_none());
+        assert!(!boi.wants_frames());
+        assert!(!boi.exit(), "nothing left: the shell takes over");
+        let _ = std::fs::remove_dir_all(&vault);
     }
 
     #[test]

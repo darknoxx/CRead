@@ -2,10 +2,13 @@
 
 ## Unreleased
 
-- **Pictures get the full raster.** The paper theme damps scanlines and glow
-  because on a pale page they read as a printed overlay. A program that draws a
-  picture is a screen inside the screen, so it now keeps the scanlines at full
-  strength; text-only surfaces stay calm.
+- **Pocketboi, second pass.** Four greys instead of the DMG green (`P` cycles
+  green and amber), a bezel around the glass, and `exit` steps back to the shelf
+  before it leaves the module.
+- **The SOFTWARE cursor survives an install.** Installing inserts a row above
+  the shelf, and the boot screen's cursor is an index — it landed on the rule and
+  the highlight vanished until the next arrow key. It now follows the row it was
+  on.
 - **Pocketboi.** A Game Boy and Game Boy Color on the raster, running Mizu
   (`mizu-core`, MIT, vendored and patched — see `vendor/README.md`). Cartridges
   come from `<vault>/Roms`; the module lists folders and `.gb`/`.gbc` files, maps

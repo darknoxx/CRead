@@ -257,7 +257,7 @@ enum Pending {
 }
 
 /// One row of the boot screen.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BootItem {
     /// The vault: the first row, always.
     Documents,
@@ -815,12 +815,7 @@ impl App {
         if self.theme.is_light() {
             // Glow on paper is ink bleed: keep a trace, not a haze.
             crt.bloom *= 0.3;
-            // The raster lines, though, are what makes a picture on the page
-            // look like a screen. A program keeps them at full strength; text
-            // alone gets the calmer version.
-            if self.program.is_none() {
-                crt.scanline *= 0.4;
-            }
+            crt.scanline *= 0.4;
         }
 
         if self.dirty {
@@ -2621,6 +2616,13 @@ impl App {
                 if self.has_document && self.doc.editor.modified() {
                     self.save()?;
                 }
+                // A program with its own levels closes one of them first.
+                if let Some(program) = self.program.as_mut()
+                    && program.exit()
+                {
+                    self.dirty = true;
+                    return Ok(String::new());
+                }
                 // On the boot screen `exit` means what it means everywhere else:
                 // stop the program. That is CRead itself.
                 if !self.has_document && self.program.is_none() && self.home == Home::Boot {
@@ -3539,6 +3541,9 @@ impl App {
         let Some(program) = PROGRAMS.iter().find(|program| program.id == id) else {
             return;
         };
+        // A row is about to appear or vanish above the cursor: remember which
+        // row it was on, not where, and find it again afterwards.
+        let selected = self.boot_items().get(self.boot_selected).copied();
         if install {
             if !self.is_installed(id) {
                 self.prefs.installed.push(id.to_string());
@@ -3559,8 +3564,13 @@ impl App {
             if install { "installed" } else { "removed" },
             program.entry
         ));
-        if self.boot_selected >= self.boot_items().len() {
-            self.boot_selected = 0;
+        match selected.and_then(|item| self.boot_items().iter().position(|have| *have == item)) {
+            Some(index) => self.boot_selected = index,
+            None => {
+                if self.boot_selected >= self.boot_items().len() {
+                    self.boot_selected = 0;
+                }
+            }
         }
     }
 
@@ -4591,6 +4601,66 @@ mod tests {
             assert!((0.0..=1.0).contains(&value));
             last = value;
         }
+    }
+
+    #[test]
+    fn leaving_software_leaves_the_row_highlighted() {
+        let dir = vault("software-cursor");
+        let mut app = app_in(&dir);
+        // Nothing installed: Inspiro, the rule, SOFTWARE, DOCUMENTS.
+        app.boot_selected = 2;
+        assert_eq!(app.boot_items()[2], BootItem::Software);
+
+        app.open_software();
+        assert_eq!(app.mode, Mode::Software);
+        app.to_write();
+        assert_eq!(app.mode, Mode::Action, "back on the boot screen");
+        assert_eq!(app.boot_selected, 2, "the cursor stays on SOFTWARE");
+
+        app.compose();
+        let text: Vec<String> = (0..app.screen.rows())
+            .map(|y| {
+                (0..app.screen.cols())
+                    .map(|x| app.screen.get(x, y).unwrap().ch)
+                    .collect()
+            })
+            .collect();
+        let row = text
+            .iter()
+            .position(|line| line.contains("SOFTWARE"))
+            .expect("SOFTWARE row");
+        let highlighted = (0..app.screen.cols()).any(|x| {
+            app.screen
+                .get(x, row as u32)
+                .is_some_and(|cell| cell.bg == app.theme.fg)
+        });
+        assert!(highlighted, "row {row} lost its cursor: {:?}", text[row]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn installing_keeps_the_cursor_on_the_row_it_was_on() {
+        let dir = vault("software-cursor-moved");
+        let mut app = app_in(&dir);
+        // The boot screen with the cursor on SOFTWARE.
+        app.boot_selected = 2;
+        assert_eq!(app.boot_items()[2], BootItem::Software);
+
+        // Install Softhand from the shelf: a row is inserted above SOFTWARE.
+        app.open_software();
+        app.software_selected = 1;
+        app.software_activate();
+        app.finish_loading();
+        // Still on the shelf, and the cursor there is unaffected.
+        assert_eq!(app.mode, Mode::Software);
+
+        app.to_write();
+        assert_eq!(
+            app.boot_items().get(app.boot_selected),
+            Some(&BootItem::Software),
+            "the cursor followed the row, not the index"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

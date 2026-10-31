@@ -128,6 +128,13 @@ pub trait Program {
         let _ = (background, ink);
     }
 
+    /// Step back one level inside the program. `exit` asks this first: a
+    /// cartridge returns to its shelf, and only the next `exit` leaves the
+    /// program. `false` means "nothing left to close, take the screen".
+    fn exit(&mut self) -> bool {
+        false
+    }
+
     /// Whether this program has an undo/redo to offer. The shell's `undo`
     /// command asks before it says anything.
     fn undo(&mut self) -> bool {
