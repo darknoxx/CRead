@@ -4,17 +4,17 @@
 //! Mizu gives a 160x144 RGB frame per tick, which we reduce to the four shades
 //! of the machine and blow up by two into the emulated raster.
 
+use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use cread_core::program::{KeyPress, Outcome, PointerEvent, Program};
 use cread_core::{Cell, Raster, Screen};
 use gilrs::{Axis, Button, EventType, Gilrs};
 use mizu_core::{GameBoy, JoypadButton};
-use rodio::buffer::SamplesBuffer;
-use rodio::queue::{SourcesQueueInput, queue};
-use rodio::{OutputStream, OutputStreamBuilder, Sink};
+use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
 
 /// What Mizu's APU actually emits.
 ///
@@ -134,22 +134,109 @@ fn pad_button(button: Button) -> Option<JoypadButton> {
 }
 
 /// The machine's speaker, in the shell's own audio device.
+/// A source that never ends: it plays whatever the emulator has produced and
+/// silence when it has nothing.
+///
+/// Feeding rodio one short source per frame made the mixer switch sources
+/// sixteen times a second, and every switch was a place for a sample to go
+/// missing. One stream, fed through a ring, has no seams to miss.
+struct Speaker {
+    samples: Arc<Mutex<VecDeque<f32>>>,
+    rate: u32,
+}
+
+impl Iterator for Speaker {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        Some(
+            self.samples
+                .lock()
+                .map(|mut q| q.pop_front().unwrap_or(0.0))
+                .unwrap_or(0.0),
+        )
+    }
+}
+
+impl Source for Speaker {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> u16 {
+        1
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.rate
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
+}
+
+/// Linear resampling from the APU's rate to the device's, with the phase and
+/// the last sample carried across calls so consecutive frames join seamlessly.
+struct Resampler {
+    /// Input samples per output sample.
+    step: f64,
+    pos: f64,
+    tail: f32,
+    /// The first chunk has no previous sample to join to.
+    primed: bool,
+}
+
+impl Resampler {
+    fn new(input_rate: u32, output_rate: u32) -> Self {
+        Self {
+            step: input_rate as f64 / output_rate.max(1) as f64,
+            pos: 0.0,
+            tail: 0.0,
+            primed: false,
+        }
+    }
+
+    fn feed(&mut self, input: &[f32], out: &mut Vec<f32>) {
+        if input.is_empty() {
+            return;
+        }
+        if !self.primed {
+            // Nothing to join to yet: start at this sample rather than ramping
+            // up from zero, and skip the duplicate it would produce.
+            self.primed = true;
+            self.tail = input[0];
+            self.pos = 1.0;
+        }
+        let mut src = Vec::with_capacity(input.len() + 1);
+        src.push(self.tail);
+        src.extend_from_slice(input);
+        let last = src.len() - 1;
+        let mut pos = self.pos;
+        while pos < last as f64 {
+            let i = pos.floor() as usize;
+            let frac = (pos - i as f64) as f32;
+            out.push(src[i] + (src[i + 1] - src[i]) * frac);
+            pos += self.step;
+        }
+        self.pos = pos - last as f64;
+        self.tail = src[last];
+    }
+}
+
 struct Sound {
     _stream: OutputStream,
     sink: Sink,
-    input: Arc<SourcesQueueInput>,
-    /// The device's own rate. We convert to it ourselves, so rodio has no
-    /// reason to resample our chunks one by one.
+    samples: Arc<Mutex<VecDeque<f32>>>,
+    resampler: Resampler,
+    /// The device's own rate, for the ring's cap.
     rate: u32,
-    /// Input samples per output sample (88.2 kHz over the device rate).
-    step: f64,
-    /// Where the next output sample sits in the incoming stream, carried from
-    /// one frame to the next so the seam is continuous.
-    pos: f64,
-    /// The last sample of the previous frame, for the same reason.
-    tail: f32,
     muted: bool,
 }
+
+/// How much audio waits in the ring: enough to ride out a late frame, little
+/// enough that a button press is heard when it happens.
+const TARGET_SECONDS: f32 = 0.040;
 
 /// Open the output the way a desktop expects it.
 ///
@@ -189,21 +276,22 @@ pub fn open_output() -> Option<OutputStream> {
 impl Sound {
     fn open() -> Option<Self> {
         let stream = open_output()?;
-        // keep_alive: the stream stays open between frames instead of
-        // clicking as the queue empties.
-        let (input, output) = queue(true);
+        let rate = stream.config().sample_rate();
+        let samples = Arc::new(Mutex::new(VecDeque::with_capacity(
+            (TARGET_SECONDS * 2.0 * rate as f32) as usize,
+        )));
         let sink = Sink::connect_new(stream.mixer());
         sink.set_volume(0.6);
-        sink.append(output);
-        let rate = stream.config().sample_rate();
+        sink.append(Speaker {
+            samples: samples.clone(),
+            rate,
+        });
         Some(Self {
             _stream: stream,
             sink,
-            input,
+            samples,
+            resampler: Resampler::new(SAMPLE_RATE, rate),
             rate,
-            step: SAMPLE_RATE as f64 / rate as f64,
-            pos: 0.0,
-            tail: 0.0,
             muted: false,
         })
     }
@@ -211,9 +299,13 @@ impl Sound {
     fn set_muted(&mut self, muted: bool) {
         self.muted = muted;
         self.sink.set_volume(if muted { 0.0 } else { 0.6 });
+        if muted {
+            self.samples.lock().map(|mut q| q.clear()).ok();
+        }
     }
 
-    /// One frame of Game Boy audio, resampled to the device's rate.
+    /// One frame of Game Boy audio, resampled to the device's rate and left in
+    /// the ring for the speaker.
     ///
     /// The resampling is ours and carries its phase across frames: handing
     /// rodio a fresh 88.2 kHz buffer every 16 ms made it resample each chunk
@@ -222,22 +314,22 @@ impl Sound {
         if input.is_empty() || self.muted {
             return;
         }
-        let mut src = Vec::with_capacity(input.len() + 1);
-        src.push(self.tail);
-        src.extend_from_slice(input);
-        let last = src.len() - 1;
-        let mut pos = self.pos;
-        let mut out = Vec::with_capacity((last as f64 / self.step) as usize + 2);
-        while pos < last as f64 {
-            let i = pos.floor() as usize;
-            let frac = (pos - i as f64) as f32;
-            out.push(src[i] + (src[i + 1] - src[i]) * frac);
-            pos += self.step;
+        let mut out = Vec::new();
+        self.resampler.feed(input, &mut out);
+        if out.is_empty() {
+            return;
         }
-        self.pos = pos - last as f64;
-        self.tail = src[last];
-        if !out.is_empty() {
-            self.input.append(SamplesBuffer::new(1, self.rate, out));
+        let cap = (TARGET_SECONDS * 2.0 * self.rate as f32) as usize;
+        if let Ok(mut queue) = self.samples.lock() {
+            // A ring that only ever grows is latency: when we get ahead, drop
+            // what will not be heard anyway.
+            if queue.len() + out.len() > cap {
+                let overflow = queue.len() + out.len() - cap;
+                for _ in 0..overflow.min(queue.len()) {
+                    queue.pop_front();
+                }
+            }
+            queue.extend(out);
         }
     }
 }
@@ -732,6 +824,44 @@ mod tests {
         assert!(is(KeyPress::Char('c'), JoypadButton::B));
         assert!(is(KeyPress::Char(' '), JoypadButton::A));
         assert!(button(KeyPress::Char('q')).is_none());
+    }
+
+    #[test]
+    fn the_resampler_lands_on_the_device_rate_and_joins_frames() {
+        // 88.2 kHz in, 48 kHz out: two thirds of the samples survive.
+        let mut resampler = Resampler::new(88_200, 48_000);
+        let mut total = 0;
+        let mut out = Vec::new();
+        for _ in 0..60 {
+            out.clear();
+            resampler.feed(&vec![0.5; 1476], &mut out);
+            total += out.len();
+        }
+        let expected = 60.0 * 1476.0 * 48_000.0 / 88_200.0;
+        assert!(
+            (total as f64 - expected).abs() < 2.0 * 60.0,
+            "got {total}, expected about {expected:.0}"
+        );
+
+        // A constant signal stays constant across the seams: no step at the
+        // frame boundary, which is what a fresh phase every 16 ms produced.
+        let mut resampler = Resampler::new(88_200, 48_000);
+        let mut out = Vec::new();
+        for _ in 0..10 {
+            resampler.feed(&[0.25; 1476], &mut out);
+        }
+        assert!(out.iter().all(|s| (*s - 0.25).abs() < 1e-6));
+    }
+
+    #[test]
+    fn a_rate_that_already_matches_passes_samples_through() {
+        let mut resampler = Resampler::new(48_000, 48_000);
+        let mut out = Vec::new();
+        resampler.feed(&[0.1, 0.2, 0.3, 0.4], &mut out);
+        assert_eq!(out.len(), 3, "one sample is held back for the next seam");
+        resampler.feed(&[0.5], &mut out);
+        assert_eq!(out.len(), 4);
+        assert!((out[3] - 0.4).abs() < 1e-6);
     }
 
     #[test]
