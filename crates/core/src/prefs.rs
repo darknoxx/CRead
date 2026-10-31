@@ -22,6 +22,9 @@ pub struct Prefs {
     pub font: String,
     /// The PC speaker beep once the screen has settled.
     pub beep: bool,
+    /// Write the document while typing. Off by default: saving is the writer's
+    /// decision, not the program's.
+    pub autosave: bool,
 }
 
 impl Default for Prefs {
@@ -35,6 +38,7 @@ impl Default for Prefs {
             roll: true,
             font: "classic".to_string(),
             beep: true,
+            autosave: false,
         }
     }
 }
@@ -105,6 +109,7 @@ mod tests {
         assert!(p.bloom);
         assert!(!p.typewriter);
         assert!(p.beep);
+        assert!(!p.autosave, "saving is manual until asked for");
     }
 
     #[test]
@@ -119,6 +124,7 @@ mod tests {
             roll: false,
             font: "thin".into(),
             beep: false,
+            autosave: true,
         };
         saved.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), saved);

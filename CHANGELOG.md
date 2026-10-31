@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Saving is manual.** Autosave no longer runs on its own: nothing is written
+  until you run `save`. `autosave on` restores the old behaviour, the choice is
+  remembered, and quitting still saves a modified document.
+
 ## 0.9.0
 
 - **The launch is a small boot.** A `Starting CRead OS...` bar runs for a second

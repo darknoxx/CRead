@@ -113,6 +113,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | Command | Aliases | What it does |
 | --- | --- | --- |
 | `save` | `w`, `safe` | write the document to disk |
+| `autosave [on\|off]` | `aw` | save while you type; off by default |
 | `saveas <name>` | `sa` | save under a new name in the vault |
 | `open [name]` | `o`, `e` | file list, or open a name directly |
 | `new` | `n` | start an empty document |
@@ -137,8 +138,10 @@ help screen the arrow keys walk it while the status line explains each row.
 | `about` | | version and credits |
 | `exit!` | `quit`, `q`, `x` | save and exit from anywhere |
 
-Autosave runs 1.5 seconds after you stop typing, so a forgotten `save` costs at
-most a sentence.
+Saving is yours to do: nothing is written until you run `save`. If you would
+rather not think about it, `autosave on` writes 1.5 seconds after you stop
+typing, and the setting is remembered. Quitting (`exit!`) and closing the window
+still save a modified document, so you cannot lose the last paragraph that way.
 
 ## Selection
 

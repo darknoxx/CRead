@@ -26,6 +26,8 @@ pub enum Command {
     Typewriter(Option<bool>),
     /// The PC speaker beep after the screen settles.
     Beep(Option<bool>),
+    /// Write the document while typing.
+    Autosave(Option<bool>),
     /// `Some(name)` picks a face, `None` cycles to the next one.
     Font(Option<String>),
     /// `true` = go fullscreen.
@@ -193,6 +195,13 @@ pub const SPECS: &[Spec] = &[
         aliases: &["tw"],
         argument: "[on|off]",
         summary: "toggle or set typewriter scrolling",
+        scopes: &[Scope::Editor],
+    },
+    Spec {
+        name: "autosave",
+        aliases: &["aw"],
+        argument: "[on|off]",
+        summary: "write while you type (off by default)",
         scopes: &[Scope::Editor],
     },
     Spec {
@@ -403,6 +412,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "roll" => Command::Roll(switch(rest)?),
         "typewriter" => Command::Typewriter(switch(rest)?),
         "beep" => Command::Beep(switch(rest)?),
+        "autosave" => Command::Autosave(switch(rest)?),
         "font" => Command::Font(optional(rest)),
         "fullscreen" => Command::Fullscreen(true),
         "windowed" => Command::Fullscreen(false),

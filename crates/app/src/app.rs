@@ -420,6 +420,8 @@ struct App {
     boot_at: Option<Instant>,
     /// The startup beep, mirrored from the preferences.
     beep_on: bool,
+    /// Write the document while typing; off unless asked for.
+    autosave: bool,
 
     sync_cfg: SyncConfig,
     sync: Option<Worker>,
@@ -536,6 +538,7 @@ impl App {
         let theme = opts.theme.unwrap_or_else(|| prefs.theme());
         let typewriter = prefs.typewriter;
         let beep_on = prefs.beep;
+        let autosave = prefs.autosave;
         let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
         Self {
@@ -614,6 +617,7 @@ impl App {
             help_all: false,
             boot_at: None,
             beep_on,
+            autosave,
             sync_cfg,
             sync: None,
         }
@@ -1285,6 +1289,9 @@ impl App {
     // ── persistence ─────────────────────────────────────────────────────────
 
     fn autosave_if_due(&mut self) {
+        if !self.autosave {
+            return;
+        }
         if self.mode != Mode::Write {
             return;
         }
@@ -2215,6 +2222,16 @@ impl App {
                 self.save_prefs();
                 self.dirty = true;
                 Ok(format!("scanline roll: {}", on_off(on)))
+            }
+            Command::Autosave(want) => {
+                self.autosave = want.unwrap_or(!self.autosave);
+                self.prefs.autosave = self.autosave;
+                self.save_prefs();
+                Ok(if self.autosave {
+                    "autosave on - the document is written as you type".into()
+                } else {
+                    "autosave off - save is yours to run".to_string()
+                })
             }
             Command::Beep(want) => {
                 self.beep_on = want.unwrap_or(!self.beep_on);
@@ -3789,6 +3806,29 @@ mod tests {
             vault: Some(dir.to_path_buf()),
             ..Options::default()
         })
+    }
+
+    #[test]
+    fn autosave_is_off_until_it_is_asked_for() {
+        let dir = vault("autosave");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        let path = app.doc.path.clone().unwrap();
+        app.mode = Mode::Write;
+        app.doc.editor.insert_text("typed but not saved");
+        // Pretend the last keystroke was long ago.
+        app.doc.last_edit = Instant::now() - AUTOSAVE_DELAY * 2;
+
+        app.autosave_if_due();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "", "still empty");
+
+        app.autosave = true;
+        app.autosave_if_due();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "typed but not saved"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -97,6 +97,11 @@ so the CRT pass stays the same for text and pictures.
 the owning process; `arboard::Clipboard` is kept in `App` for exactly that
 reason. Creating one per operation silently loses the text.
 
+**Saving is the writer's decision.** Autosave is opt-in (`autosave on`, stored in
+the preferences); by default a document only reaches disk through `save`,
+`saveas`, quitting or closing the window. Do not add a "convenience" write path
+that fires on its own.
+
 **Local files win.** Sync never overwrites a both-sides change: the remote copy
 is parked as `name.conflict-<unix>.md` and the local text stays. Nothing is ever
 deleted on the server.

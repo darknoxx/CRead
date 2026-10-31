@@ -52,9 +52,10 @@ file and `Ctrl+D` deletes it.
 
 ## Mostly invisible
 
-Your documents are plain Markdown in `~/Documents/CRead`. Autosave
-runs 1.5 seconds after you stop typing, and writes are atomic, so a
-crash cannot leave half a page behind.
+Your documents are plain Markdown in `~/Documents/CRead`. Nothing is
+written until you run `save`; `autosave on` does it 1.5 seconds after you
+stop typing if you prefer. Writes are atomic, so a crash cannot leave half
+a page behind.
 
 Headings and **strong** and *emphasis* are simply coloured — no bold, no
 slant. At eight pixels wide, synthesised weight and shear only ever made the
