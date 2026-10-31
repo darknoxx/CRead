@@ -65,6 +65,8 @@ pub struct DocumentView<'a> {
     /// Fenced-code state at the first visible line.
     pub in_fence: bool,
     pub cursor_on: bool,
+    /// `♪ track · 0:42` while music plays, drawn in the gap of the status bar.
+    pub now: Option<&'a str>,
 }
 
 pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
@@ -234,9 +236,29 @@ fn draw_status_bar(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>, 
             right
         };
     }
-    let x = cols.saturating_sub(right.chars().count() as u32 + 1);
-    if x > left_width + 1 {
-        screen.put_str(x, bar, &right, colour, bg);
+    let right_width = right.chars().count() as u32;
+    let x = cols.saturating_sub(right_width + 1);
+    let music = view.now;
+    let music_width = music.map(|m| m.chars().count() as u32).unwrap_or(0);
+    let music_x = left_width + 2;
+    let music_room = x.saturating_sub(music_x + 2);
+
+    if music_width > 0 && music_room < music_width {
+        // Not enough room for both: the music takes the right slot and the
+        // hint gives way, because a playing track is the rarer information.
+        let mx = cols.saturating_sub(music_width + 1);
+        if mx > left_width + 1 {
+            screen.put_str(mx, bar, music.unwrap_or_default(), theme.status_dim, bg);
+        } else if x > left_width + 1 {
+            screen.put_str(x, bar, &right, colour, bg);
+        }
+    } else {
+        if x > left_width + 1 {
+            screen.put_str(x, bar, &right, colour, bg);
+        }
+        if let Some(now) = music {
+            screen.put_str_ellipsis(music_x, bar, now, music_room, theme.status_dim, bg);
+        }
     }
 }
 
@@ -339,6 +361,7 @@ pub fn draw_program_line(
     theme: &Theme,
     title: &str,
     status: &str,
+    now: Option<&str>,
     prompt: Option<(&str, &str, &str)>,
 ) {
     if let Some((input, hint, error)) = prompt {
@@ -353,6 +376,14 @@ pub fn draw_program_line(
     let width = status.chars().count() as u32;
     let x = cols.saturating_sub(width + 1);
     screen.put_str(x, bar, status, theme.status_dim, bg);
+
+    if let Some(now) = now {
+        let start = title.chars().count() as u32 + 3;
+        let room = x.saturating_sub(start + 2);
+        if room >= 10 {
+            screen.put_str_ellipsis(start, bar, now, room, theme.status_dim, bg);
+        }
+    }
 }
 
 // ── riff ────────────────────────────────────────────────────────────────────
@@ -1269,6 +1300,7 @@ mod tests {
             bottom: Bottom::Status { message: input.0 },
             in_fence: false,
             cursor_on: true,
+            now: None,
         }
     }
 
@@ -1483,6 +1515,62 @@ mod tests {
                 .is_some_and(|c| c.bg == Theme::BLACK.fg && c.fg == Theme::BLACK.bg)
         });
         assert!(inverted, "selected row is not highlighted");
+    }
+
+    #[test]
+    fn the_status_bar_shows_the_music_between_the_counts_and_the_hint() {
+        let vp = vp(1280, 800);
+        let mut screen = Screen::new(vp.cols(), vp.rows());
+        let lines = vec!["hello world".to_string()];
+        let rows = vec![VisualRow {
+            line: 0,
+            start: 0,
+            text: "hello world".into(),
+        }];
+        let mut view = view_from(&lines, &rows, Some((0, 3)), ("", ""));
+        view.now = Some("\u{266a} Morgenlicht \u{00b7} 00:42");
+        draw_document(&mut screen, &Theme::BLACK, &view);
+        let text = rows_as_text(&screen);
+        let bar = text.lines().last().unwrap_or("");
+        assert!(bar.contains("Morgenlicht"), "{bar}");
+        // Between the counts and the hint, not at either end.
+        let at = bar.find("Morgenlicht").unwrap();
+        assert!(at > 10, "after the counts");
+        assert!(at < bar.len() - 10, "before the hint");
+    }
+
+    #[test]
+    fn the_music_is_dropped_when_the_bar_has_no_room_for_it() {
+        let mut screen = Screen::new(40, 10);
+        let lines = vec!["x".to_string()];
+        let rows = vec![VisualRow {
+            line: 0,
+            start: 0,
+            text: "x".into(),
+        }];
+        let mut view = view_from(&lines, &rows, Some((0, 0)), ("", ""));
+        view.now = Some("\u{266a} Morgenlicht \u{00b7} 00:42");
+        draw_document(&mut screen, &Theme::BLACK, &view);
+        let text = rows_as_text(&screen);
+        assert!(!text.contains("Morgenlicht"), "no room, no music: {text}");
+    }
+
+    #[test]
+    fn the_program_line_shows_the_music_after_the_title() {
+        let mut screen = Screen::new(80, 25);
+        draw_program_line(
+            &mut screen,
+            &Theme::BLACK,
+            "SOFTHAND",
+            "pencil   colour 0   size 1",
+            Some("\u{266a} Morgenlicht \u{00b7} 00:42"),
+            None,
+        );
+        let text = rows_as_text(&screen);
+        let bar = text.lines().last().unwrap_or("");
+        assert!(bar.contains("SOFTHAND"), "{bar}");
+        assert!(bar.contains("Morgenlicht"), "{bar}");
+        assert!(bar.contains("pencil"), "{bar}");
     }
 
     #[test]

@@ -1044,7 +1044,7 @@ impl App {
                 command_hint.as_str(),
                 self.command_error.as_str(),
             ));
-            ui::draw_program_line(&mut screen, &self.theme, "RIFF", keys, prompt);
+            ui::draw_program_line(&mut screen, &self.theme, "RIFF", keys, None, prompt);
             self.screen = screen;
             return;
         }
@@ -1176,7 +1176,15 @@ impl App {
                 hint.as_str(),
                 error.as_str(),
             ));
-            ui::draw_program_line(&mut screen, &self.theme, &title, &status, prompt);
+            let now = self.now_playing();
+            ui::draw_program_line(
+                &mut screen,
+                &self.theme,
+                &title,
+                &status,
+                now.as_deref(),
+                prompt,
+            );
         } else if self.mode == Mode::View {
             let (width, _) = ui::layout(cols);
             if width != self.view_width {
@@ -1420,6 +1428,7 @@ impl App {
             };
 
             let title = self.doc.title();
+            let now = self.now_playing();
             let view = ui::DocumentView {
                 title: &title,
                 state,
@@ -1436,6 +1445,7 @@ impl App {
                 bottom,
                 in_fence,
                 cursor_on: self.blink,
+                now: now.as_deref(),
             };
             ui::draw_document(&mut screen, &self.theme, &view);
         }
@@ -3319,6 +3329,25 @@ impl App {
         }
     }
 
+    /// `♪ Morgenlicht · 00:42` while a track is loaded, for the status bars of
+    /// the other screens. Riff's player shows this itself, so it is left out
+    /// there.
+    fn now_playing(&self) -> Option<String> {
+        if self.mode == Mode::Riff {
+            return None;
+        }
+        let track = self.riff.playlist.current()?;
+        let audio = self.audio.as_ref()?;
+        if audio.finished() {
+            return None;
+        }
+        Some(format!(
+            "\u{266a} {} \u{00b7} {}",
+            track.title,
+            crate::audio::clock(audio.position())
+        ))
+    }
+
     fn riff_status(&self) -> String {
         match self.riff.playlist.current() {
             Some(track) => {
@@ -4283,6 +4312,11 @@ impl ApplicationHandler for App {
         // so it can be looked at.
         if self.opts.boot || self.opts.screenshot.is_none() {
             self.boot_at = Some(Instant::now());
+        }
+        if self.opts.music {
+            let _ = self
+                .riff_ensure_loaded()
+                .and_then(|()| self.riff_start_current());
         }
 
         if self.sync_cfg.enabled {

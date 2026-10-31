@@ -11,6 +11,8 @@
   `libasound2-dev` at build time. The player has the same action line as every
   other module, `i` inserts the highlighted folder without opening it first, and
   returning to Riff with a disc in goes straight to the player.
+- **Now playing, everywhere.** While a track runs, the status line of the other
+  screens shows `♪ title · mm:ss`; on a narrow bar the hint makes room for it.
 - **Two shelves on the boot screen.** A second rule separates the built-in
   modules from the diskettes, so what is mounted is visible at a glance.
 - **`eject`.** Takes a diskette out for the session: `eject D`, `eject hello`, or

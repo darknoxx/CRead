@@ -293,7 +293,9 @@ works as a command, from **any** prompt, even before Riff was opened once:
 | `riff status` | what is playing, in the status line |
 
 The sound lives in the shell, not in the program: that is why it keeps playing
-while you are writing in Inspiro or painting in Softhand.
+while you are writing in Inspiro or painting in Softhand — and why their status
+line carries `♪ 01 Aufwachen · 00:42`, so you always know what is running. When
+the bar is too narrow for both, the hint gives way to the track.
 
 ## How the picture is built
 

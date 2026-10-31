@@ -24,6 +24,7 @@ OPTIONS:
         --vault DIR         Document folder (default: ~/Documents/CRead)
         --demo              Open the built-in welcome document
         --boot              Replay the CRT warm-up (use with --screenshot)
+        --music             Start the remembered music at launch
         --sync-once         Run one WebDAV sync round, print the result, exit
         --show VIEW         Start in a view: editor | welcome | action | search |
                             view | inspiro | softhand | picture | palette |
@@ -55,6 +56,8 @@ pub struct Options {
     pub screenshot_delay: u64,
     /// Replay the CRT warm-up, even when screenshotting.
     pub boot: bool,
+    /// Start the remembered music at launch. For demos and screenshots.
+    pub music: bool,
     pub command: String,
 }
 
@@ -76,6 +79,7 @@ impl Default for Options {
             show: String::from("editor"),
             screenshot_delay: 0,
             boot: false,
+            music: false,
             command: String::new(),
         }
     }
@@ -139,6 +143,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             }
             "--demo" => opts.demo = true,
             "--boot" => opts.boot = true,
+            "--music" => opts.music = true,
             "--sync-once" => opts.sync_once = true,
             "--screenshot-delay" => {
                 let v = args.next().ok_or("--screenshot-delay needs a value")?;
