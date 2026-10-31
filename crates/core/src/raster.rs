@@ -33,6 +33,9 @@ pub const VGA: [Rgb; 16] = [
 /// Palette index of the paper a new picture starts on.
 pub const PAPER: u8 = 15;
 
+/// A pixel nobody painted: the compositor leaves the page showing there.
+pub const CLEAR: u8 = 0xff;
+
 /// A grid of palette indices.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Raster {
@@ -79,6 +82,11 @@ impl Raster {
 
     pub fn fill(&mut self, index: u8) {
         self.pixels.fill(index);
+    }
+
+    /// Leave every pixel to the page colour underneath.
+    pub fn fill_clear(&mut self) {
+        self.pixels.fill(CLEAR);
     }
 
     /// A horizontal run, clipped to the surface.

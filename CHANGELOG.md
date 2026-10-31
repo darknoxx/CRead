@@ -14,7 +14,9 @@
   rest of the interface. Text painted with a cell background still uses the
   *theme's* palette, while the raster uses the fixed one, so a background cell
   showed as a slightly grey box on paper — Pocketboi now writes its labels as
-  ink and lets the page show through. The buttons are `Space`
+  ink and lets the page show through. The pixel layer itself starts *clear*
+  (`Raster::CLEAR`): a program paints only what it means to paint, and
+  everything else is the shell's own page colour. The buttons are `Space`
   (A), `C` (B), `Enter`/right `Ctrl` (Start) and left `Ctrl` (Select) — chosen to
   land in the same place on QWERTY, QWERTZ and AZERTY. It is the first module that animates:
   the shell runs a frame clock while a cartridge is loaded, and a panic in the

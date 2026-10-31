@@ -502,14 +502,14 @@ mod tests {
     #[test]
     fn the_shelf_leaves_the_page_colour_alone() {
         let mut raster = Raster::new(640, 384);
-        raster.fill(15);
+        raster.fill_clear();
         // No game: the module draws text cells, not a black box.
         let mut boi = Pocketboi::new(&temp("paint"));
         boi.palette(15, 0);
         let mut screen = Screen::new(80, 25);
         boi.draw(&mut screen, &mut raster);
-        assert_eq!(raster.get(0, 0), Some(15), "still the page");
-        assert_eq!(raster.get(639, 383), Some(15));
+        assert_eq!(raster.get(0, 0), Some(cread_core::raster::CLEAR));
+        assert_eq!(raster.get(639, 383), Some(cread_core::raster::CLEAR));
         // The title row carries ink the shell can see.
         assert!(screen.get(2, 1).is_some_and(|c| c.ch != '\0'));
     }

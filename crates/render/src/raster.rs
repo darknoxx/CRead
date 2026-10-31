@@ -4,6 +4,7 @@
 //! it only happens when the text actually changes — so the GPU is free to do
 //! nothing but the CRT post-processing.
 
+use cread_core::raster::CLEAR;
 use cread_core::{Cell, Raster, Rgb, Screen, Theme, VGA};
 
 use crate::font::Font;
@@ -84,23 +85,11 @@ impl Framebuffer {
     /// Cells marked transparent are skipped, which is what lets a program put a
     /// menu over its own picture without punching a hole in it.
     pub fn draw_program(&mut self, screen: &Screen, raster: &Raster, theme: &Theme, font: &Font) {
-        // Only the margin outside the program's surface needs the theme
-        // background: everything inside is overwritten below anyway.
+        // The page first: a program paints only what it means to paint, and
+        // pixels it left clear show this colour.
+        self.clear(theme.background());
         let rows = raster.height().min(self.height);
         let cols = raster.width().min(self.width);
-        if cols < self.width {
-            let bg = theme.background();
-            self.fill_rect(cols as i32, 0, self.width - cols, rows, bg);
-        }
-        if rows < self.height {
-            self.fill_rect(
-                0,
-                rows as i32,
-                self.width,
-                self.height - rows,
-                theme.background(),
-            );
-        }
 
         // Row-wise conversion: 245k pixels, once per frame, so the per-pixel
         // bounds check of `put` would show up in a pointer-driven program.
@@ -110,6 +99,10 @@ impl Framebuffer {
             let base = (y * self.width) as usize * 4;
             let dst = &mut self.data[base..base + cols as usize * 4];
             for (index, chunk) in src.iter().zip(dst.as_chunks_mut::<4>().0) {
+                if *index == CLEAR {
+                    // Nobody painted this pixel: the page stays.
+                    continue;
+                }
                 let rgb = VGA[(*index & 0x0f) as usize];
                 *chunk = [rgb[0], rgb[1], rgb[2], 0xff];
             }

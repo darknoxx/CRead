@@ -1148,9 +1148,9 @@ impl App {
 
         if self.program.is_some() {
             let mut raster = std::mem::replace(&mut self.raster, Raster::new(1, 1));
-            // The page, so a program that draws a picture does not have to
-            // paint a box around it first.
-            raster.fill(Raster::nearest(self.theme.background()));
+            // Clear means "the page shows through": a program paints only what
+            // it means to paint, and the rest is the shell's background.
+            raster.fill_clear();
             let ink = Raster::nearest(self.theme.color(self.theme.fg));
             if let Some(program) = self.program.as_mut() {
                 program.palette(Raster::nearest(self.theme.background()), ink);
