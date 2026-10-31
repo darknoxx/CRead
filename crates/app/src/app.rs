@@ -318,6 +318,8 @@ struct App {
     /// Pending yes/no question, e.g. before deleting a file.
     confirm: Option<String>,
     help_about: bool,
+    /// Highlighted row on the help screen.
+    help_selected: usize,
 
     sync_cfg: SyncConfig,
     sync: Option<Worker>,
@@ -506,6 +508,7 @@ impl App {
             history_pos: None,
             confirm: None,
             help_about: false,
+            help_selected: 0,
             sync_cfg,
             sync: None,
         }
@@ -788,7 +791,12 @@ impl App {
         }
         if self.mode == Mode::Help {
             self.splash_at = None;
-            ui::draw_help(&mut screen, &self.theme, self.help_about);
+            ui::draw_help(
+                &mut screen,
+                &self.theme,
+                self.help_about,
+                self.help_selected,
+            );
             self.screen = screen;
             return;
         }
@@ -1551,7 +1559,7 @@ impl App {
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
-            Mode::Help => self.to_write(),
+            Mode::Help => self.on_key_help(event),
         }
 
         // Single choke point: whatever the key changed, draw it now. Forgetting
@@ -1770,6 +1778,22 @@ impl App {
                 self.poke();
             }
             _ => {}
+        }
+    }
+
+    /// Help: arrows walk the list, any other key goes back.
+    fn on_key_help(&mut self, event: KeyEvent) {
+        let specs = command::SPECS.len();
+        match &event.logical_key {
+            Key::Named(NamedKey::ArrowUp) if !self.help_about => {
+                self.help_selected = self.help_selected.saturating_sub(1);
+                self.poke();
+            }
+            Key::Named(NamedKey::ArrowDown) if !self.help_about => {
+                self.help_selected = (self.help_selected + 1).min(specs.saturating_sub(1));
+                self.poke();
+            }
+            _ => self.to_write(),
         }
     }
 
@@ -2121,8 +2145,14 @@ impl App {
                 if self.has_document && self.doc.editor.modified() {
                     self.save()?;
                 }
+                let already_home =
+                    !self.has_document && self.program.is_none() && self.home == Home::Boot;
                 self.leave_to_boot();
-                Ok(String::new())
+                Ok(if already_home {
+                    "already at the boot screen - exit! quits".into()
+                } else {
+                    String::new()
+                })
             }
             Command::Settings => {
                 self.open_settings();
@@ -2130,6 +2160,7 @@ impl App {
             }
             Command::Help => {
                 self.help_about = false;
+                self.help_selected = 0;
                 self.mode = Mode::Help;
                 self.dirty = true;
                 Ok(String::new())

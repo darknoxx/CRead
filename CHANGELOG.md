@@ -17,6 +17,8 @@
   `exit!`.
 - The boot screen shrinks the logo by a whole step when the drive list is long,
   instead of dropping rows off the bottom.
+- The help screen lists the commands in two columns (the vocabulary outgrew one
+  page) and shows the highlighted command's description in the status line.
 
 ## 0.6.1
 

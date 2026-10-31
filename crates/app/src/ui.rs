@@ -683,7 +683,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Full-screen reference. Without hotkeys this is the only way to discover what
 /// the program can do, so it is a first-class screen rather than a popup.
-pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool) {
+pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool, selected: usize) {
     let cols = screen.cols();
     let rows = screen.rows();
     let (fg, bg) = (theme.fg, theme.bg);
@@ -722,30 +722,54 @@ pub fn draw_help(screen: &mut Screen, theme: &Theme, about: bool) {
             y += 1;
         }
     } else {
-        for spec in cread_core::command::SPECS {
-            if y >= last {
+        // Two columns: the vocabulary outgrew a single list, and a help screen
+        // that silently drops its last five rows is worse than none.
+        let specs = cread_core::command::SPECS;
+        let per_col = (last - y) as usize;
+        for (i, spec) in specs.iter().enumerate() {
+            let (col, row) = (i / per_col, i % per_col);
+            if col > 1 {
                 break;
             }
+            let x = if col == 0 { 2 } else { cols / 2 };
+            let line_y = y + row as u32;
             let name = if spec.argument.is_empty() {
                 spec.name.to_string()
             } else {
                 format!("{} {}", spec.name, spec.argument)
             };
-            screen.put_str(2, y, &format!("{name:<22}"), theme.accent, bg);
+            let (name_fg, alias_fg) = if i == selected {
+                (theme.bg, theme.bg)
+            } else {
+                (theme.accent, theme.dim)
+            };
+            if i == selected {
+                for px in x.saturating_sub(1)..cols / 2 * (col as u32 + 1) {
+                    screen.put(px, line_y, Cell::blank(theme.bg, theme.fg));
+                }
+            }
+            let row_bg = if i == selected { theme.fg } else { theme.bg };
+            // 22 cells hold even `scanlines [on|off] -r`.
+            screen.put_str_ellipsis(x, line_y, &name, 22, name_fg, row_bg);
             let aliases = spec.aliases.join(", ");
-            screen.put_str(25, y, &format!("{aliases:<15}"), theme.dim, bg);
-            screen.put_str_ellipsis(41, y, spec.summary, cols.saturating_sub(42), fg, bg);
-            y += 1;
+            screen.put_str_ellipsis(x + 22, line_y, &aliases, 14, alias_fg, row_bg);
         }
     }
 
     let bar = rows.saturating_sub(1);
     screen.fill_row(bar, Cell::blank(theme.status_fg, theme.status_bg));
     screen.put_str(0, bar, " Esc  back ", theme.status_fg, theme.status_bg);
-    let right = "type any command name to run it ";
+    let right = if about {
+        "type any command name to run it ".to_string()
+    } else {
+        match cread_core::command::SPECS.get(selected) {
+            Some(spec) => format!("{} ", spec.summary),
+            None => String::new(),
+        }
+    };
     let x = cols.saturating_sub(right.chars().count() as u32 + 1);
     if x > 30 {
-        screen.put_str(x, bar, right, theme.status_fg, theme.status_bg);
+        screen.put_str(x, bar, &right, theme.status_fg, theme.status_bg);
     }
 }
 
