@@ -380,9 +380,16 @@ fn draw_legend(screen: &mut Screen, ink: u8) {
 fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
     let cols = screen.cols();
     let (paper, ink) = (boi.paper, boi.ink);
-    screen.put_str(2, 1, "P O C K E T B O I", ink, paper);
+    screen.put_str(2, 1, "P O C K E T B O I", ink, Cell::BG_TRANSPARENT);
     let dir = boi.dir.display().to_string();
-    screen.put_str_ellipsis(2, 3, &dir, cols.saturating_sub(4), ink, paper);
+    screen.put_str_ellipsis(
+        2,
+        3,
+        &dir,
+        cols.saturating_sub(4),
+        ink,
+        Cell::BG_TRANSPARENT,
+    );
 
     let first = 5;
     let last = screen.rows().saturating_sub(2);
@@ -392,7 +399,11 @@ fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
             break;
         }
         let selected = i == boi.selected;
-        let (fg, bg) = if selected { (paper, ink) } else { (ink, paper) };
+        let (fg, bg) = if selected {
+            (paper, ink)
+        } else {
+            (ink, Cell::BG_TRANSPARENT)
+        };
         if selected {
             for x in 1..cols.saturating_sub(1) {
                 screen.put(x, y, Cell::blank(paper, ink));
@@ -407,15 +418,9 @@ fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
             first,
             "no cartridges yet - drop .gb or .gbc files in this folder",
             ink,
-            paper,
+            Cell::BG_TRANSPARENT,
         );
     }
-    let bar = screen.rows().saturating_sub(1);
-    screen.fill_row(bar, Cell::blank(ink, paper));
-    screen.put_str(0, bar, " Enter play  ", ink, paper);
-    let right = "Backspace up  Esc commands ";
-    let x = cols.saturating_sub(right.chars().count() as u32);
-    screen.put_str(x, bar, right, ink, paper);
 }
 
 #[cfg(test)]

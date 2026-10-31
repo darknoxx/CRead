@@ -11,7 +11,10 @@
   source claims — that mistake played everything an octave low and a beat
   behind). The raster now starts as the theme's page colour and cells can
   carry ink without a background, so a program can sit on the page like the
-  rest of the interface. The buttons are `Space`
+  rest of the interface. Text painted with a cell background still uses the
+  *theme's* palette, while the raster uses the fixed one, so a background cell
+  showed as a slightly grey box on paper — Pocketboi now writes its labels as
+  ink and lets the page show through. The buttons are `Space`
   (A), `C` (B), `Enter`/right `Ctrl` (Start) and left `Ctrl` (Select) — chosen to
   land in the same place on QWERTY, QWERTZ and AZERTY. It is the first module that animates:
   the shell runs a frame clock while a cartridge is loaded, and a panic in the
