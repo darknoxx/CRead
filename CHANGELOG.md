@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Pictures get the full raster.** The paper theme damps scanlines and glow
+  because on a pale page they read as a printed overlay. A program that draws a
+  picture is a screen inside the screen, so it now keeps the scanlines at full
+  strength; text-only surfaces stay calm.
 - **Pocketboi.** A Game Boy and Game Boy Color on the raster, running Mizu
   (`mizu-core`, MIT, vendored and patched — see `vendor/README.md`). Cartridges
   come from `<vault>/Roms`; the module lists folders and `.gb`/`.gbc` files, maps

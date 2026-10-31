@@ -815,7 +815,12 @@ impl App {
         if self.theme.is_light() {
             // Glow on paper is ink bleed: keep a trace, not a haze.
             crt.bloom *= 0.3;
-            crt.scanline *= 0.4;
+            // The raster lines, though, are what makes a picture on the page
+            // look like a screen. A program keeps them at full strength; text
+            // alone gets the calmer version.
+            if self.program.is_none() {
+                crt.scanline *= 0.4;
+            }
         }
 
         if self.dirty {
