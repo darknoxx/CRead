@@ -2318,6 +2318,8 @@ impl App {
             Key::Named(NamedKey::End) => KeyPress::End,
             Key::Named(NamedKey::PageUp) => KeyPress::PageUp,
             Key::Named(NamedKey::PageDown) => KeyPress::PageDown,
+            // The space bar arrives as a named key, not as the character " ".
+            Key::Named(NamedKey::Space) => KeyPress::Char(' '),
             Key::Named(NamedKey::Control) => match event.physical_key {
                 PhysicalKey::Code(KeyCode::ControlLeft) => KeyPress::ControlLeft,
                 PhysicalKey::Code(KeyCode::ControlRight) => KeyPress::ControlRight,
