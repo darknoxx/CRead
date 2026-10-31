@@ -279,8 +279,9 @@ the right `Ctrl` is Start, the left `Ctrl` is Select — so a German or French
 keyboard does not shuffle them. The picture is drawn in four greys by default;
 `P` cycles to the classic green and to amber. The first `exit` puts the cartridge
 back on the shelf, the second leaves the module. Sound comes from Mizu's APU on
-the shell's own audio device, and the cartridge saves its battery RAM next to the
-ROM when you leave.
+the shell's own audio device — the sound server's PCM, so it follows whichever
+output the desktop is set to. The cartridge saves its battery RAM next to the ROM
+when you leave.
 
 Nothing is shipped with it: the ROMs are yours to bring.
 

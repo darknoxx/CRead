@@ -8,7 +8,7 @@ use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
 
-use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
+use rodio::{Decoder, OutputStream, Sink, Source};
 
 /// The output device and one sink, replaced per track.
 ///
@@ -24,8 +24,7 @@ pub struct Audio {
 impl Audio {
     /// Open the default output. Fails cleanly when the machine has no sound.
     pub fn open(volume: u8) -> Result<Self, String> {
-        let stream = OutputStreamBuilder::open_default_stream()
-            .map_err(|e| format!("no sound device: {e}"))?;
+        let stream = cread_pocketboi::open_output().ok_or_else(|| "no sound device".to_string())?;
         let audio = Self {
             sink: Sink::connect_new(stream.mixer()),
             stream,

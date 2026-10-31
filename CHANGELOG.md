@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Sound follows the system's output device.** Both the game and the music
+  player opened the default ALSA device, which on some setups is the hardware
+  one — a game could land on the speakers while the system was set to
+  headphones, and only switching output back and forth in the desktop settings
+  moved it. They now ask for the sound server's own PCM (`pipewire`, then
+  `pulse`, then `default`) and never fall back to a hardware device, so the
+  stream belongs to the server that owns the routing.
+
 ## 0.12.0
 
 - **Pocketboi, second pass.** Four greys instead of the DMG green (`P` cycles
