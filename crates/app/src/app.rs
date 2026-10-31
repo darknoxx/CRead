@@ -46,7 +46,7 @@ const ANIMATION_FPS: u32 = 60;
 const STATUS_TTL: Duration = Duration::from_secs(4);
 /// Launch: a bar runs before the first real frame, long enough to read as a
 /// machine starting up. Any key skips it.
-const BOOT_SECONDS: f32 = 2.0;
+const BOOT_SECONDS: f32 = 1.5;
 /// What the bar says while the "system" starts.
 const BOOT_LABEL: &str = "Starting CRead OS...";
 
