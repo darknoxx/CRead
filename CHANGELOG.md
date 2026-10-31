@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`eject`.** Takes a diskette out for the session: `eject D`, `eject hello`, or
+  bare `eject` for the selected row. The drive disappears from the boot screen and
+  from `dir` until CRead restarts; the file in `Disks` is not touched.
 - **Saving is manual.** Autosave no longer runs on its own: nothing is written
   until you run `save`. `autosave on` restores the old behaviour, the choice is
   remembered, and quitting still saves a modified document.

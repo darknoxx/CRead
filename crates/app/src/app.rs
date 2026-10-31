@@ -199,6 +199,8 @@ struct Search {
 /// A diskette found in the vault, parsed or not — a broken disk still shows up
 /// on the boot screen so its owner can see what went wrong.
 struct DiskEntry {
+    /// Where it came from, so it can be ejected again by path.
+    path: PathBuf,
     /// File name without extension, for the label when the disk is broken.
     stem: String,
     disk: Option<Disk>,
@@ -347,6 +349,9 @@ struct App {
     disks: Vec<DiskEntry>,
     /// Set when the boot screen should re-read the disk folder.
     disks_dirty: bool,
+    /// Diskettes taken out for this session. The files are untouched; the boot
+    /// screen simply pretends the drive is empty until CRead restarts.
+    ejected: Vec<PathBuf>,
     boot_selected: usize,
     /// Index into `disks` while the browser is open.
     disk_open: usize,
@@ -563,6 +568,7 @@ impl App {
             doc,
             disks: Vec::new(),
             disks_dirty: true,
+            ejected: Vec::new(),
             boot_selected: 0,
             disk_open: 0,
             disk_selected: 0,
@@ -2303,6 +2309,7 @@ impl App {
                 self.start_search(query);
                 Ok(String::new())
             }
+            Command::Eject(target) => self.eject(target),
             Command::Run(None) => {
                 self.boot_activate();
                 Ok(String::new())
@@ -2856,6 +2863,7 @@ impl App {
         self.disks = match storage::list_disks(&dir) {
             Ok(entries) => entries
                 .into_iter()
+                .filter(|(path, _)| !self.ejected.contains(path))
                 .map(|(path, text)| {
                     let stem = path
                         .file_stem()
@@ -2870,6 +2878,7 @@ impl App {
                                 && program_index_by_id(&disk.program).is_none() =>
                         {
                             DiskEntry {
+                                path,
                                 stem,
                                 disk: None,
                                 error: Some(format!(
@@ -2879,11 +2888,13 @@ impl App {
                             }
                         }
                         Ok(disk) => DiskEntry {
+                            path,
                             stem,
                             disk: Some(disk),
                             error: None,
                         },
                         Err(error) => DiskEntry {
+                            path,
                             stem,
                             disk: None,
                             error: Some(error),
@@ -2979,6 +2990,66 @@ impl App {
             BootItem::Program(index) => self.start_loading(Pending::Program(index)),
             BootItem::Disk(index) => self.launch_disk(index),
         }
+    }
+
+    /// Take a diskette out for this session. Bare `eject` takes whatever the
+    /// boot screen has selected.
+    fn eject(&mut self, target: Option<String>) -> Result<String, String> {
+        let index = match target {
+            None => match self.boot_items().get(self.boot_selected) {
+                Some(BootItem::Disk(index)) => *index,
+                _ => return Err("select a diskette first".into()),
+            },
+            Some(target) => self.disk_index_for(&target)?,
+        };
+        if index >= self.disks.len() {
+            return Err("no such diskette".into());
+        }
+        let entry = self.disks.remove(index);
+        let name = match &entry.disk {
+            Some(disk) => disk.name.clone(),
+            None => entry.stem.to_uppercase(),
+        };
+        self.ejected.push(entry.path);
+        if self.boot_selected >= self.boot_items().len() {
+            self.boot_selected = 0;
+        }
+        self.disks_dirty = true;
+        Ok(format!("ejected {name} - back at the next start"))
+    }
+
+    /// A drive letter (`d`), a stem (`hello`) or a diskette name (`HELLO`).
+    fn disk_index_for(&self, target: &str) -> Result<usize, String> {
+        let target = target.trim();
+        if target.chars().count() == 1
+            && let Some(letter) = target.chars().next()
+            && letter.is_ascii_alphabetic()
+        {
+            let mut next = b'A';
+            for item in self.boot_items() {
+                if !item.selectable() {
+                    continue;
+                }
+                if next as char == letter.to_ascii_uppercase() {
+                    return match item {
+                        BootItem::Disk(index) => Ok(index),
+                        _ => Err(format!("{} is not a diskette", letter.to_ascii_uppercase())),
+                    };
+                }
+                next += 1;
+            }
+            return Err(format!("no drive {}", letter.to_ascii_uppercase()));
+        }
+        self.disks
+            .iter()
+            .position(|entry| {
+                entry.stem.eq_ignore_ascii_case(target)
+                    || entry
+                        .disk
+                        .as_ref()
+                        .is_some_and(|disk| disk.name.eq_ignore_ascii_case(target))
+            })
+            .ok_or_else(|| format!("no diskette called {target}"))
     }
 
     /// Move the boot selection, stepping over rows that are not selectable
@@ -3925,6 +3996,65 @@ mod tests {
         assert!(rows[2].detail.contains("your ideas"));
         assert!(rows[3].detail.contains("16 colors"));
         assert!(!rows[3].broken, "SOFTHAND is installed, no diskette needed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ejecting_a_drive_hides_it_for_this_session_only() {
+        let dir = vault("eject");
+        std::fs::create_dir_all(dir.join("Disks")).unwrap();
+        std::fs::write(
+            dir.join("Disks/HELLO.DSK"),
+            "CRead Disk 1\nname=HELLO\n\n---FILE A.TXT\nhi\n",
+        )
+        .unwrap();
+        let mut app = app_in(&dir);
+        app.refresh_disks();
+        assert!(app.boot_rows().iter().any(|row| row.label == "D: HELLO"));
+
+        // By drive letter, as on the boot screen.
+        let message = app.eject(Some("D".into())).unwrap();
+        assert!(message.contains("HELLO"), "{message}");
+        assert!(
+            !app.boot_rows()
+                .iter()
+                .any(|row| row.label.contains("HELLO"))
+        );
+        // A refresh does not bring it back: the list is what is inserted.
+        app.refresh_disks();
+        assert!(
+            !app.boot_rows()
+                .iter()
+                .any(|row| row.label.contains("HELLO"))
+        );
+
+        // The file is still there, so a new session sees it again.
+        assert!(dir.join("Disks/HELLO.DSK").is_file());
+        let mut fresh = app_in(&dir);
+        fresh.refresh_disks();
+        assert!(fresh.boot_rows().iter().any(|row| row.label == "D: HELLO"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ejecting_by_name_works_and_built_in_drives_refuse() {
+        let dir = vault("eject-name");
+        std::fs::create_dir_all(dir.join("Disks")).unwrap();
+        std::fs::write(
+            dir.join("Disks/HELLO.DSK"),
+            "CRead Disk 1\nname=HELLO\n\n---FILE A.TXT\nhi\n",
+        )
+        .unwrap();
+        let mut app = app_in(&dir);
+        app.refresh_disks();
+        assert!(app.eject(Some("hello".into())).is_ok());
+        assert!(app.eject(Some("hello".into())).is_err(), "already out");
+
+        // A: is the vault, B: is Inspiro; neither is a diskette.
+        assert!(app.eject(Some("A".into())).is_err());
+        assert!(app.eject(Some("B".into())).is_err());
+        assert!(app.eject(Some("Z".into())).is_err(), "no such drive");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

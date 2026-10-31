@@ -49,6 +49,8 @@ pub enum Command {
     Run(Option<String>),
     /// List the diskettes in the drive folder.
     Dir,
+    /// Take a diskette out for this session: bare means the selected one.
+    Eject(Option<String>),
     /// Back to the boot screen: leave whatever is open, without quitting.
     Exit,
     /// `exit!` - save and quit, from anywhere.
@@ -261,6 +263,13 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Editor],
     },
     Spec {
+        name: "eject",
+        aliases: &["unmount"],
+        argument: "[drive]",
+        summary: "take a diskette out until the next start",
+        scopes: &[Scope::Boot],
+    },
+    Spec {
         name: "run",
         aliases: &["exec"],
         argument: "[name]",
@@ -422,6 +431,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "find" => Command::Find(optional(rest)),
         "run" => Command::Run(optional(rest)),
         "dir" => Command::Dir,
+        "eject" => Command::Eject(optional(rest)),
         "exit" => {
             if bang {
                 Command::ExitForce

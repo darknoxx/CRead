@@ -123,6 +123,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | `view` | `read` | reading mode: markup stripped, nothing to edit |
 | `exit` | `welcome`, `home` | back to the boot screen |
 | `run [name]` | `exec` | run a diskette (bare: whatever the boot screen has selected) |
+| `eject [drive]` | `unmount` | take a diskette out until CRead restarts |
 | `dir` | `disks` | list the diskettes in the drive folder |
 | `beep [on\|off]` | `bell` | the startup beep; bare `beep` toggles |
 | `font [classic\|thin]` | `weight` | typeface; bare `font` cycles |
@@ -180,6 +181,11 @@ Line one is the magic. Then `key=value` lines (`name` is required, `api` is the
 container version), then files introduced by `---FILE <name>`. A diskette that
 will not parse still shows up on the boot screen, in red, with the reason — you
 can see that something is wrong without digging.
+
+`eject D` takes a diskette out for the session — the row disappears from the boot
+screen, and `dir` no longer lists it. The file is untouched, so it is back at the
+next start; to be rid of it for good, move it out of `Disks`. Bare `eject` takes
+whatever the boot screen has selected.
 
 Data diskettes are read-only: opening a file shows it in the reader, and `Esc`
 takes you back to the disk. Code diskettes (a payload that actually runs) are
