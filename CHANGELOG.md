@@ -5,8 +5,10 @@
 - **Pocketboi.** A Game Boy and Game Boy Color on the raster, running Mizu
   (`mizu-core`, MIT, vendored and patched — see `vendor/README.md`). Cartridges
   come from `<vault>/Roms`; the module lists folders and `.gb`/`.gbc` files, maps
-  the 160x144 screen to four shades and doubles it, and gives the pad to the
-  arrow keys, `Z`/`X`, `Enter` and `Space`. It is the first module that animates:
+  the 160x144 screen to four shades and doubles it, prints the key legend under
+  the screen and plays the APU on its own audio stream. The buttons are `Space`
+  (A), `C` (B), `Enter`/right `Ctrl` (Start) and left `Ctrl` (Select) — chosen to
+  land in the same place on QWERTY, QWERTZ and AZERTY. It is the first module that animates:
   the shell runs a frame clock while a cartridge is loaded, and a panic in the
   emulator costs the game, not the application.
 

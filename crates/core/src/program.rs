@@ -39,6 +39,10 @@ pub enum KeyPress {
     PageDown,
     /// Function keys, `F1` = 1.
     Function(u8),
+    /// The bare Control keys, left and right. Emulators use them for the two
+    /// small buttons a Game Boy has.
+    ControlLeft,
+    ControlRight,
 }
 
 /// Pointer buttons, in winit's order.

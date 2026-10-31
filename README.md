@@ -273,9 +273,12 @@ Cartridges live in `<vault>/Roms` — drop `.gb` and `.gbc` files there and the
 module lists them, folders included. `Enter` plays, `Backspace` goes up a folder.
 
 The machine's 160x144 screen is reduced to four shades and blown up by two, so it
-sits centred in the 640x384 raster. Keys: arrows are the pad, `Z` is B, `X` is A,
-`Enter` is Start, `Space` is Select. `Esc` opens the command line; the cartridge
-saves its battery RAM next to the ROM when you leave.
+sits centred in the 640x384 raster, with the key legend underneath. The buttons
+sit where they sit on every keyboard layout — `Space` is A, `C` is B, `Enter` or
+the right `Ctrl` is Start, the left `Ctrl` is Select — so a German or French
+keyboard does not shuffle them. Sound comes from Mizu's APU on the shell's own
+audio device. `Esc` opens the command line; the cartridge saves its battery RAM
+next to the ROM when you leave.
 
 Nothing is shipped with it: the ROMs are yours to bring.
 

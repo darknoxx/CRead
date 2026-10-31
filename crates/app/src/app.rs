@@ -2313,6 +2313,11 @@ impl App {
             Key::Named(NamedKey::End) => KeyPress::End,
             Key::Named(NamedKey::PageUp) => KeyPress::PageUp,
             Key::Named(NamedKey::PageDown) => KeyPress::PageDown,
+            Key::Named(NamedKey::Control) => match event.physical_key {
+                PhysicalKey::Code(KeyCode::ControlLeft) => KeyPress::ControlLeft,
+                PhysicalKey::Code(KeyCode::ControlRight) => KeyPress::ControlRight,
+                _ => return None,
+            },
             _ => return None,
         })
     }

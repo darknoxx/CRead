@@ -6,10 +6,17 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use cread_core::program::{KeyPress, Outcome, PointerEvent, Program};
 use cread_core::{Cell, Raster, Screen};
 use mizu_core::{GameBoy, JoypadButton};
+use rodio::buffer::SamplesBuffer;
+use rodio::queue::{SourcesQueueInput, queue};
+use rodio::{OutputStream, OutputStreamBuilder, Sink};
+
+/// Mizu's APU hands out 44.1 kHz mono samples.
+const SAMPLE_RATE: u32 = 44_100;
 
 /// The machine's screen, in its own pixels.
 pub const GB_W: u32 = 160;
@@ -34,11 +41,46 @@ struct Game {
     fault: Option<String>,
 }
 
+/// The machine's speaker, in the shell's own audio device.
+struct Sound {
+    _stream: OutputStream,
+    _sink: Sink,
+    input: Arc<SourcesQueueInput>,
+}
+
+impl Sound {
+    fn open() -> Option<Self> {
+        let stream = OutputStreamBuilder::open_default_stream().ok()?;
+        // keep_alive: the stream stays open between frames instead of
+        // clicking as the queue empties.
+        let (input, output) = queue(true);
+        let sink = Sink::connect_new(stream.mixer());
+        sink.set_volume(0.6);
+        sink.append(output);
+        Some(Self {
+            _stream: stream,
+            _sink: sink,
+            input,
+        })
+    }
+
+    /// One frame of Game Boy audio.
+    fn push(&self, samples: &[f32]) {
+        if samples.is_empty() {
+            return;
+        }
+        self.input
+            .append(SamplesBuffer::new(1, SAMPLE_RATE, samples.to_vec()));
+    }
+}
+
 pub struct Pocketboi {
     dir: PathBuf,
     entries: Vec<Entry>,
     selected: usize,
     game: Option<Game>,
+    sound: Option<Sound>,
+    sound_failed: bool,
 }
 
 impl Pocketboi {
@@ -51,6 +93,8 @@ impl Pocketboi {
             entries: Vec::new(),
             selected: 0,
             game: None,
+            sound: None,
+            sound_failed: false,
             dir,
         };
         boi.rescan();
@@ -112,21 +156,37 @@ impl Pocketboi {
     }
 
     /// Step one frame and paint it.
-    fn run(&mut self, raster: &mut Raster) {
-        let Some(game) = self.game.as_mut() else {
+    fn run(&mut self, screen: &mut Screen, raster: &mut Raster) {
+        if self.game.is_none() {
             return;
-        };
-        if game.fault.is_none() {
-            // A malformed cartridge must not take CRead down with it: the
-            // emulator is allowed exactly one panic, and it costs the game.
-            let stepped = catch_unwind(AssertUnwindSafe(|| game.gb.clock_for_frame()));
-            match stepped {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => game.fault = Some(format!("{e:?}")),
-                Err(_) => game.fault = Some("the emulator crashed".into()),
-            }
         }
-        paint(&game.gb, raster);
+        // The speaker is opened on the first frame, not on the shelf.
+        if self.sound.is_none() && !self.sound_failed {
+            self.sound = Sound::open();
+            self.sound_failed = self.sound.is_none();
+        }
+        {
+            let Some(game) = self.game.as_mut() else {
+                return;
+            };
+            if game.fault.is_none() {
+                // A malformed cartridge must not take CRead down with it: the
+                // emulator is allowed exactly one panic, and it costs the game.
+                let stepped = catch_unwind(AssertUnwindSafe(|| game.gb.clock_for_frame()));
+                match stepped {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => game.fault = Some(format!("{e:?}")),
+                    Err(_) => game.fault = Some("the emulator crashed".into()),
+                }
+            }
+            if let Some(sound) = self.sound.as_ref() {
+                let buffers = game.gb.audio_buffers();
+                let samples = buffers.all().to_vec();
+                sound.push(&samples);
+            }
+            paint(&game.gb, raster);
+        }
+        draw_legend(screen);
     }
 
     fn status(&self) -> String {
@@ -226,10 +286,10 @@ fn button(key: KeyPress) -> Option<JoypadButton> {
         KeyPress::Down => JoypadButton::Down,
         KeyPress::Left => JoypadButton::Left,
         KeyPress::Right => JoypadButton::Right,
-        KeyPress::Enter => JoypadButton::Start,
-        KeyPress::Char(' ') => JoypadButton::Select,
-        KeyPress::Char(c) if c.eq_ignore_ascii_case(&'z') => JoypadButton::B,
-        KeyPress::Char(c) if c.eq_ignore_ascii_case(&'x') => JoypadButton::A,
+        KeyPress::Enter | KeyPress::ControlRight => JoypadButton::Start,
+        KeyPress::ControlLeft => JoypadButton::Select,
+        KeyPress::Char(' ') => JoypadButton::A,
+        KeyPress::Char(c) if c.eq_ignore_ascii_case(&'c') => JoypadButton::B,
         _ => return None,
     })
 }
@@ -282,12 +342,23 @@ impl Program for Pocketboi {
         // The cells are transparent: the picture is pixels, not text.
         screen.fill(Cell::TRANSPARENT);
         if self.game.is_some() {
-            self.run(raster);
+            self.run(screen, raster);
             return;
         }
         raster.fill(0);
         draw_shelf(screen, self);
     }
+}
+
+/// The key legend, under the machine's screen: there is room for it.
+///
+/// The keys are chosen to sit in the same place on every layout: Space is a
+/// thumb, C is next to it, and the two Controls are the small buttons.
+fn draw_legend(screen: &mut Screen) {
+    let line = "arrows move    C B    Space A    Enter/R-Ctrl start    L-Ctrl select";
+    let width = line.chars().count() as u32;
+    let x = screen.cols().saturating_sub(width) / 2;
+    screen.put_str(x, 22, line, 15, 0);
 }
 
 fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
@@ -399,8 +470,10 @@ mod tests {
         }
         assert!(is(KeyPress::Up, JoypadButton::Up));
         assert!(is(KeyPress::Enter, JoypadButton::Start));
-        assert!(is(KeyPress::Char('z'), JoypadButton::B));
-        assert!(is(KeyPress::Char('X'), JoypadButton::A));
+        assert!(is(KeyPress::ControlRight, JoypadButton::Start));
+        assert!(is(KeyPress::ControlLeft, JoypadButton::Select));
+        assert!(is(KeyPress::Char('c'), JoypadButton::B));
+        assert!(is(KeyPress::Char(' '), JoypadButton::A));
         assert!(button(KeyPress::Char('q')).is_none());
     }
 
