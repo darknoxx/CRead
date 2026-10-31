@@ -368,7 +368,6 @@ pub struct RiffView<'a> {
     pub counter: &'a str,
     pub playing: bool,
     pub paused: bool,
-    pub shuffle: bool,
     pub volume: u8,
     /// Playlist window: (title, is current).
     pub lines: &'a [(String, bool)],
@@ -459,15 +458,8 @@ pub fn draw_riff(screen: &mut Screen, theme: &Theme, view: &RiffView<'_>) {
         }
     }
 
-    let hints = if view.shuffle {
-        "spc pause   <- -> track   i insert   r random on   esc commands"
-    } else {
-        "spc pause   <- -> track   i insert   r random   esc commands"
-    };
-    put_centered_at(screen, 12, hints, theme.status_dim, bg, 0, cols);
-
-    // Playlist.
-    let start = 14;
+    // Playlist. The bottom row belongs to the shell's action line.
+    let start = 13;
     for (i, (title, current)) in view.lines.iter().enumerate() {
         let y = start + i as u32;
         if y + 1 >= rows {

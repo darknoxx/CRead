@@ -274,7 +274,9 @@ R I F F                                    a Soundtrack for your life.
 ```
 
 `Space` pauses, the left and right arrows change track, up/down is the volume, `i`
-inserts, `r` toggles shuffle, `Esc` opens the command line. Everything there also
+inserts (the highlighted folder, or the folder being browsed), `r` toggles
+shuffle, `Esc` opens the command line in the same system line every module has.
+Coming back to Riff with a disc still in lands on the player, not the front door. Everything there also
 works as a command, from **any** prompt, even before Riff was opened once:
 
 | Command | What it does |

@@ -1019,12 +1019,32 @@ impl App {
                 counter: &counter,
                 playing: self.riff.playing,
                 paused,
-                shuffle: self.riff.playlist.shuffle(),
                 volume: self.volume,
                 lines: &lines,
                 note,
             };
             ui::draw_riff(&mut screen, &self.theme, &view);
+
+            // Same action line as every other module: the title on the left,
+            // the hints on the right, or the prompt while it is open.
+            let keys = if self.riff.playlist.shuffle() {
+                "spc pause   \u{2190}\u{2192} track   i insert   r random on   Esc commands"
+            } else {
+                "spc pause   \u{2190}\u{2192} track   i insert   r random   Esc commands"
+            };
+            let command_hint = if self.command.is_empty() {
+                "riff play   riff stop   riff next   riff volume".to_string()
+            } else {
+                command::complete(&self.command)
+                    .map(|c| c.hint)
+                    .unwrap_or_default()
+            };
+            let prompt = self.program_prompt.then_some((
+                self.command.as_str(),
+                command_hint.as_str(),
+                self.command_error.as_str(),
+            ));
+            ui::draw_program_line(&mut screen, &self.theme, "RIFF", keys, prompt);
             self.screen = screen;
             return;
         }
@@ -1106,6 +1126,8 @@ impl App {
         } else if self.command.is_empty() {
             if self.program.is_some() {
                 "save   open   undo   exit".to_string()
+            } else if self.mode == Mode::Riff {
+                "riff play   riff stop   riff next   riff volume".to_string()
             } else if self.has_document {
                 // Left empty on purpose: the prompt then shows how to leave.
                 String::new()
@@ -2980,7 +3002,13 @@ impl App {
             }
             Pending::Program(index) => {
                 self.home = program_home(index);
-                self.mode = Mode::Action;
+                // A disc is still in the tray: Riff opens on the player, not on
+                // the front door it was left from.
+                if self.home == Home::Riff && !self.riff.playlist.is_empty() {
+                    self.mode = Mode::Riff;
+                } else {
+                    self.mode = Mode::Action;
+                }
                 self.command.clear();
             }
             Pending::NewPicture => {
@@ -3382,12 +3410,20 @@ impl App {
         Ok(())
     }
 
-    /// Insert the folder being browsed as the playlist.
+    /// What `i` would insert: the highlighted folder if the cursor is on one,
+    /// otherwise the folder being browsed.
+    fn explorer_insert_target(&self) -> Option<PathBuf> {
+        let explorer = self.riff.explorer.as_ref()?;
+        Some(match explorer.entries.get(explorer.selected) {
+            Some(entry) if entry.folder => entry.path.clone(),
+            _ => explorer.dir.clone(),
+        })
+    }
+
     fn explorer_insert_folder(&mut self) -> Result<(), String> {
-        let Some(explorer) = self.riff.explorer.as_ref() else {
+        let Some(dir) = self.explorer_insert_target() else {
             return Ok(());
         };
-        let dir = explorer.dir.clone();
         let message = self.riff_load(&dir, 0)?;
         self.close_explorer_into_player();
         self.set_status(message);
@@ -4273,6 +4309,10 @@ impl ApplicationHandler for App {
                     eprintln!("cread: {e}");
                 }
                 self.mode = Mode::Riff;
+                if !self.opts.command.is_empty() {
+                    self.command = self.opts.command.clone();
+                    self.program_prompt = true;
+                }
             }
             "riffinsert" => self.open_explorer(),
             "picture" => {
@@ -4565,6 +4605,25 @@ mod tests {
     }
 
     #[test]
+    fn reopening_riff_with_a_disc_goes_straight_to_the_player() {
+        let dir = vault("riff-reopen");
+        let mut app = app_in(&dir);
+        let index = program_index_by_id("riff").expect("registered");
+
+        app.pending = Some(Pending::Program(index));
+        app.finish_loading();
+        assert_eq!(app.home, Home::Riff);
+        assert_eq!(app.mode, Mode::Action, "an empty tray shows the front door");
+
+        app.riff.playlist =
+            music::Playlist::load(vec![music::Track::from_path(dir.join("01.wav"))], 0);
+        app.pending = Some(Pending::Program(index));
+        app.finish_loading();
+        assert_eq!(app.mode, Mode::Riff, "the disc is still in: the player");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn riff_says_what_it_is_missing_and_insert_only_opens_inside_riff() {
         let dir = vault("riff-empty");
         let mut app = app_in(&dir);
@@ -4580,6 +4639,31 @@ mod tests {
         assert!(app.run_riff(RiffAction::Insert).is_ok());
         assert_eq!(app.mode, Mode::RiffInsert);
         assert!(app.riff.explorer.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn inserting_takes_the_highlighted_folder_not_just_the_open_one() {
+        let dir = vault("riff-target");
+        let music = dir.join("music");
+        std::fs::create_dir_all(music.join("Album")).unwrap();
+        std::fs::write(music.join("loose.wav"), b"x").unwrap();
+
+        let mut app = app_in(&dir);
+        app.riff.explorer = Some(Explorer {
+            dir: music.clone(),
+            entries: music::entries(&music),
+            selected: 0,
+        });
+        assert_eq!(
+            app.explorer_insert_target(),
+            Some(music.join("Album")),
+            "the cursor is on a folder"
+        );
+
+        // On a track row, the folder itself is inserted.
+        app.riff.explorer.as_mut().unwrap().selected = 1;
+        assert_eq!(app.explorer_insert_target(), Some(music));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
