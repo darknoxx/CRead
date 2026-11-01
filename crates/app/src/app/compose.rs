@@ -547,7 +547,7 @@ impl App {
                 let items = self.browser.items();
                 let question;
                 let (prompt, input, hint) = match &self.browser.mode {
-                    BrowserMode::Browse if self.browser.pictures => {
+                    BrowserMode::Browse if self.browser.kind == BrowserKind::Pictures => {
                         (">", self.browser.input.as_str(), "Enter open   Esc back")
                     }
                     BrowserMode::Browse => (

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.20.0
+
+- **Every program opens in its own room.** `open` in Inspiro used to land in
+  the vault root (`CRead/`), with `Documents/`, `Pictures/` and `Roms/` as rows;
+  it now starts in `Documents/`, where documents live. Softhand's picker starts
+  in `Pictures/` likewise, and it is a real folder browser now (subfolders and
+  `..` included) instead of one flat list. `THE VAULT` on the boot screen still
+  shows the whole machine.
+- **A room lists only what its program can use.** `Documents/` shows documents,
+  `Pictures/` shows pictures; a stray `notes.md` in `Pictures/` no longer shows
+  up as something to paint over.
+- **`in_softhand` meant "any program".** It checked `program.is_some()`, so
+  `save`, `open` and `new` took Softhand's path while Pocketboi was in front.
+  The shell now remembers which module a program belongs to.
+
 ## 0.19.0
 
 - **One browser, two roots.** The vault browser and Riff's music folder were two

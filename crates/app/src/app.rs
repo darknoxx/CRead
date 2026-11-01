@@ -11,7 +11,7 @@ mod compose;
 mod sync;
 mod webdav;
 
-use browser::{Browser, BrowserMode};
+use browser::{Browser, BrowserKind, BrowserMode};
 use webdav::FormState;
 
 use sync::QuitPrompt;
@@ -351,6 +351,10 @@ struct App {
     riff_at: Option<(i32, i32, u32)>,
     /// The running program, if any.
     program: Option<Box<dyn Program>>,
+    /// Which module the program belongs to. The shell needs this where the
+    /// trait only says "some program": `open`, `save` and `new` mean different
+    /// rooms for Softhand and Pocketboi.
+    program_id: Option<&'static str>,
     /// Pixel layer handed to programs.
     raster: Raster,
     /// File the current picture came from or was last saved to.
@@ -489,6 +493,7 @@ impl App {
                 .ok(),
             riff_at: None,
             program: None,
+            program_id: None,
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
             picture_path: None,
             program_prompt: false,
@@ -1918,6 +1923,7 @@ impl App {
                 let id = PROGRAMS.get(index).map(|p| p.id).unwrap_or_default();
                 if id == "pocketboi" {
                     self.program = Some(Box::new(cread_pocketboi::Pocketboi::new(&self.vault())));
+                    self.program_id = Some("pocketboi");
                     self.mode = Mode::Program;
                     self.program_prompt = false;
                     self.command.clear();
@@ -1947,6 +1953,7 @@ impl App {
                 match boi.play(&path) {
                     Ok(()) => {
                         self.program = Some(Box::new(boi));
+                        self.program_id = Some("pocketboi");
                         self.mode = Mode::Program;
                         self.program_prompt = false;
                         self.command.clear();
@@ -2027,11 +2034,13 @@ impl App {
             self.unsynced = true;
         }
         self.program = None;
+        self.program_id = None;
     }
 
     /// A fresh canvas on an empty sheet.
     fn new_picture(&mut self) {
         self.program = Some(Box::new(Softhand::new()));
+        self.program_id = Some("softhand");
         self.picture_path = None;
         self.program_prompt = false;
         self.mode = Mode::Program;
@@ -2041,6 +2050,7 @@ impl App {
     fn open_picture(&mut self, path: PathBuf) -> Result<(), String> {
         let image = picture::load(&path)?;
         self.program = Some(Box::new(Softhand::with_picture(&image)));
+        self.program_id = Some("softhand");
         self.picture_path = Some(path.clone());
         self.program_prompt = false;
         self.mode = Mode::Program;
@@ -2082,39 +2092,9 @@ impl App {
         ))
     }
 
-    /// The picture picker: same list as the browser, other files.
-    fn open_pictures(&mut self) {
-        self.browser = Browser::vault(self.vault());
-        self.browser.title = "PICTURES".into();
-        self.browser.pictures = true;
-        let base = picture::dir(&self.vault());
-        match picture::list(&self.vault()) {
-            Ok(files) => {
-                for path in files {
-                    let name = path
-                        .strip_prefix(&base)
-                        .unwrap_or(&path)
-                        .display()
-                        .to_string();
-                    self.browser.entries.push((name, Action::OpenPicture(path)));
-                }
-            }
-            Err(e) => self.set_status(format!("pictures: {e}")),
-        }
-        if self.browser.entries.is_empty() {
-            self.set_status(format!(
-                "no pictures in {}",
-                picture::dir(&self.vault()).display()
-            ));
-        }
-        self.browser.refilter();
-        self.mode = Mode::Browser;
-        self.dirty = true;
-    }
-
     /// True while Softhand is the thing in front: its front door or its canvas.
     fn in_softhand(&self) -> bool {
-        self.program.is_some() || (!self.has_document && self.home == Home::SoftHand)
+        self.program_id == Some("softhand") || (!self.has_document && self.home == Home::SoftHand)
     }
 
     // ── riff ────────────────────────────────────────────────────────────────
@@ -2985,6 +2965,7 @@ impl ApplicationHandler for App {
             "settings" => self.open_setup(),
             "webdav" => self.open_webdav(),
             "vault" => self.open_browser(),
+            "documents" => self.open_documents(),
             "quit" => {
                 self.unsynced = true;
                 self.quit = Some(QuitPrompt {
@@ -3025,6 +3006,7 @@ impl ApplicationHandler for App {
             "riffinsert" => self.open_explorer(),
             "pocketboi" => {
                 self.program = Some(Box::new(cread_pocketboi::Pocketboi::new(&self.vault())));
+                self.program_id = Some("pocketboi");
                 self.mode = Mode::Program;
             }
             other if other.starts_with("pocketboi:") => {
@@ -3033,6 +3015,7 @@ impl ApplicationHandler for App {
                 match boi.play(&rom) {
                     Ok(()) => {
                         self.program = Some(Box::new(boi));
+                        self.program_id = Some("pocketboi");
                         self.mode = Mode::Program;
                     }
                     Err(e) => eprintln!("cread: {e}"),
@@ -3735,6 +3718,85 @@ mod tests {
         app.open_pictures();
         assert_eq!(app.browser.entries.len(), 1);
         assert!(matches!(app.browser.entries[0].1, Action::OpenPicture(_)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn open_starts_in_the_room_the_program_lives_in() {
+        let dir = vault("open-rooms");
+        std::fs::create_dir_all(dir.join("Documents/kapitel")).unwrap();
+        std::fs::write(dir.join("Documents/notiz.md"), "x").unwrap();
+        std::fs::create_dir_all(dir.join("Pictures")).unwrap();
+        std::fs::write(dir.join("Pictures/a.png"), "x").unwrap();
+        std::fs::write(dir.join("Pictures/notes.md"), "x").unwrap();
+
+        let mut app = app_in(&dir);
+        app.home = Home::Inspiro;
+        app.new_document().unwrap();
+        app.cmd_open(None).unwrap();
+
+        assert_eq!(app.mode, Mode::Browser);
+        assert_eq!(app.browser.root, dir.join("Documents"));
+        assert_eq!(app.browser.title, "DOCUMENTS");
+        let names = app.browser.items();
+        assert!(names.contains(&"notiz.md".to_string()), "{names:?}");
+        assert!(names.contains(&"kapitel/".to_string()), "{names:?}");
+        assert!(
+            !names.contains(&"+ sync now".to_string()),
+            "the whole-vault row is not the editor's"
+        );
+
+        // Softhand starts in Pictures, and a text file is not a painting.
+        app.close_program();
+        app.has_document = false;
+        app.home = Home::SoftHand;
+        app.cmd_open(None).unwrap();
+        assert_eq!(app.browser.root, dir.join("Pictures"));
+        assert_eq!(app.browser.title, "PICTURES");
+        let names = app.browser.items();
+        assert!(names.contains(&"a.png".to_string()), "{names:?}");
+        assert!(!names.contains(&"notes.md".to_string()), "{names:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_vault_row_opens_every_room() {
+        let dir = vault("open-vault");
+        std::fs::create_dir_all(dir.join("Documents")).unwrap();
+        std::fs::create_dir_all(dir.join("Roms")).unwrap();
+
+        let mut app = app_in(&dir);
+        app.has_document = false;
+        app.home = Home::Boot;
+        app.cmd_open(None).unwrap();
+
+        assert_eq!(app.browser.root, dir, "the whole machine");
+        assert_eq!(app.browser.title, "THE VAULT");
+        let names = app.browser.items();
+        assert!(names.contains(&"Documents/".to_string()), "{names:?}");
+        assert!(names.contains(&"Roms/".to_string()), "{names:?}");
+        assert!(names.contains(&"+ sync now".to_string()), "{names:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_softhand_is_softhand() {
+        let dir = vault("not-softhand");
+        let mut app = app_in(&dir);
+        app.home = Home::SoftHand;
+        app.new_picture();
+        assert!(app.in_softhand(), "the paint canvas");
+
+        // A game opened from the vault: the front door is long gone.
+        app.home = Home::Boot;
+        app.program_id = Some("pocketboi");
+        assert!(
+            !app.in_softhand(),
+            "a game must not answer to Softhand's save/open/new"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

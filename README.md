@@ -96,10 +96,11 @@ appears.
 >▌
 ```
 
-There `new` opens an empty document and `open` shows the vault, exactly as
-before. Opening a file from `THE VAULT` goes through the same loader, and any
-key skips it. Pass a file name on the command line and it opens straight away,
-bar and all.
+There `new` opens an empty document and `open` shows `Documents/` — the
+editor's own room, not the whole vault. The boot screen's `THE VAULT` row is
+there when you want to see everything. Opening a file from either goes through
+the same loader, and any key skips it. Pass a file name on the command line and
+it opens straight away, bar and all.
 
 Then you are in **write mode**: the document is live, the block cursor sits in
 the text, and nothing else competes for your attention. `Esc` switches to **action
@@ -123,7 +124,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | `save` | `w`, `safe` | write the document to disk |
 | `autosave [on\|off]` | `aw` | save while you type; off by default |
 | `saveas <name>` | `sa` | save under a new name in `Documents/` |
-| `open [name]` | `o`, `e` | the vault browser, or open a name directly |
+| `open [name]` | `o`, `e` | this program's folder, or open a name directly |
 | `new` | `n` | start an empty document |
 | `rename <name>` | `mv`, `rn` | rename the current document |
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
@@ -237,6 +238,11 @@ Three folders are the shelf:
 | `Documents/` | Markdown and text | Inspiro, `new`, `saveas` |
 | `Pictures/` | 16-colour PNGs | Softhand |
 | `Roms/` | `.gb` and `.gbc` cartridges | you, or a sync from another machine |
+
+Every program opens in its own room: `open` in Inspiro lists `Documents/`,
+`open` in Softhand lists `Pictures/`, and `THE VAULT` on the boot screen is the
+whole shelf. A room only lists what its program can do something with — a text
+file in `Pictures/` is not a painting and is not shown.
 
 `saveas` has a fixed home: documents always land in `Documents/`, pictures
 always in `Pictures/`. Subfolders are fine (`saveas kapitel/eins` writes

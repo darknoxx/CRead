@@ -10,8 +10,12 @@ use super::*;
 /// Which shelf a browser is walking.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum BrowserKind {
-    /// The vault: whatever a program here can open.
+    /// The whole vault: whatever a program here can open.
     Vault,
+    /// Inspiro's room: folders and documents.
+    Documents,
+    /// Softhand's room: folders and pictures.
+    Pictures,
     /// The music folder: albums and playable files.
     Music,
 }
@@ -40,14 +44,22 @@ pub(super) struct Browser {
     pub(super) selected: usize,
     pub(super) title: String,
     pub(super) mode: BrowserMode,
-    /// The PICTURES picker: pictures only, no rename or delete.
-    pub(super) pictures: bool,
 }
 
 impl Browser {
     /// The vault browser, with the three rooms and everything in them.
     pub(super) fn vault(root: PathBuf) -> Self {
         Self::new(BrowserKind::Vault, root)
+    }
+
+    /// Inspiro's browser: starts in `Documents/`, where documents live.
+    pub(super) fn documents(vault: &Path) -> Self {
+        Self::new(BrowserKind::Documents, storage::documents_in(vault))
+    }
+
+    /// Softhand's browser: starts in `Pictures/`, where paintings live.
+    pub(super) fn pictures(vault: &Path) -> Self {
+        Self::new(BrowserKind::Pictures, storage::pictures_in(vault))
     }
 
     /// The music browser, opened on the system's music folder.
@@ -66,7 +78,6 @@ impl Browser {
             selected: 0,
             title: String::new(),
             mode: BrowserMode::Browse,
-            pictures: false,
         }
     }
 
@@ -80,31 +91,44 @@ impl Browser {
         let here = self.dir();
         let at_root = self.path.as_os_str().is_empty();
         let mut entries: Vec<(String, Action)> = Vec::new();
-        if at_root && self.kind == BrowserKind::Vault {
+        if at_root && matches!(self.kind, BrowserKind::Vault | BrowserKind::Documents) {
             entries.push(("+ new document".to_string(), Action::NewFile));
+        }
+        if at_root && self.kind == BrowserKind::Vault {
             entries.push(("+ sync now".to_string(), Action::SyncNow));
         } else if !at_root {
             entries.push(("..".to_string(), Action::Up));
         }
 
         match self.kind {
-            BrowserKind::Vault => self.list_vault(&here, &mut entries)?,
             BrowserKind::Music => self.list_music(&here, &mut entries),
+            kind => self.list_room(kind, &here, &mut entries)?,
         }
 
-        self.title = match self.kind {
-            BrowserKind::Vault if at_root => "THE VAULT".into(),
-            BrowserKind::Vault => format!("THE VAULT /{}", self.path.display()),
-            BrowserKind::Music => "RIFF \u{00b7} insert music".into(),
+        let label = match self.kind {
+            BrowserKind::Vault => "THE VAULT",
+            BrowserKind::Documents => "DOCUMENTS",
+            BrowserKind::Pictures => "PICTURES",
+            BrowserKind::Music => "RIFF \u{00b7} insert music",
+        };
+        self.title = if at_root {
+            label.into()
+        } else {
+            format!("{label} /{}", self.path.display())
         };
         self.entries = entries;
         self.refilter();
         Ok(())
     }
 
-    /// Folders first, then the files a program here can open. Nothing else is
+    /// Folders first, then the files this room cares about. Nothing else is
     /// listed: this is a shelf, not a file manager.
-    fn list_vault(&self, here: &Path, entries: &mut Vec<(String, Action)>) -> Result<(), String> {
+    fn list_room(
+        &self,
+        kind: BrowserKind,
+        here: &Path,
+        entries: &mut Vec<(String, Action)>,
+    ) -> Result<(), String> {
         let listing =
             std::fs::read_dir(here).map_err(|e| format!("cannot list {}: {e}", here.display()))?;
         let mut folders: Vec<(String, Action)> = Vec::new();
@@ -118,7 +142,7 @@ impl Browser {
             if path.is_dir() {
                 let relative = self.path.join(&name);
                 folders.push((format!("{name}/"), Action::EnterDir(relative)));
-            } else if let Some(action) = file_action(&path) {
+            } else if let Some(action) = file_action(kind, &path) {
                 files.push((name, action));
             }
         }
@@ -176,24 +200,43 @@ pub(super) fn is_folder(action: &Action) -> bool {
     matches!(action, Action::EnterDir(_) | Action::Up)
 }
 
-/// Which program opens this file, if any. Folders are handled by the browser.
-fn file_action(path: &Path) -> Option<Action> {
+/// Which program opens this file in this room, if any. Folders are handled by
+/// the browser; a room only lists what its program can do something with.
+fn file_action(kind: BrowserKind, path: &Path) -> Option<Action> {
     let extension = path.extension()?.to_string_lossy().to_lowercase();
-    match extension.as_str() {
-        "md" | "txt" | "markdown" => Some(Action::Open(path.to_path_buf())),
-        "png" => Some(Action::OpenPicture(path.to_path_buf())),
-        "gb" | "gbc" => Some(Action::OpenRom(path.to_path_buf())),
+    let document = matches!(extension.as_str(), "md" | "txt" | "markdown");
+    match (kind, extension.as_str()) {
+        (BrowserKind::Documents, _) if document => Some(Action::Open(path.to_path_buf())),
+        (BrowserKind::Pictures, "png") => Some(Action::OpenPicture(path.to_path_buf())),
+        (BrowserKind::Vault, _) if document => Some(Action::Open(path.to_path_buf())),
+        (BrowserKind::Vault, "png") => Some(Action::OpenPicture(path.to_path_buf())),
+        (BrowserKind::Vault, "gb" | "gbc") => Some(Action::OpenRom(path.to_path_buf())),
         _ => None,
     }
 }
 
 impl App {
-    pub(super) fn open_browser(&mut self) {
+    fn show_browser(&mut self, browser: Browser) {
         self.prepare_vault();
-        self.browser = Browser::vault(self.vault());
+        self.browser = browser;
         self.refresh_browser();
         self.mode = Mode::Browser;
         self.dirty = true;
+    }
+
+    /// THE VAULT: the whole machine, one shelf.
+    pub(super) fn open_browser(&mut self) {
+        self.show_browser(Browser::vault(self.vault()));
+    }
+
+    /// `open` in Inspiro starts in `Documents/`, the editor's own room.
+    pub(super) fn open_documents(&mut self) {
+        self.show_browser(Browser::documents(&self.vault()));
+    }
+
+    /// `open` in Softhand starts in `Pictures/`.
+    pub(super) fn open_pictures(&mut self) {
+        self.show_browser(Browser::pictures(&self.vault()));
     }
 
     /// Relist the folder the browser is looking at.
@@ -407,12 +450,12 @@ impl App {
 
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
-                if self.browser.pictures || !self.browser_up() {
+                if !self.browser_up() {
                     self.to_write();
                 }
             }
             Key::Named(NamedKey::Enter) => self.browser_accept(),
-            Key::Named(NamedKey::ArrowLeft) if !self.browser.pictures => {
+            Key::Named(NamedKey::ArrowLeft) => {
                 self.browser_up();
             }
             Key::Named(NamedKey::ArrowUp) => self.browser_move(-1),

@@ -121,8 +121,11 @@ reason. Creating one per operation silently loses the text.
 `Roms/` for cartridges; the vault root is only the shelf, and `saveas` cannot
 leave its room (`..` and absolute names are folded away). `THE VAULT` on the
 boot screen is a folder browser that opens each file with the program that owns
-it. Loose documents from an older vault are moved into `Documents/` on first
-use — never overwritten, a name clash stays put and is reported.
+it; each program's own `open` starts in its room (`Documents/` for Inspiro,
+`Pictures/` for Softhand, the music folder for Riff) and only lists what that
+program can use. Loose documents from an older vault are moved into
+`Documents/` on first use — never overwritten, a name clash stays put and is
+reported.
 
 **Saving is the writer's decision.** Autosave is opt-in (`autosave on`, stored in
 the preferences); by default a document only reaches disk through `save`,

@@ -19,10 +19,14 @@ impl App {
         }
     }
 
-    pub(super) fn cmd_open(&mut self, name: Option<String>) -> Result<String, String> {
+    pub(in crate::app) fn cmd_open(&mut self, name: Option<String>) -> Result<String, String> {
         let Some(name) = name else {
+            // Each program opens in its own room: the editor in Documents,
+            // Softhand in Pictures, the boot screen on the whole vault.
             if self.in_softhand() {
                 self.open_pictures();
+            } else if self.has_document || self.home == Home::Inspiro {
+                self.open_documents();
             } else {
                 self.open_browser();
             }
