@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 arboard = "3.7.0"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 cread-core.workspace = true
 cread-render.workspace = true
 cread-softhand.workspace = true

@@ -4,6 +4,7 @@ mod app;
 mod audio;
 mod beep;
 mod cli;
+mod screensaver;
 mod ui;
 
 use std::process::ExitCode;

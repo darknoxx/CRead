@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.23.0
+
+- **A screensaver: an analog clock on black.** After five minutes without a key
+  or a mouse movement the screen goes dark and the clock takes over — hour,
+  minute and one red second hand, large in the middle of the screen. Any key
+  brings back exactly what was behind it; the mouse is ignored on purpose, so a
+  nudge does not wake it. It is the shell resting, not a module: no `SOFTWARE`
+  entry, no theme colours, and the CRT pass still runs over the picture.
+- **`SETTINGS` grew two rows**: `SCREENSAVER` (on/off) and `IDLE` (1, 2, 5, 10,
+  15, 30 or 60 minutes). The command exists too: `screensaver` starts it now,
+  `screensaver off` / `on`, `screensaver 15` sets the time.
+- The clock is drawn into a full-screen raster with a new
+  `Framebuffer::draw_canvas`, so it owns every pixel without the cell grid and
+  the second hand only redraws once a second.
+
 ## 0.22.0
 
 - **CRead updates itself, from GitHub, with a signature check.** `SETTINGS` has

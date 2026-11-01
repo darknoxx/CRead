@@ -1,6 +1,7 @@
 //! Commands about the screen: themes, the CRT, the face, the window.
 
 use super::super::*;
+use cread_core::command::ScreensaverAction;
 
 impl App {
     pub(super) fn cmd_theme(&mut self, argument: Option<String>) -> Result<String, String> {
@@ -102,6 +103,30 @@ impl App {
         self.recompute_viewport();
         self.dirty = true;
         Ok(format!("font: {}", next.name()))
+    }
+
+    pub(super) fn cmd_screensaver(&mut self, action: ScreensaverAction) -> Result<String, String> {
+        match action {
+            ScreensaverAction::Start => {
+                self.start_screensaver();
+                Ok(String::new())
+            }
+            ScreensaverAction::Enabled(on) => {
+                self.screensaver_on = on;
+                self.save_prefs();
+                self.dirty = true;
+                Ok(format!("screensaver: {}", on_off(on)))
+            }
+            ScreensaverAction::After(minutes) => {
+                self.screensaver_minutes = minutes.clamp(1, 600);
+                self.save_prefs();
+                self.dirty = true;
+                Ok(format!(
+                    "screensaver after {} min",
+                    self.screensaver_minutes
+                ))
+            }
+        }
     }
 
     pub(super) fn cmd_fullscreen(&mut self, on: bool) -> Result<String, String> {

@@ -59,7 +59,20 @@ pub enum Command {
     Help(Option<String>),
     /// Ask GitHub whether a newer release exists.
     Update,
+    /// The clock screensaver: start it, switch it on/off, or set the idle time.
+    Screensaver(ScreensaverAction),
     About,
+}
+
+/// What `screensaver` asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreensaverAction {
+    /// Start it now.
+    Start,
+    /// Switch the automatic start on or off.
+    Enabled(bool),
+    /// Minutes of silence before it starts.
+    After(u32),
 }
 
 /// What to tell the music player.
@@ -330,6 +343,13 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
+        name: "screensaver",
+        aliases: &["saver"],
+        argument: "[on|off|<minutes>]",
+        summary: "start the clock, or set when it starts",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
+    Spec {
         name: "update",
         aliases: &["up"],
         argument: "",
@@ -466,6 +486,19 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "exit!" => Command::ExitForce,
         "settings" => Command::Settings,
         "update" => Command::Update,
+        "screensaver" => match rest {
+            "" => Command::Screensaver(ScreensaverAction::Start),
+            "on" => Command::Screensaver(ScreensaverAction::Enabled(true)),
+            "off" => Command::Screensaver(ScreensaverAction::Enabled(false)),
+            other => {
+                Command::Screensaver(ScreensaverAction::After(other.parse().map_err(|_| {
+                    CommandError::BadValue {
+                        value: other.to_string(),
+                        expected: "on, off, or a number of minutes",
+                    }
+                })?))
+            }
+        },
         "help" => Command::Help(optional(rest)),
         "tool" => Command::Tool(optional(rest)),
         "size" => Command::Size(match optional(rest) {
@@ -688,6 +721,29 @@ mod tests {
                 .any(|spec| spec.name == "update"),
             "and it shows up in the help"
         );
+    }
+
+    #[test]
+    fn the_screensaver_command_takes_an_optional_verb() {
+        use ScreensaverAction as Action;
+        assert_eq!(
+            parse("screensaver"),
+            Ok(Command::Screensaver(Action::Start))
+        );
+        assert_eq!(parse("saver"), Ok(Command::Screensaver(Action::Start)));
+        assert_eq!(
+            parse("screensaver on"),
+            Ok(Command::Screensaver(Action::Enabled(true)))
+        );
+        assert_eq!(
+            parse("screensaver off"),
+            Ok(Command::Screensaver(Action::Enabled(false)))
+        );
+        assert_eq!(
+            parse("screensaver 12"),
+            Ok(Command::Screensaver(Action::After(12)))
+        );
+        assert!(parse("screensaver often").is_err());
     }
 
     #[test]

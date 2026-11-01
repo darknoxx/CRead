@@ -180,6 +180,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "webdav",
                     "vault",
                     "documents",
+                    "screensaver",
                     "updatecheck",
                     "updateprompt",
                     "quit",

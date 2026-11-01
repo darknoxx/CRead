@@ -34,6 +34,10 @@ pub struct Prefs {
     /// Ids of the modules installed through SOFTWARE. Inspiro is the system and
     /// is never in here.
     pub installed: Vec<String>,
+    /// Blank the screen with the clock after a while without input.
+    pub screensaver: bool,
+    /// Minutes of silence before the screensaver starts.
+    pub screensaver_minutes: u32,
 }
 
 impl Default for Prefs {
@@ -52,6 +56,8 @@ impl Default for Prefs {
             riff_last: String::new(),
             riff_random: false,
             installed: Vec::new(),
+            screensaver: true,
+            screensaver_minutes: 5,
         }
     }
 }
@@ -125,6 +131,8 @@ mod tests {
         assert!(!p.autosave, "saving is manual until asked for");
         assert_eq!(p.volume, 70);
         assert!(p.riff_last.is_empty());
+        assert!(p.screensaver, "the clock is on out of the box");
+        assert_eq!(p.screensaver_minutes, 5);
     }
 
     #[test]
@@ -144,6 +152,8 @@ mod tests {
             riff_last: "/music/Morgenlicht".into(),
             riff_random: true,
             installed: vec!["riff".into()],
+            screensaver: false,
+            screensaver_minutes: 15,
         };
         saved.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), saved);

@@ -177,6 +177,8 @@ SETTINGS                                     the machine, not the document
   │   THEME     colour scheme                          paper   │
   │   FONT      bitmap face                            classic │
   │   SCREEN    window or whole screen                 window  │
+  │   SCREENSAVER clock when idle                      on      │
+  │   IDLE      until it starts                        5 min   │
   │   INFO      version and credits                   0.22.0  │
   │   UPDATE    check github for a new version        0.22.0  │
   │   SOFTWARE  install and remove modules                     │
@@ -480,6 +482,21 @@ public half, and you can check a download yourself:
 minisign -V -p minisign.pub -m cread-linux-x86_64.tar.gz
 # or: rsign verify -p minisign.pub cread-linux-x86_64.tar.gz
 ```
+
+## Screensaver
+
+After five minutes without a key or a mouse movement the screen goes black and
+an analog clock appears in the middle — hour hand, minute hand and one red
+second hand. Any key brings back whatever was behind it; the mouse does
+nothing, so a nudged desk does not wake the machine.
+
+It is the machine resting, not a program: it ignores the theme (black page,
+fixed VGA colours), it is not on the `SOFTWARE` shelf, and the CRT pass runs
+over it like over any other picture. The second hand steps once a second.
+
+`SETTINGS` has the switch and the idle time (1, 2, 5, 10, 15, 30 or 60
+minutes). From any prompt, `screensaver` starts it now, `screensaver off` and
+`screensaver on` change the switch, and `screensaver 15` sets the minutes.
 
 ## Leaving with unsynced work
 

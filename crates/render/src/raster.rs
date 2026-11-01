@@ -88,11 +88,26 @@ impl Framebuffer {
         // The page first: a program paints only what it means to paint, and
         // pixels it left clear show this colour.
         self.clear(theme.background());
+        self.blit(raster);
+        self.draw_cells(screen, theme, font, 0, 0);
+    }
+
+    /// A full-screen pixel layer with no cell grid and a fixed background.
+    ///
+    /// The screensaver uses it: it owns every pixel and is theme-agnostic, so
+    /// the page colour is passed in rather than taken from the theme.
+    pub fn draw_canvas(&mut self, raster: &Raster, background: Rgb) {
+        self.clear(background);
+        self.blit(raster);
+    }
+
+    /// Copy the 16-colour raster into the RGBA framebuffer.
+    ///
+    /// Row-wise conversion: 245k pixels, once per frame, so the per-pixel
+    /// bounds check of `put` would show up in a pointer-driven program.
+    fn blit(&mut self, raster: &Raster) {
         let rows = raster.height().min(self.height);
         let cols = raster.width().min(self.width);
-
-        // Row-wise conversion: 245k pixels, once per frame, so the per-pixel
-        // bounds check of `put` would show up in a pointer-driven program.
         let pixels = raster.pixels();
         for y in 0..rows {
             let src = &pixels[(y * raster.width()) as usize..][..cols as usize];
@@ -100,14 +115,13 @@ impl Framebuffer {
             let dst = &mut self.data[base..base + cols as usize * 4];
             for (index, chunk) in src.iter().zip(dst.as_chunks_mut::<4>().0) {
                 if *index == CLEAR {
-                    // Nobody painted this pixel: the page stays.
+                    // Nobody painted this pixel: the background stays.
                     continue;
                 }
                 let rgb = VGA[(*index & 0x0f) as usize];
                 *chunk = [rgb[0], rgb[1], rgb[2], 0xff];
             }
         }
-        self.draw_cells(screen, theme, font, 0, 0);
     }
 
     fn draw_cells(&mut self, screen: &Screen, theme: &Theme, font: &Font, ox: i32, oy: i32) {
@@ -279,6 +293,19 @@ mod tests {
             fb.draw_program(&screen, &raster, &theme, &font);
         }
         eprintln!("draw_program: {:?}/frame", start.elapsed() / 50);
+    }
+
+    #[test]
+    fn a_canvas_owns_the_whole_screen() {
+        let mut fb = Framebuffer::new(64, 32);
+        let mut raster = Raster::new(8, 8);
+        raster.fill(0);
+        raster.set(1, 1, 15);
+
+        fb.draw_canvas(&raster, [0, 0, 0]);
+        assert_eq!(fb.pixel(1, 1), VGA[15], "the painted pixel");
+        assert_eq!(fb.pixel(0, 0), [0, 0, 0], "the fixed black page");
+        assert_eq!(fb.pixel(63, 31), [0, 0, 0], "edge to edge, no cell grid");
     }
 
     #[test]

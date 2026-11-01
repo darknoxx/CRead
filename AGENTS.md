@@ -97,6 +97,15 @@ the choice lives in the preferences. Installing shows the loading bar on purpose
 — the moment is part of the fiction — and Inspiro is the system, never removable.
 There is no plugin directory and no file to copy.
 
+**The screensaver is the machine resting.** It is a shell mode
+(`Mode::Screensaver`), not a module on the `SOFTWARE` shelf, and it is
+theme-agnostic: black page, fixed VGA colours, drawn into a full-screen raster
+and blitted with `Framebuffer::draw_canvas` so the CRT pass still runs over it.
+Only a key wakes it (the mouse is ignored); the key that wakes it is swallowed.
+The idle timer counts keyboard *and* pointer activity, so painting with the
+mouse does not summon the clock. `cread_screensaver`'s `IDLE_MINUTES` is the
+list `SETTINGS` cycles through.
+
 **An update is signed or it is nothing.** The updater trusts two minisign keys
 baked into `crates/update`: the current one and a spare for rotation (a binary
 only trusts the keys it was built with). It refuses a release without a

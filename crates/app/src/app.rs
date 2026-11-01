@@ -36,6 +36,7 @@ use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::cli::Options;
+use crate::screensaver::next_idle_minutes;
 use crate::ui;
 use cread_sync::{Config as SyncConfig, Report as SyncReport, Worker};
 use cread_update::Event as UpdateEvent;
@@ -245,6 +246,8 @@ enum Mode {
     UpdatePrompt,
     /// "Sync to server?" on the way out.
     Quit,
+    /// The clock, after a while without input.
+    Screensaver,
 }
 
 /// A program compiled into this build.
@@ -363,6 +366,19 @@ struct App {
     softhand_at: Option<(i32, i32, u32)>,
     riff_logo: Option<Splash>,
     riff_at: Option<(i32, i32, u32)>,
+    /// The screensaver is switched on in SETTINGS.
+    screensaver_on: bool,
+    /// Minutes of silence before it starts.
+    screensaver_minutes: u32,
+    /// Last keyboard or pointer activity; the screensaver counts from here.
+    last_input: Instant,
+    /// Where a key should return to after the screensaver.
+    screensaver_back: Mode,
+    /// Write preferences to disk. Off in tests, so they never touch the real
+    /// config of whoever runs them.
+    persist: bool,
+    /// The clock, drawn full-screen and outside the theme.
+    screensaver_raster: Raster,
     /// The running program, if any.
     program: Option<Box<dyn Program>>,
     /// Which module the program belongs to. The shell needs this where the
@@ -460,6 +476,8 @@ impl App {
         let volume = prefs.volume;
         let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
+        let screensaver_on = prefs.screensaver;
+        let screensaver_minutes = prefs.screensaver_minutes.max(1);
         // The browser needs its root before the first frame, not when it opens.
         let vault = opts.vault.clone().unwrap_or_else(storage::vault_dir);
         Self {
@@ -520,6 +538,12 @@ impl App {
                 .map_err(|e| eprintln!("cread: riff logo: {e}"))
                 .ok(),
             riff_at: None,
+            screensaver_on,
+            screensaver_minutes,
+            last_input: Instant::now(),
+            screensaver_back: Mode::Action,
+            persist: true,
+            screensaver_raster: Raster::new(1, 1),
             program: None,
             program_id: None,
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
@@ -655,6 +679,11 @@ impl App {
     fn frame(&mut self, el: &ActiveEventLoop) {
         self.pump_sync();
         self.pump_update(el);
+        // An idle machine rests: the screensaver counts from the last key or
+        // pointer event, and never starts over a progress window.
+        if self.screensaver_due() {
+            self.start_screensaver();
+        }
         // Status messages are transient: after a moment the line goes back to
         // telling you how to change modes.
         if self.mode == Mode::Loading
@@ -697,6 +726,10 @@ impl App {
             // The bar moves while the worker is busy; nothing else redraws it.
             self.dirty = true;
         }
+        if self.mode == Mode::Screensaver {
+            // The second hand is the only thing that moves.
+            self.dirty = true;
+        }
 
         if let Some(started) = self.boot_at {
             if started.elapsed().as_secs_f32() >= BOOT_SECONDS {
@@ -724,7 +757,11 @@ impl App {
                 self.fb.resize(vp.virt_w, vp.virt_h);
             }
             self.compose();
-            if self.program.is_some() {
+            if self.mode == Mode::Screensaver {
+                // The clock owns every pixel and ignores the theme; the CRT pass
+                // runs over the result like over any other picture.
+                self.fb.draw_canvas(&self.screensaver_raster, [0, 0, 0]);
+            } else if self.program.is_some() {
                 self.fb
                     .draw_program(&self.screen, &self.raster, &self.theme, &self.font);
             } else {
@@ -809,7 +846,10 @@ impl App {
 
         // Nothing animates any more except the cursor, so we do not run a
         // frame clock at all: sleep until the blink is due and redraw then.
-        if self.boot_at.is_some() || matches!(self.mode, Mode::Loading | Mode::Checking) {
+        if self.mode == Mode::Screensaver {
+            // One tick a second: the second hand steps, it does not sweep.
+            self.next_frame = frame_start + Duration::from_secs(1);
+        } else if self.boot_at.is_some() || matches!(self.mode, Mode::Loading | Mode::Checking) {
             self.next_frame = frame_start + Duration::from_secs_f64(1.0 / ANIMATION_FPS as f64);
         } else if self
             .program
@@ -1199,6 +1239,13 @@ impl App {
         if event.state != ElementState::Pressed {
             return;
         }
+        // The screensaver belongs to the machine: the first key brings back the
+        // screen and is swallowed, so it does not also type a character.
+        if self.wake_screensaver() {
+            self.next_frame = Instant::now();
+            return;
+        }
+        self.last_input = Instant::now();
         if self.boot_at.take().is_some() {
             // Impatient: skip straight to the picture, and swallow the key.
             self.next_frame = Instant::now();
@@ -1218,6 +1265,9 @@ impl App {
             Mode::Quit => self.on_key_quit(el, event),
             Mode::Checking => self.on_key_checking(event),
             Mode::UpdatePrompt => self.on_key_update_prompt(event),
+            Mode::Screensaver => {
+                // Waking happens above; nothing else reaches this screen.
+            }
             Mode::Action => self.on_key_action(el, event),
             Mode::Browser => self.on_key_browser(event),
             Mode::Webdav => self.on_key_webdav(event),
@@ -1705,6 +1755,40 @@ impl App {
     }
 
     #[allow(clippy::wrong_self_convention)]
+    /// Has the machine been quiet long enough to rest?
+    fn screensaver_due(&self) -> bool {
+        self.screensaver_on
+            && self.mode != Mode::Screensaver
+            && self.boot_at.is_none()
+            && !matches!(self.mode, Mode::Loading | Mode::Checking)
+            && self.last_input.elapsed()
+                >= Duration::from_secs(u64::from(self.screensaver_minutes) * 60)
+    }
+
+    /// A key woke the clock. True when it did, so the key is swallowed instead
+    /// of also typing or opening something.
+    fn wake_screensaver(&mut self) -> bool {
+        if self.mode != Mode::Screensaver {
+            return false;
+        }
+        self.mode = self.screensaver_back;
+        self.last_input = Instant::now();
+        self.dirty = true;
+        true
+    }
+
+    /// Hide the screen behind the clock. Any key brings back what was there.
+    pub(super) fn start_screensaver(&mut self) {
+        if self.mode == Mode::Screensaver {
+            return;
+        }
+        self.screensaver_back = self.mode;
+        self.mode = Mode::Screensaver;
+        self.last_input = Instant::now();
+        self.dirty = true;
+    }
+
+    #[allow(clippy::wrong_self_convention)]
     fn to_action(&mut self) {
         self.mode = Mode::Action;
         self.command.clear();
@@ -1794,6 +1878,11 @@ impl App {
         self.prefs.scanlines = self.crt.scanline > 0.0;
         self.prefs.bloom = self.crt.bloom > 0.0;
         self.prefs.roll = self.crt.roll > 0.0;
+        self.prefs.screensaver = self.screensaver_on;
+        self.prefs.screensaver_minutes = self.screensaver_minutes;
+        if !self.persist {
+            return;
+        }
         if let Err(e) = self.prefs.save() {
             eprintln!("cread: cannot save preferences: {e}");
         }
@@ -2597,6 +2686,16 @@ impl App {
                 value: if fullscreen { "fullscreen" } else { "window" }.into(),
             },
             ui::MenuItem {
+                name: "SCREENSAVER".into(),
+                detail: "clock when idle".into(),
+                value: if self.screensaver_on { "on" } else { "off" }.into(),
+            },
+            ui::MenuItem {
+                name: "IDLE".into(),
+                detail: "until it starts".into(),
+                value: format!("{} min", self.screensaver_minutes),
+            },
+            ui::MenuItem {
                 name: "INFO".into(),
                 detail: "version and credits".into(),
                 value: ui::VERSION.into(),
@@ -2628,7 +2727,7 @@ impl App {
 
     fn open_setup(&mut self) {
         self.mode = Mode::Setup;
-        self.setup_selected = self.setup_selected.min(6);
+        self.setup_selected = self.setup_selected.min(8);
         self.command.clear();
         self.program_prompt = false;
         self.dirty = true;
@@ -2667,11 +2766,26 @@ impl App {
                 }
             }
             4 => {
+                self.screensaver_on = !self.screensaver_on;
+                self.save_prefs();
+                self.set_status(format!("screensaver: {}", on_off(self.screensaver_on)));
+                self.dirty = true;
+            }
+            5 => {
+                self.screensaver_minutes = next_idle_minutes(self.screensaver_minutes);
+                self.save_prefs();
+                self.set_status(format!(
+                    "screensaver after {} min",
+                    self.screensaver_minutes
+                ));
+                self.dirty = true;
+            }
+            6 => {
                 self.help_about = true;
                 self.mode = Mode::Help;
                 self.dirty = true;
             }
-            5 => self.start_update_check(),
+            7 => self.start_update_check(),
             _ => self.open_software(),
         }
     }
@@ -2685,7 +2799,7 @@ impl App {
                 self.poke();
             }
             Key::Named(NamedKey::ArrowDown) => {
-                self.setup_selected = (self.setup_selected + 1).min(6);
+                self.setup_selected = (self.setup_selected + 1).min(8);
                 self.poke();
             }
             _ => {}
@@ -3075,6 +3189,7 @@ impl ApplicationHandler for App {
             "settings" => self.open_setup(),
             "webdav" => self.open_webdav(),
             "vault" => self.open_browser(),
+            "screensaver" => self.start_screensaver(),
             "updatecheck" => {
                 self.update_started = Instant::now();
                 self.update_installing = false;
@@ -3200,12 +3315,20 @@ impl ApplicationHandler for App {
             }
             WindowEvent::ScaleFactorChanged { .. } => self.recompute_viewport(),
             WindowEvent::CursorMoved { position, .. } => {
+                self.last_input = Instant::now();
+                if self.mode == Mode::Screensaver {
+                    return;
+                }
                 self.pointer = (position.x, position.y);
                 if !self.program_pointer(PointerKind::Move) {
                     self.on_mouse_drag();
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                self.last_input = Instant::now();
+                if self.mode == Mode::Screensaver {
+                    return;
+                }
                 if self.program.is_some() {
                     let code = match button {
                         MouseButton::Left => Some(cread_core::program::BUTTON_LEFT),
@@ -3229,6 +3352,10 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                self.last_input = Instant::now();
+                if self.mode == Mode::Screensaver {
+                    return;
+                }
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => (y * 3.0).round() as isize,
                     MouseScrollDelta::PixelDelta(pos) => (pos.y / 16.0).round() as isize,
@@ -3346,8 +3473,9 @@ mod tests {
     fn app() -> App {
         let mut app = App::new(Options::default());
         // The developer's own preferences live on this machine; a test wants a
-        // fresh shelf.
+        // fresh shelf and must not write over them.
         app.prefs.installed.clear();
+        app.persist = false;
         app
     }
 
@@ -3375,6 +3503,7 @@ mod tests {
             ..Options::default()
         });
         app.prefs.installed.clear();
+        app.persist = false;
         app
     }
 
@@ -3889,11 +4018,96 @@ mod tests {
         let app = app_in(&dir);
         let rows = app.setup_rows();
 
-        assert_eq!(rows.len(), 7, "the row sits between INFO and SOFTWARE");
-        assert_eq!(rows[4].name, "INFO");
-        assert_eq!(rows[5].name, "UPDATE");
-        assert_eq!(rows[5].value, ui::VERSION);
-        assert_eq!(rows[6].name, "SOFTWARE");
+        assert_eq!(rows.len(), 9);
+        assert_eq!(rows[6].name, "INFO");
+        assert_eq!(rows[7].name, "UPDATE");
+        assert_eq!(rows[7].value, ui::VERSION);
+        assert_eq!(rows[8].name, "SOFTWARE");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_has_the_screensaver_switches() {
+        let dir = vault("screensaver-rows");
+        let mut app = app_in(&dir);
+        let rows = app.setup_rows();
+        assert_eq!(rows[4].name, "SCREENSAVER");
+        assert_eq!(rows[4].value, "on");
+        assert_eq!(rows[5].name, "IDLE");
+        assert_eq!(rows[5].value, "5 min");
+
+        app.setup_selected = 4;
+        app.setup_activate();
+        assert!(!app.screensaver_on);
+        assert_eq!(app.setup_rows()[4].value, "off");
+
+        app.setup_selected = 5;
+        app.setup_activate();
+        assert_eq!(app.screensaver_minutes, 10);
+        assert_eq!(app.setup_rows()[5].value, "10 min");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_screensaver_rests_after_the_configured_idle_time() {
+        let dir = vault("screensaver-idle");
+        let mut app = app_in(&dir);
+        assert!(app.screensaver_on, "on out of the box");
+        assert_eq!(app.screensaver_minutes, 5);
+        assert!(!app.screensaver_due(), "fresh input");
+
+        app.last_input = Instant::now() - Duration::from_secs(5 * 60 + 1);
+        assert!(app.screensaver_due());
+        app.start_screensaver();
+        assert_eq!(app.mode, Mode::Screensaver);
+
+        assert!(app.wake_screensaver(), "a key wakes it");
+        assert_eq!(app.mode, Mode::Action);
+        assert!(!app.screensaver_due(), "and the clock waits again");
+
+        app.screensaver_on = false;
+        app.last_input = Instant::now() - Duration::from_secs(60 * 60);
+        assert!(!app.screensaver_due(), "switched off in settings");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_screensaver_returns_to_the_screen_it_covered() {
+        let dir = vault("screensaver-back");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        app.mode = Mode::Write;
+
+        app.start_screensaver();
+        assert_eq!(app.screensaver_back, Mode::Write);
+        assert!(app.wake_screensaver());
+        assert_eq!(app.mode, Mode::Write, "the document, not the boot screen");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_screensaver_draws_the_clock_and_no_page() {
+        let dir = vault("screensaver-draw");
+        let mut app = app_in(&dir);
+        app.start_screensaver();
+        app.compose();
+
+        assert!(
+            app.screensaver_raster
+                .pixels()
+                .iter()
+                .any(|index| *index != 0),
+            "the clock was drawn"
+        );
+        assert_eq!(
+            app.screensaver_raster.get(0, 0),
+            Some(0),
+            "and the page is black"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3905,7 +4119,7 @@ mod tests {
         // Nothing listens there: the worker fails at once, no network needed.
         app.update_api = "http://127.0.0.1:1/releases".into();
         app.open_setup();
-        app.setup_selected = 5;
+        app.setup_selected = 7;
         app.setup_activate();
 
         assert_eq!(app.mode, Mode::Checking);
@@ -3940,7 +4154,7 @@ mod tests {
 
         // The settings row remembers what the check found.
         let rows = app.setup_rows();
-        assert_eq!(rows[5].value, "0.99.0 available");
+        assert_eq!(rows[7].value, "0.99.0 available");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

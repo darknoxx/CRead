@@ -45,6 +45,18 @@ impl App {
     /// Screens that own the whole grid and return before the rest is drawn.
     /// True means "this frame is done".
     fn standalone_screen(&mut self, screen: &mut Screen) -> bool {
+        if self.mode == Mode::Screensaver {
+            // Drawn into a full-screen raster, not the cell grid: an analog
+            // clock needs pixels. `frame` blits it with a black page.
+            let (width, height) = (self.fb.width(), self.fb.height());
+            if self.screensaver_raster.width() != width
+                || self.screensaver_raster.height() != height
+            {
+                self.screensaver_raster = Raster::new(width, height);
+            }
+            crate::screensaver::draw_now(&mut self.screensaver_raster);
+            return true;
+        }
         if self.mode == Mode::Software {
             let rows = self.software_rows();
             ui::draw_menu(
