@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.18.0
+
+Internal shape, no new behaviour: this is the first half of the cleanup the
+review asked for.
+
+- **`compose` has layers instead of one block.** A frame is now a whole-frame
+  screen (menu, loading bar, help), then the main screen (program, reader,
+  front door or document), then the prompt text, then an overlay — each its own
+  function in `crates/app/src/app/compose.rs`. The old 590-line function is
+  gone; the document screen no longer has to be read past the Riff counter.
+- **Commands are grouped by what they are about.** `run_command` is a
+  switchboard; the work lives in `app/commands/{document,screen,system,program}.rs`.
+  A command is now one function next to its siblings instead of an arm in a
+  350-line match.
+- `app.rs`: 4.879 → 4.017 lines, the rest in `app/compose.rs` (605) and
+  `app/commands/*` (367).
+
 ## 0.17.0
 
 Nothing behaves differently in this one; it is the cleanup the review asked for.

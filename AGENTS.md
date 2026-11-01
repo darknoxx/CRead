@@ -44,7 +44,7 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 | `crates/render` | bitmap font, CPU compositor, wgpu pipeline, CRT shader | owns everything that touches the GPU |
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never on the UI thread |
 | `crates/sound` | which output device the machine opens, for game and music alike | a policy both the shell and a program need, so it belongs to neither |
-| `crates/app` | winit loop, input, mode machine, cell-grid composition; the screens in `app/{boot,browser,sync,webdav}.rs` | glue; keep logic out of it when it can live in core |
+| `crates/app` | winit loop, input, mode machine, cell-grid composition; the screens in `app/{boot,browser,compose,sync,webdav}.rs`, commands in `app/commands/*` | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
 
 ## Invariants
