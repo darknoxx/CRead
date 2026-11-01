@@ -830,6 +830,12 @@ impl App {
             None => self.free_untitled_path(),
         };
         self.save_to(&path)?;
+        // `save` on the placeholder is the writer keeping that name: it is a
+        // document now, not a draft the editor made up.
+        if self.scratch.as_deref() == Some(path.as_path()) {
+            self.scratch = None;
+            self.forget_draft();
+        }
         Ok(String::new())
     }
 
@@ -845,8 +851,9 @@ impl App {
             last_edit: Instant::now(),
         };
         self.has_document = true;
+        self.scratch = Some(path.clone());
+        self.remember_draft();
         self.save_to(&path)?;
-        self.scratch = Some(path);
         Ok(format!("created {}", self.doc.title()))
     }
 
@@ -857,6 +864,8 @@ impl App {
     /// unsaved characters must keep its place on disk.
     fn discard_scratch(&mut self) -> Option<String> {
         let path = self.scratch.take()?;
+        // Whatever happens next, this file is no longer "the draft".
+        self.forget_draft();
         let same = self.doc.path.as_deref() == Some(path.as_path());
         let unsaved = same && !self.doc.editor.text().trim().is_empty();
         let blank_on_disk = std::fs::read_to_string(&path)
@@ -879,11 +888,48 @@ impl App {
         self.prepare_vault();
         let path = self.document_path(name)?;
         self.save_to(&path)?;
-        Ok(format!("saved as {}", self.doc.title()))
+        match self.drop_scratch(&path) {
+            Some(removed) => Ok(format!("saved as {} ({removed} removed)", self.doc.title())),
+            None => Ok(format!("saved as {}", self.doc.title())),
+        }
+    }
+
+    /// The untitled placeholder has done its job once the text has a name.
+    ///
+    /// Autosave may have filled it, but `saveas` just wrote the same buffer to
+    /// the chosen path, so keeping the placeholder would only leave a second
+    /// copy of the document in the vault - and on the server.
+    fn drop_scratch(&mut self, kept: &Path) -> Option<String> {
+        self.forget_draft();
+        let scratch = self.scratch.take()?;
+        if scratch == kept {
+            // Saved under its own placeholder name: it is a named file now.
+            return None;
+        }
+        std::fs::remove_file(&scratch).ok()?;
+        self.unsynced = true;
+        self.dirty = true;
+        Some(scratch.file_name()?.to_string_lossy().into_owned())
     }
 
     fn vault(&self) -> PathBuf {
         self.opts.vault.clone().unwrap_or_else(storage::vault_dir)
+    }
+
+    /// Tell the sync engine which file is the editor's unnamed draft, so the
+    /// server copy can follow it when the draft gets a real name.
+    fn remember_draft(&self) {
+        let vault = self.vault();
+        let name = self
+            .scratch
+            .as_ref()
+            .and_then(|path| path.strip_prefix(&vault).ok())
+            .map(|path| path.to_string_lossy().into_owned());
+        let _ = cread_sync::set_draft(&vault, name.as_deref());
+    }
+
+    fn forget_draft(&self) {
+        let _ = cread_sync::set_draft(&self.vault(), None);
     }
 
     /// Check the vault layout once: a document belongs in `Documents/`, so
@@ -903,6 +949,9 @@ impl App {
         ] {
             let _ = std::fs::create_dir_all(dir);
         }
+        // A draft the app marked before a restart has outlived its session:
+        // it belongs to the writer now, so it stops being a draft.
+        let _ = cread_sync::promote_draft(&vault);
         let report = storage::migrate_documents(&vault);
         if report.moved > 0 || report.duplicates > 0 {
             self.unsynced = true;
@@ -1046,6 +1095,7 @@ impl App {
                 self.unsynced = true;
                 // A name of its own means it is no longer a placeholder.
                 self.scratch = None;
+                self.forget_draft();
                 self.doc.path = Some(target.clone());
                 self.dirty = true;
                 Ok(format!("renamed to {}", self.doc.title()))
@@ -3953,6 +4003,83 @@ mod tests {
         assert!(dir.join("Documents/alt.md").is_file());
         assert!(!dir.join("alt.md").exists());
         assert!(app.unsynced, "a moved file has not reached the server");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_new_document_is_announced_as_a_draft_to_sync() {
+        let dir = vault("draft-marker");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+
+        let draft = cread_sync::draft(&dir).expect("the app said which file is the draft");
+        assert!(draft.starts_with("Documents/untitled"), "{draft}");
+        assert!(dir.join(&draft).is_file());
+
+        app.save_as("kapitel/eins").unwrap();
+        assert!(
+            cread_sync::draft(&dir).is_none(),
+            "naming the document ends the draft"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_explicit_save_keeps_the_placeholder_as_a_document() {
+        let dir = vault("draft-save");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        let path = app.doc.path.clone().unwrap();
+        app.doc.editor.insert_text("behalten");
+
+        app.save().unwrap();
+        assert!(path.is_file(), "the file stays");
+        assert!(app.scratch.is_none(), "but it is not a draft any more");
+        assert!(cread_sync::draft(&dir).is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saveas_removes_the_untitled_placeholder() {
+        let dir = vault("saveas-scratch");
+        let mut app = app_in(&dir);
+        app.autosave = true;
+        app.mode = Mode::Write;
+        app.new_document().unwrap();
+        let scratch = app.doc.path.clone().unwrap();
+        assert!(scratch.is_file(), "the placeholder exists from the start");
+
+        // Autosave fills the placeholder, as it would while typing.
+        app.doc.editor.insert_text("kapitel eins");
+        app.doc.last_edit = Instant::now() - AUTOSAVE_DELAY * 2;
+        app.autosave_if_due();
+        assert_eq!(std::fs::read_to_string(&scratch).unwrap(), "kapitel eins");
+
+        let message = app.save_as("kapitel/eins").unwrap();
+        assert!(dir.join("Documents/kapitel/eins.md").is_file());
+        assert!(!scratch.exists(), "the placeholder is gone: {message}");
+        assert!(app.scratch.is_none(), "and not remembered for later");
+        assert!(
+            message.contains("removed"),
+            "the status line says what happened: {message}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saveas_keeps_the_placeholder_when_it_cannot_write() {
+        let dir = vault("saveas-fails");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        let scratch = app.doc.path.clone().unwrap();
+
+        assert!(app.save_as(".").is_err());
+        assert!(scratch.is_file(), "nothing was written, nothing removed");
+        assert!(app.scratch.is_some(), "still a placeholder");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

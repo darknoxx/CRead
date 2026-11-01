@@ -86,6 +86,11 @@ struct Entry {
     hash: String,
     /// Server-side version token (ETag, or mtime when the server has none).
     version: String,
+    /// The editor created this file as an unnamed draft (`untitled-N.md`).
+    /// A draft that is gone locally may be removed from the server; a document
+    /// the writer made never is.
+    #[serde(default)]
+    draft: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -115,13 +120,15 @@ impl Index {
 pub struct Report {
     pub uploaded: usize,
     pub downloaded: usize,
+    /// Draft copies removed from the server after they were named.
+    pub deleted: usize,
     pub conflicts: usize,
     pub skipped: usize,
 }
 
 impl Report {
     pub fn summary(&self) -> String {
-        if self.uploaded == 0 && self.downloaded == 0 && self.conflicts == 0 {
+        if self.uploaded == 0 && self.downloaded == 0 && self.deleted == 0 && self.conflicts == 0 {
             return "up to date".into();
         }
         let mut parts = Vec::new();
@@ -130,6 +137,9 @@ impl Report {
         }
         if self.downloaded > 0 {
             parts.push(format!("{} down", self.downloaded));
+        }
+        if self.deleted > 0 {
+            parts.push(format!("{} draft removed", self.deleted));
         }
         if self.conflicts > 0 {
             parts.push(format!("{} conflict", self.conflicts));
@@ -270,6 +280,55 @@ fn vault_tree(vault: &Path) -> Vec<(String, PathBuf)> {
     out
 }
 
+/// Where the editor notes which file is its current unnamed draft.
+fn marker_path(vault: &Path) -> PathBuf {
+    vault.join(".cread-sync/scratch")
+}
+
+/// Tell the sync engine which file is the editor's current draft, if any.
+///
+/// Drafts are ordinary files and sync like everything else, but the engine
+/// remembers that the app, not the writer, created them: when a draft is named
+/// (`saveas`) the local placeholder disappears, and the remote copy of a draft
+/// goes with it instead of coming back on the next round.
+pub fn set_draft(vault: &Path, name: Option<&str>) -> std::io::Result<()> {
+    let marker = marker_path(vault);
+    match name {
+        Some(name) => {
+            if let Some(dir) = marker.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&marker, name)
+        }
+        None => match std::fs::remove_file(&marker) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        },
+    }
+}
+
+/// The draft the editor last announced, if the marker survived a restart.
+pub fn draft(vault: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(marker_path(vault)).ok()?;
+    let name = text.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// A draft that outlived the session is a document now: forget that the app
+/// created it, so naming or deleting it later is an ordinary decision.
+pub fn promote_draft(vault: &Path) -> std::io::Result<()> {
+    let Some(name) = draft(vault) else {
+        return Ok(());
+    };
+    let mut index = Index::load(vault);
+    if let Some(entry) = index.files.get_mut(&name) {
+        entry.draft = false;
+        index.save(vault)?;
+    }
+    set_draft(vault, None)
+}
+
 /// Run one full sync round. Blocking; call from the worker thread.
 pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     if !cfg.is_configured() {
@@ -281,11 +340,32 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     // Make sure the target collection exists; servers answer 404 otherwise.
     ensure_remote_dir(&client, &remote_dir).await;
     let base = base_path(&cfg.url);
-    let remote = list_remote_tree(&client, &remote_dir, &base).await?;
+    let mut remote = list_remote_tree(&client, &remote_dir, &base).await?;
     let tree = vault_tree(vault);
+    let draft = draft(vault);
     let mut index = Index::load(vault);
     let mut report = Report::default();
     let mut touched_remote = false;
+
+    // A draft that was named is gone locally; its remote copy goes too. This is
+    // the one deletion sync performs, and only for files the editor created.
+    let named: Vec<String> = index
+        .files
+        .iter()
+        .filter(|(name, entry)| entry.draft && !local_exists(&tree, name))
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in named {
+        let path = join_remote(&remote_dir, &name);
+        // A server that already lost it is not an error.
+        let _ = client.delete(&path).await;
+        index.files.remove(&name);
+        // The listing was taken before the delete; without this the download
+        // pass would try to fetch the file it just removed.
+        remote.files.remove(&name);
+        report.deleted += 1;
+        touched_remote = true;
+    }
 
     // Folders first, so an empty one still exists on the server and can be
     // filled from the other side. The listing already says which ones are
@@ -330,6 +410,11 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                 touched_remote = true;
                 report.uploaded += 1;
                 set_hash(&mut index, name, local_hash);
+                if draft.as_deref() == Some(name.as_str())
+                    && let Some(entry) = index.files.get_mut(name)
+                {
+                    entry.draft = true;
+                }
             }
 
             Plan::Download => {
@@ -341,6 +426,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                     Entry {
                         hash: hash(&body),
                         version: remote_version.unwrap_or_default(),
+                        draft: false,
                     },
                 );
                 report.downloaded += 1;
@@ -355,6 +441,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                         Entry {
                             hash: local_hash,
                             version: remote_version.unwrap_or_default(),
+                            draft: false,
                         },
                     );
                     report.skipped += 1;
@@ -395,6 +482,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
             Entry {
                 hash: hash(&body),
                 version: remote.files.get(name).cloned().unwrap_or_default(),
+                draft: false,
             },
         );
         report.downloaded += 1;
@@ -623,6 +711,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_draft_marker_says_which_file_is_unnamed() {
+        let vault = std::env::temp_dir().join(format!("cread-draft-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vault);
+        std::fs::create_dir_all(vault.join("Documents")).unwrap();
+
+        assert_eq!(draft(&vault), None);
+        set_draft(&vault, Some("Documents/untitled.md")).unwrap();
+        assert_eq!(draft(&vault).as_deref(), Some("Documents/untitled.md"));
+
+        set_draft(&vault, None).unwrap();
+        assert_eq!(draft(&vault), None);
+        set_draft(&vault, None).unwrap();
+
+        let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn an_old_index_without_draft_flags_still_loads() {
+        let index: Index =
+            serde_json::from_str(r#"{"files":{"a.md":{"hash":"h","version":"v"}}}"#).unwrap();
+        assert!(!index.files["a.md"].draft, "a document, not a draft");
+    }
+
+    #[test]
     fn the_vault_walk_sees_pictures_and_cartridges_and_skips_hidden_entries() {
         let vault = std::env::temp_dir().join(format!("cread-sync-walk-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&vault);
@@ -750,11 +862,12 @@ mod tests {
             Report {
                 uploaded: 2,
                 downloaded: 1,
+                deleted: 1,
                 conflicts: 1,
                 skipped: 0
             }
             .summary(),
-            "2 up, 1 down, 1 conflict"
+            "2 up, 1 down, 1 draft removed, 1 conflict"
         );
     }
 

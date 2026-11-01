@@ -152,6 +152,12 @@ rather not think about it, `autosave on` writes 1.5 seconds after you stop
 typing, and the setting is remembered. Quitting (`exit!`) and closing the window
 still save a modified document, so you cannot lose the last paragraph that way.
 
+A new document starts as `untitled.md` (then `untitled-2.md`, …) so autosave has
+somewhere to write. That file is a draft: naming it with `saveas` writes the
+text under the name you chose and removes the placeholder — locally and, on the
+next round, on the server too. A draft that survives a crash becomes an ordinary
+document instead, so text is never thrown away.
+
 ## Selection
 
 `Shift` plus any movement key marks text, `Ctrl+A` takes everything, and the
@@ -427,8 +433,11 @@ conflict rule is the whole point:
 | unchanged | changed | download |
 | changed | changed | **keep both** — local file stays, the remote version is saved as `name.conflict-<unix>.md` |
 
-Nothing is ever deleted on the server. `cread --sync-once` runs a single round
-and prints the result, which is handy for cron or for debugging.
+Documents are never deleted on the server. The one exception is the editor's own
+unnamed draft: `untitled-N.md` is marked in the sync index when the editor makes
+it, and when you name it with `saveas` its server copy goes with the local
+placeholder instead of coming back on the next round. `cread --sync-once` runs a
+single round and prints the result, which is handy for cron or for debugging.
 
 ## Leaving with unsynced work
 

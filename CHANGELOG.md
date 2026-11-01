@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.21.0
+
+- **`saveas` removes the untitled placeholder.** With autosave on, a new document
+  lived as `untitled-N.md` and stayed there after it was named, so every draft
+  left a second copy in the vault — and in WebDAV. Naming it now writes the
+  chosen file and deletes the placeholder in the same step.
+- **The server copy goes too.** Local deletion alone would not have helped: the
+  next sync round would have pulled `untitled-N.md` straight back. The editor
+  tells the sync engine which file is its unnamed draft (`set_draft`), the index
+  remembers it, and when the draft is named the remote copy is deleted in the
+  same round. Documents the writer made are still never deleted; a draft that
+  survives a crash is promoted to an ordinary document at startup instead of
+  being thrown away.
+- `Report` gained a `deleted` count, so the status line says "1 draft removed"
+  rather than hiding it.
+
 ## 0.20.2
 
 - **The arrow keys work in Riff's insert list again.** When the vault and music

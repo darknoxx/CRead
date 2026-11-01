@@ -136,7 +136,11 @@ that fires on its own.
 
 **Local files win.** Sync never overwrites a both-sides change: the remote copy
 is parked next to the local file as `name.conflict-<unix>.<ext>` and the local
-version stays. Nothing is ever deleted on the server.
+version stays. Documents are never deleted on the server. The one exception is
+the editor's own unnamed draft (`untitled-N.md`): it is marked as a draft in the
+sync index (`set_draft`), and when `saveas` names it, its remote copy is deleted
+with the local placeholder. A draft that outlives the session is promoted back
+to an ordinary document at startup, so nothing the writer typed is thrown away.
 
 **Sync mirrors the vault, not the documents.** Everything under the vault root
 goes up — `Roms`, `Pictures`, folders you make yourself — with the tree
