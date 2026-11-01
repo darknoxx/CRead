@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.21.1
+
+Nothing about the program changed; this is the repository getting ready to be
+public.
+
+- **MIT, on paper and in the tree.** The workspace declared `MIT OR
+  Apache-2.0`, but no `LICENSE` file existed and none of the seven crates
+  inherited the field, so the declaration did nothing. There is a `LICENSE`
+  now, every manifest carries `license.workspace` and `repository.workspace`,
+  and the README has a licence section.
+- **`THIRD-PARTY.md`.** What is not CRead's own work and under which terms:
+  `mizu-core` (MIT, vendored and patched), the bitmap fonts (CC BY-SA 4.0,
+  VileR), the artwork (MIT, with the code), and the dependency list — including
+  `symphonia` as the only MPL-2.0 component.
+- **No personal traces.** A `/home/noxx` path in a test is neutral, and
+  `.gitignore` no longer names a local download. The unused Gambatte checkout is
+  gone; no GPL code was ever tracked.
+- The release still builds the same binary; the tag exists so the first public
+  release matches the tree.
+
 ## 0.21.0
 
 - **`saveas` removes the untitled placeholder.** With autosave on, a new document

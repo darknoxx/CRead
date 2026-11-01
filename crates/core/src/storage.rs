@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn user_dirs_file_gives_the_localised_document_folder() {
-        let home = Path::new("/home/noxx");
+        let home = Path::new("/home/someone");
         let german =
             "XDG_DESKTOP_DIR=\"$HOME/Schreibtisch\"\nXDG_DOCUMENTS_DIR=\"$HOME/Dokumente\"\n";
         assert_eq!(

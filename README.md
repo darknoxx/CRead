@@ -502,6 +502,8 @@ assets/splash…   pixel art, blitted into the emulated framebuffer
 assets/inspiro…  the same, for Inspiro's front door
 assets/softhand… and for Softhand's
 assets/riff…     and for Riff's
+LICENSE          MIT
+THIRD-PARTY.md   what is not ours, and its terms
 ```
 
 `crates/core` has no GPU, window or network dependency, so the tricky parts are
@@ -523,3 +525,13 @@ The character set is the IBM VGA 8x16 ROM font from VileR's *Ultimate Oldschool
 PC Font Pack* (CC BY-SA 4.0, <https://int10h.org/oldschool-pc-fonts/>), reduced to
 the raw 256 x 16 byte bitmap. The handful of glyphs CP437 never had (`€`, `„“”`,
 `–—`, `…`) are hand-drawn in `crates/render/src/font.rs`.
+
+## Licence
+
+CRead is MIT — see [`LICENSE`](LICENSE). The pixel art in `assets/` is under the
+same terms.
+
+Two things are not: the bitmap fonts are CC BY-SA 4.0 (VileR's *Ultimate
+Oldschool PC Font Pack*), and the vendored emulator `vendor/mizu-core` is MIT
+with CRead's patches on top. [`THIRD-PARTY.md`](THIRD-PARTY.md) has the details
+and the full dependency list.

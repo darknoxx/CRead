@@ -2,7 +2,7 @@
 *.swp
 *.tmp
 
-# local download, not part of the project
-/Retro.Crisis.GDV-NTSC.2026.09.27/
-# Vendored source the project does not build (kept out of the tree on purpose).
-gambatte-libretro/
+# Cartridges and disc images are never part of the project.
+*.gba
+*.nds
+*.iso

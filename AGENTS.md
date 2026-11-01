@@ -184,6 +184,7 @@ recreated on the server; only hidden entries (the sync index lives in
 | any command | nothing for `help` (generated), but `README.md`'s table and `crates/app/src/welcome.md` |
 | behaviour worth mentioning | `CHANGELOG.md` under *Unreleased* |
 | new asset | `assets/fonts/README.md` (provenance and licence) and the layout block in `README.md` |
+| new dependency or vendored crate | `THIRD-PARTY.md` — MIT is the project licence, and a GPL dependency would change that |
 
 ## Release
 
