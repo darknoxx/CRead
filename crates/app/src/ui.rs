@@ -1198,6 +1198,71 @@ pub fn draw_form(screen: &mut Screen, theme: &Theme, view: &FormView<'_>) {
 
 // ── command palette ─────────────────────────────────────────────────────────
 
+/// A yes/no question in a box: the last word before the machine goes off.
+pub fn draw_confirm(screen: &mut Screen, theme: &Theme, title: &str, message: &str, yes: bool) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    let width = cols.saturating_sub(12).clamp(30, 54);
+    let height = 7;
+    let x0 = (cols - width) / 2;
+    let y0 = (rows - height) / 2;
+
+    for y in y0..y0 + height {
+        for x in x0..x0 + width {
+            screen.put(x, y, Cell::blank(theme.fg, theme.bg));
+        }
+    }
+    let (b, d) = (theme.accent, theme.dim);
+    for x in x0 + 1..x0 + width - 1 {
+        screen.put(x, y0, Cell::new('\u{2550}', b, theme.bg));
+        screen.put(x, y0 + height - 1, Cell::new('\u{2550}', b, theme.bg));
+    }
+    for y in y0 + 1..y0 + height - 1 {
+        screen.put(x0, y, Cell::new('\u{2551}', b, theme.bg));
+        screen.put(x0 + width - 1, y, Cell::new('\u{2551}', b, theme.bg));
+    }
+    screen.put(x0, y0, Cell::new('\u{2554}', b, theme.bg));
+    screen.put(x0 + width - 1, y0, Cell::new('\u{2557}', b, theme.bg));
+    screen.put(x0, y0 + height - 1, Cell::new('\u{255a}', b, theme.bg));
+    screen.put(
+        x0 + width - 1,
+        y0 + height - 1,
+        Cell::new('\u{255d}', b, theme.bg),
+    );
+
+    let label = format!(" {title} ");
+    screen.put_str(x0 + 2, y0, &label, b, theme.bg);
+    screen.put_str_ellipsis(
+        x0 + 2,
+        y0 + 2,
+        message,
+        width.saturating_sub(4),
+        theme.fg,
+        theme.bg,
+    );
+
+    // Two buttons, the focused one inverted, like a selected row.
+    let buttons = ["[ Yes ]", "[ No ]"];
+    let inner = width.saturating_sub(2) as usize;
+    let total: usize = buttons.iter().map(|b| b.chars().count()).sum::<usize>() + 2;
+    let mut x = x0 + 1 + ((inner.saturating_sub(total)) / 2) as u32;
+    for (index, button) in buttons.iter().enumerate() {
+        let focused = (index == 0) == yes;
+        if focused {
+            for (offset, ch) in button.chars().enumerate() {
+                screen.put(x + offset as u32, y0 + 4, Cell::new(ch, theme.bg, theme.fg));
+            }
+        } else {
+            screen.put_str(x, y0 + 4, button, d, theme.bg);
+        }
+        x += button.chars().count() as u32 + 2;
+    }
+
+    let hint = " Enter confirm   Esc no ";
+    let hx = (x0 + width).saturating_sub(hint.chars().count() as u32 + 1);
+    screen.put_str(hx, y0 + height - 1, hint, d, theme.bg);
+}
+
 pub struct PaletteView<'a> {
     pub title: &'a str,
     /// Prompt sigil or label in front of the input.

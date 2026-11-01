@@ -76,7 +76,7 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        D: POCKETBOI   get gaming, my friend!
                        ─────────────────────────────────────────
                        SOFTWARE       install and remove modules
-                       DOCUMENTS      open a file from the vault
+                       THE VAULT      documents, pictures, cartridges
                        SETTINGS       webdav, theme, font, screen
 ```
 
@@ -97,7 +97,7 @@ appears.
 ```
 
 There `new` opens an empty document and `open` shows the vault, exactly as
-before. Opening a file from `A: DOCUMENTS` goes through the same loader, and any
+before. Opening a file from `THE VAULT` goes through the same loader, and any
 key skips it. Pass a file name on the command line and it opens straight away,
 bar and all.
 
@@ -122,8 +122,8 @@ help screen the arrow keys walk it while the status line explains each row.
 | --- | --- | --- |
 | `save` | `w`, `safe` | write the document to disk |
 | `autosave [on\|off]` | `aw` | save while you type; off by default |
-| `saveas <name>` | `sa` | save under a new name in the vault |
-| `open [name]` | `o`, `e` | file list, or open a name directly |
+| `saveas <name>` | `sa` | save under a new name in `Documents/` |
+| `open [name]` | `o`, `e` | the vault browser, or open a name directly |
 | `new` | `n` | start an empty document |
 | `rename <name>` | `mv`, `rn` | rename the current document |
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
@@ -204,6 +204,48 @@ decides what is visible.
 `software` opens the same screen from any prompt, so you can install Riff while
 writing and find its row on the boot screen afterwards. Removing a module leaves
 your documents and pictures where they are; removing Riff stops the music.
+
+## The vault
+
+Everything you make lives in one folder — `~/Dokumente/CRead` on a German
+desktop, `~/Documents/CRead` in English — and that folder is the machine's whole
+disk. `THE VAULT`, the third row of the boot screen, opens it as a browser:
+
+```
+THE VAULT                                documents, pictures, cartridges
+  ┌──────────────────────────────────────────────────────────┐
+  │ ► + new document                                          │
+  │   + sync now                                              │
+  │   Documents/                                              │
+  │   Pictures/                                               │
+  │   Roms/                                                   │
+  └──────────────────────────────────────────────────────────┘
+```
+
+`Enter` walks into a folder, `Esc` and `←` go back up, typing filters the
+current folder. Every file opens with the program that owns it: `.md`, `.txt`
+and `.markdown` in Inspiro, `.png` in Softhand, `.gb`/`.gbc` in Pocketboi.
+Folders first, then files; a file nothing here can open is simply not listed,
+because this is a shelf and not a file manager.
+
+Three folders are the shelf:
+
+| Folder | Holds | Written by |
+| --- | --- | --- |
+| `Documents/` | Markdown and text | Inspiro, `new`, `saveas` |
+| `Pictures/` | 16-colour PNGs | Softhand |
+| `Roms/` | `.gb` and `.gbc` cartridges | you, or a sync from another machine |
+
+`saveas` has a fixed home: documents always land in `Documents/`, pictures
+always in `Pictures/`. Subfolders are fine (`saveas kapitel/eins` writes
+`Documents/kapitel/eins.md`); `..` and absolute paths are not, they are folded
+away. `open` still finds a document anywhere in the vault, and a bare name is
+enough: `open eins` finds `Documents/kapitel/eins.md`.
+
+A vault from before the layout change still opens: on the first use, loose
+documents sitting in the vault root move into `Documents/`. Nothing is
+overwritten — a name that is already taken stays where it is and the status
+line says so.
 
 ## View mode
 
@@ -341,10 +383,11 @@ of a core while you read. Typing redraws immediately.
 
 ## Documents and sync
 
-Documents are plain Markdown files in your XDG document folder — `~/Dokumente/CRead`
-on a German desktop, `~/Documents/CRead` in English. Override it with `--vault DIR`
-or `CREAD_VAULT`. Writes are atomic: temp file, fsync, rename. A
-crash leaves either the old file or the new one, never half a page.
+Documents are plain Markdown files in `Documents/` inside your XDG document
+folder — `~/Dokumente/CRead` on a German desktop, `~/Documents/CRead` in English.
+Override the vault with `--vault DIR` or `CREAD_VAULT`. Writes are atomic: temp
+file, fsync, rename. A crash leaves either the old file or the new one, never
+half a page.
 
 WebDAV sync mirrors that folder — the whole vault, not just the notes in it:
 documents, the `Pictures` folder, the cartridges in `Roms`, and any folder you
@@ -376,6 +419,28 @@ conflict rule is the whole point:
 
 Nothing is ever deleted on the server. `cread --sync-once` runs a single round
 and prints the result, which is handy for cron or for debugging.
+
+## Leaving with unsynced work
+
+Quitting is the one moment where a background sync cannot help, so CRead asks
+instead of guessing. If anything was written to disk since the last successful
+round — a save, a new document, a picture, a delete or a rename — and the
+server has not seen it yet, both `exit` on the boot screen and `exit!` show:
+
+```
+  ╔═ SYNC TO SERVER? ═════════════════════════════════════════╗
+  ║                                                           ║
+  ║  Changes in this session have not been sent yet.          ║
+  ║                                                           ║
+  ║                      [ Yes ]  [ No ]                      ║
+  ╚═══════════════ Enter confirm   Esc no ═══════════════════╝
+```
+
+`Yes` runs one last round before the window closes; if the server cannot be
+reached, CRead stays open with the error in the status line and nothing is lost.
+`No`, `Esc` and closing the window while the box is up all leave at once. The
+sidebar close button goes through the same question, after saving the open
+document. With sync off there is nothing to ask, so the box never appears.
 
 ## Flags worth knowing
 

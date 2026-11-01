@@ -114,6 +114,13 @@ so the CRT pass stays the same for text and pictures.
 the owning process; `arboard::Clipboard` is kept in `App` for exactly that
 reason. Creating one per operation silently loses the text.
 
+**The vault has three rooms.** `Documents/` for text, `Pictures/` for PNGs,
+`Roms/` for cartridges; the vault root is only the shelf, and `saveas` cannot
+leave its room (`..` and absolute names are folded away). `THE VAULT` on the
+boot screen is a folder browser that opens each file with the program that owns
+it. Loose documents from an older vault are moved into `Documents/` on first
+use — never overwritten, a name clash stays put and is reported.
+
 **Saving is the writer's decision.** Autosave is opt-in (`autosave on`, stored in
 the preferences); by default a document only reaches disk through `save`,
 `saveas`, quitting or closing the window. Do not add a "convenience" write path

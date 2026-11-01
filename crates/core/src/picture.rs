@@ -11,27 +11,22 @@ use crate::raster::Raster;
 
 /// Folder pictures live in, inside the vault.
 pub fn dir(vault: &Path) -> PathBuf {
-    vault.join("Pictures")
+    crate::storage::pictures_in(vault)
 }
 
-/// Every `.png` in the folder, by name.
+/// Every `.png` under the folder, subfolders included, sorted by path.
 pub fn list(vault: &Path) -> std::io::Result<Vec<PathBuf>> {
     let dir = dir(vault);
     if !dir.exists() {
         return Ok(Vec::new());
     }
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(&dir)? {
-        let path = entry?.path();
-        let is_png = path
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("png"));
-        if is_png && path.is_file() {
-            files.push(path);
-        }
-    }
-    files.sort();
-    Ok(files)
+    Ok(crate::storage::walk_files(&dir)
+        .into_iter()
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("png"))
+        })
+        .collect())
 }
 
 /// First free `picture[-n].png` in the vault.
@@ -46,14 +41,18 @@ pub fn free_name(vault: &Path) -> PathBuf {
     path
 }
 
-/// Resolve a user-supplied picture name inside the vault, adding `.png`.
+/// Resolve a user-supplied picture name, adding `.png`.
+///
+/// Pictures always land in `Pictures/`, subfolders allowed, `..` not: a
+/// painting is never saved somewhere else in the vault.
 pub fn resolve(vault: &Path, name: &str) -> PathBuf {
-    let raw = PathBuf::from(name);
-    let path = if raw.is_absolute() {
-        raw
-    } else {
-        dir(vault).join(raw)
-    };
+    let mut relative = PathBuf::new();
+    for part in Path::new(name).components() {
+        if let std::path::Component::Normal(part) = part {
+            relative.push(part);
+        }
+    }
+    let path = dir(vault).join(relative);
     if path.extension().is_some() {
         path
     } else {
@@ -191,6 +190,26 @@ mod tests {
         assert_eq!(
             resolve(vault, "doodle.png"),
             Path::new("/tmp/vault/Pictures/doodle.png")
+        );
+    }
+
+    #[test]
+    fn a_picture_cannot_escape_its_folder() {
+        let vault = Path::new("/tmp/vault");
+        assert_eq!(
+            resolve(vault, "../../etc/passwd"),
+            Path::new("/tmp/vault/Pictures/etc/passwd.png"),
+            "dots are dropped, not followed"
+        );
+        assert_eq!(
+            resolve(vault, "/tmp/elsewhere/x.png"),
+            Path::new("/tmp/vault/Pictures/tmp/elsewhere/x.png"),
+            "an absolute name is re-rooted inside Pictures"
+        );
+        assert_eq!(
+            resolve(vault, "sketch/blue"),
+            Path::new("/tmp/vault/Pictures/sketch/blue.png"),
+            "subfolders are fine"
         );
     }
 

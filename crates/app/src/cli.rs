@@ -174,6 +174,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "palette",
                     "settings",
                     "webdav",
+                    "vault",
+                    "quit",
                     "help",
                 ];
                 if !known.contains(&v.as_str())

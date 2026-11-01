@@ -129,7 +129,121 @@ pub fn free_untitled(dir: &Path) -> PathBuf {
     path
 }
 
-/// Markdown documents in a directory, sorted by name, ignoring dotfiles.
+/// Documents live in `<vault>/Documents`. The vault root is only the shelf:
+/// pictures, cartridges and documents each get their folder, so a name can
+/// never mean two things.
+pub fn documents_in(vault: &Path) -> PathBuf {
+    vault.join("Documents")
+}
+
+/// Pictures live in `<vault>/Pictures`.
+pub fn pictures_in(vault: &Path) -> PathBuf {
+    vault.join("Pictures")
+}
+
+/// Cartridges live in `<vault>/Roms`.
+pub fn roms_in(vault: &Path) -> PathBuf {
+    vault.join("Roms")
+}
+
+/// Every file under `root`, recursively, sorted by path. Dotfiles and hidden
+/// folders are skipped: they are the app's own, never the writer's.
+pub fn walk_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.is_file() {
+                out.push(path);
+            }
+        }
+    }
+    walk(root, &mut out);
+    out.sort();
+    out
+}
+
+/// What a round of tidying found in the vault root.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Migration {
+    /// Documents moved into `Documents/`.
+    pub moved: usize,
+    /// Root copies removed because `Documents/` held the very same bytes.
+    pub duplicates: usize,
+    /// Files left alone because a different document already has that name.
+    pub kept: Vec<String>,
+}
+
+/// Move loose documents from the vault root into `Documents/`.
+///
+/// Runs once at startup, so a vault from before the layout change still opens
+/// where the writer expects. Nothing is overwritten: a name that is already
+/// taken stays in the root and is reported.
+pub fn migrate_documents(vault: &Path) -> Migration {
+    let mut out = Migration::default();
+    let target_dir = documents_in(vault);
+    let Ok(files) = list_documents(vault) else {
+        return out;
+    };
+    if files.is_empty() {
+        return out;
+    }
+    if let Err(e) = fs::create_dir_all(&target_dir) {
+        out.kept = files
+            .iter()
+            .map(|p| {
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        let _ = e;
+        return out;
+    }
+    for source in files {
+        let Some(name) = source.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        let target = target_dir.join(&name);
+        if target.exists() {
+            let same = match (fs::read(&source), fs::read(&target)) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            };
+            if same && fs::remove_file(&source).is_ok() {
+                out.duplicates += 1;
+            } else {
+                out.kept.push(name);
+            }
+            continue;
+        }
+        match fs::rename(&source, &target) {
+            Ok(()) => out.moved += 1,
+            Err(_) => out.kept.push(name),
+        }
+    }
+    out
+}
+
+/// Is this a file the editor opens: Markdown, or plain text?
+pub fn is_document(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| {
+        let ext = ext.to_string_lossy().to_lowercase();
+        ext == "md" || ext == "txt" || ext == "markdown"
+    })
+}
+
+/// Documents in a directory, sorted by name, ignoring dotfiles.
 pub fn list_documents(dir: &Path) -> io::Result<Vec<PathBuf>> {
     let mut out: Vec<PathBuf> = fs::read_dir(dir)?
         .filter_map(|e| e.ok())
@@ -140,8 +254,7 @@ pub fn list_documents(dir: &Path) -> io::Result<Vec<PathBuf>> {
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            !name.starts_with('.')
-                && (name.ends_with(".md") || name.ends_with(".txt") || name.ends_with(".markdown"))
+            !name.starts_with('.') && is_document(p)
         })
         .collect();
     out.sort();
@@ -157,6 +270,56 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn loose_documents_move_into_documents_once() {
+        let vault = tmpdir("migrate");
+        fs::create_dir_all(documents_in(&vault).join("sub")).unwrap();
+        fs::write(vault.join("a.md"), "eins").unwrap();
+        fs::write(vault.join("note.txt"), "zwei").unwrap();
+        fs::write(vault.join("same.md"), "gleich").unwrap();
+        fs::write(documents_in(&vault).join("same.md"), "gleich").unwrap();
+        fs::write(documents_in(&vault).join("clash.md"), "meins").unwrap();
+        fs::write(vault.join("clash.md"), "anders").unwrap();
+        fs::write(vault.join("keep.gb"), "rom").unwrap();
+
+        let report = migrate_documents(&vault);
+        assert_eq!(report.moved, 2, "a.md and note.txt");
+        assert_eq!(report.duplicates, 1, "same.md was already in place");
+        assert_eq!(report.kept, vec!["clash.md"], "never overwritten");
+        assert!(documents_in(&vault).join("a.md").is_file());
+        assert!(documents_in(&vault).join("note.txt").is_file());
+        assert!(!vault.join("a.md").exists());
+        assert!(vault.join("clash.md").is_file(), "the clash stays put");
+        assert!(
+            vault.join("keep.gb").is_file(),
+            "a cartridge is not a document"
+        );
+
+        let again = migrate_documents(&vault);
+        assert_eq!(again.moved, 0, "migration is idempotent");
+
+        fs::remove_dir_all(&vault).unwrap();
+    }
+
+    #[test]
+    fn walking_finds_nested_files_and_skips_hidden_ones() {
+        let vault = tmpdir("walk");
+        fs::create_dir_all(vault.join("Documents/sub")).unwrap();
+        fs::create_dir_all(vault.join(".cread-sync")).unwrap();
+        fs::write(vault.join("Documents/a.md"), "").unwrap();
+        fs::write(vault.join("Documents/sub/b.md"), "").unwrap();
+        fs::write(vault.join(".cread-sync/index.json"), "").unwrap();
+        fs::write(vault.join(".hidden.md"), "").unwrap();
+
+        let names: Vec<String> = walk_files(&vault)
+            .into_iter()
+            .map(|p| p.strip_prefix(&vault).unwrap().display().to_string())
+            .collect();
+        assert_eq!(names, vec!["Documents/a.md", "Documents/sub/b.md"]);
+
+        fs::remove_dir_all(&vault).unwrap();
     }
 
     #[test]

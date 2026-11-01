@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.15.0
+
+- **The vault has folders, and `THE VAULT` is a browser.** The third row of the
+  boot screen replaces DOCUMENTS: documents in `Documents/`, pictures in
+  `Pictures/`, cartridges in `Roms/`, and every file opens with the program that
+  owns it (`.md` Inspiro, `.png` Softhand, `.gb` Pocketboi). `Enter` walks into a
+  folder, `Esc` and `←` go back up, typing filters the folder you are in.
+- **`saveas` has one home.** Documents land in `Documents/`, pictures in
+  `Pictures/`; subfolders are allowed, `..` and absolute paths are folded away.
+  `open eins` still finds `Documents/kapitel/eins.md`.
+- **Old vaults are tidied on first use.** Loose `.md`/`.txt` in the vault root
+  move into `Documents/`, nothing is overwritten, and the status line reports
+  what happened.
+- **Quitting asks before unsynced work is left behind.** `exit` on the boot
+  screen, `exit!` and the window close button show a small "Sync to server?"
+  box when this session wrote something the server has not seen. `Yes` runs one
+  last round; a failure keeps CRead open with the error instead of quitting.
+
 ## 0.14.1
 
 - **WebDAV syncs the whole vault, not only the Markdown.** Pictures and the

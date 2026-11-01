@@ -19,8 +19,8 @@ shell. Type a command, press `Enter`, and you are back in the text.
 ## The commands you will actually use
 
 - `save` writes the document (aliases `w`, `safe`).
-- `saveas <name>` puts it in the vault under a new name.
-- `open` shows the file list, `open <name>` opens it directly.
+- `saveas <name>` puts it in `Documents/` under a new name.
+- `open` shows the vault browser, `open <name>` opens it directly.
 - `rename <name>` and `delete` tidy up the vault.
 - `sync` pushes everything to WebDAV.
 - `exit` goes back to the boot screen, `exit!` quits from anywhere.

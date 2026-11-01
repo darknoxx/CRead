@@ -123,6 +123,9 @@ impl Document {
 enum Action {
     Open(PathBuf),
     OpenPicture(PathBuf),
+    OpenRom(PathBuf),
+    EnterDir(PathBuf),
+    Up,
     NewFile,
     SyncNow,
 }
@@ -149,6 +152,8 @@ struct Palette {
     mode: PaletteMode,
     /// Pictures cannot be renamed or deleted from here, so the hint differs.
     pictures: bool,
+    /// Folder below the vault root that is shown; empty means the root.
+    path: PathBuf,
 }
 
 impl Palette {
@@ -158,9 +163,10 @@ impl Palette {
             entries: Vec::new(),
             filtered: Vec::new(),
             selected: 0,
-            title: "OPEN".into(),
+            title: "THE VAULT".into(),
             mode: PaletteMode::Browse,
             pictures: false,
+            path: PathBuf::new(),
         }
     }
 
@@ -256,6 +262,8 @@ enum Pending {
         id: &'static str,
         install: bool,
     },
+    /// A cartridge picked in the vault, played straight away.
+    Rom(PathBuf),
     Document(PathBuf),
     NewDocument,
 }
@@ -264,7 +272,7 @@ enum Pending {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BootItem {
     /// The vault: the first row, always.
-    Documents,
+    Vault,
     /// The rule between the vault and the modules. Never selectable.
     Rule,
     /// The editor, the first module.
@@ -275,6 +283,14 @@ enum BootItem {
     Software,
     /// The system settings.
     Setup,
+}
+
+/// The exit dialog: which button is focused, and where to return if the user
+/// changes their mind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct QuitPrompt {
+    yes: bool,
+    from: Mode,
 }
 
 impl BootItem {
@@ -311,6 +327,8 @@ enum Mode {
     Software,
     /// The system settings: WebDAV, theme, font, screen, info.
     Setup,
+    /// "Sync to server?" on the way out.
+    Quit,
 }
 
 /// A program compiled into this build.
@@ -394,6 +412,12 @@ struct App {
     software_selected: usize,
     /// Highlighted row on the SETTINGS screen.
     setup_selected: usize,
+    /// The layout was checked (and loose documents moved) once already.
+    vault_ready: bool,
+    /// Written to disk since the last successful sync in this session.
+    unsynced: bool,
+    /// The "sync before quitting?" dialog while it is open.
+    quit: Option<QuitPrompt>,
 
     boot_selected: usize,
 
@@ -617,6 +641,9 @@ impl App {
             doc,
             software_selected: 0,
             setup_selected: 0,
+            vault_ready: false,
+            unsynced: false,
+            quit: None,
 
             boot_selected: 0,
 
@@ -1104,6 +1131,7 @@ impl App {
                 ),
                 Some(Pending::NewPicture) => "New picture...".to_string(),
                 Some(Pending::Picture(_)) => "Loading picture...".to_string(),
+                Some(Pending::Rom(_)) => "Loading cartridge...".to_string(),
                 Some(Pending::Document(_)) => "Loading document...".to_string(),
                 Some(Pending::NewDocument) => "New document...".to_string(),
                 Some(Pending::Software { id, install }) => {
@@ -1253,7 +1281,15 @@ impl App {
             let max_h = rows.saturating_sub(8) * cread_core::FONT_H;
             // An overlay (palette, settings) covers the front door's logo the
             // same way it covers the boot screen's.
-            let overlay_open = matches!(self.mode, Mode::Palette | Mode::Settings);
+            let overlay_open = matches!(
+                self.mode,
+                Mode::Palette
+                    | Mode::Settings
+                    | Mode::Quit
+                    | Mode::Software
+                    | Mode::Setup
+                    | Mode::Help
+            );
             if self.home == Home::Inspiro {
                 let title_row =
                     match front_door_layout(&self.inspiro_logo, max_w, max_h, cols, rows) {
@@ -1513,6 +1549,16 @@ impl App {
                 };
                 ui::draw_form(&mut screen, &self.theme, &view);
             }
+            Mode::Quit => {
+                let yes = self.quit.map(|prompt| prompt.yes).unwrap_or(true);
+                ui::draw_confirm(
+                    &mut screen,
+                    &self.theme,
+                    "SYNC TO SERVER?",
+                    "Changes in this session have not been sent yet.",
+                    yes,
+                );
+            }
             _ => {}
         }
 
@@ -1554,6 +1600,7 @@ impl App {
             match event {
                 SyncEvent::Started => self.set_status("sync ..."),
                 SyncEvent::Done(report) => {
+                    self.unsynced = false;
                     if report.conflicts > 0 {
                         self.set_status(format!(
                             "sync: {} - conflict copy kept",
@@ -1648,6 +1695,7 @@ impl App {
     fn save_to(&mut self, path: &Path) -> Result<(), String> {
         let text = self.doc.editor.text();
         storage::save_atomic(path, &text).map_err(|e| format!("save failed: {e}"))?;
+        self.unsynced = true;
         self.doc.editor.mark_saved();
         self.doc.path = Some(path.to_path_buf());
         if self.sync_cfg.enabled {
@@ -1668,6 +1716,7 @@ impl App {
 
     /// Start a fresh file in the vault, named `untitled.md`, `untitled-2.md`, …
     fn new_document(&mut self) -> Result<String, String> {
+        self.prepare_vault();
         self.discard_scratch();
         let path = self.free_untitled_path();
         self.doc = Document {
@@ -1708,6 +1757,7 @@ impl App {
     }
 
     fn save_as(&mut self, name: &str) -> Result<String, String> {
+        self.prepare_vault();
         let path = self.document_path(name);
         self.save_to(&path)?;
         Ok(format!("saved as {}", self.doc.title()))
@@ -1717,19 +1767,62 @@ impl App {
         self.opts.vault.clone().unwrap_or_else(storage::vault_dir)
     }
 
-    /// First free `untitled[-n].md` in the vault.
-    fn free_untitled_path(&self) -> PathBuf {
-        storage::free_untitled(&self.vault())
+    /// Check the vault layout once: a document belongs in `Documents/`, so
+    /// anything still sitting in the root is moved there before we list it.
+    fn prepare_vault(&mut self) {
+        if self.vault_ready {
+            return;
+        }
+        self.vault_ready = true;
+        let vault = self.vault();
+        // The shelf has three rooms; an empty one still belongs to the layout,
+        // so the browser and the server both show it.
+        for dir in [
+            storage::documents_in(&vault),
+            storage::pictures_in(&vault),
+            storage::roms_in(&vault),
+        ] {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let report = storage::migrate_documents(&vault);
+        if report.moved > 0 || report.duplicates > 0 {
+            self.unsynced = true;
+            let mut message = format!("moved {} into Documents/", report.moved);
+            if report.duplicates > 0 {
+                message = format!("{message} ({} already there)", report.duplicates);
+            }
+            self.set_status(message);
+        }
+        if !report.kept.is_empty() {
+            self.set_status(format!(
+                "{} kept in the vault root: name already taken",
+                report.kept.join(", ")
+            ));
+        }
     }
 
-    /// Resolve a user-supplied name inside the vault, adding `.md` when needed.
+    /// Where documents live: `<vault>/Documents`, never the root.
+    fn documents(&self) -> PathBuf {
+        storage::documents_in(&self.vault())
+    }
+
+    /// First free `untitled[-n].md` in Documents.
+    fn free_untitled_path(&self) -> PathBuf {
+        storage::free_untitled(&self.documents())
+    }
+
+    /// Resolve a user-supplied name inside Documents, adding `.md` when needed.
+    ///
+    /// Subfolders are fine (`saveas kapitel/eins`), `..` and absolute paths are
+    /// not: a document has exactly one home.
     fn document_path(&self, name: &str) -> PathBuf {
-        let raw = PathBuf::from(name);
-        let path = if raw.is_absolute() {
-            raw
-        } else {
-            self.vault().join(raw)
-        };
+        let mut relative = PathBuf::new();
+        for part in Path::new(name).components() {
+            if let std::path::Component::Normal(part) = part {
+                relative.push(part);
+            }
+        }
+        let path = self.documents().join(relative);
         if path.extension().is_some() {
             path
         } else {
@@ -1738,13 +1831,44 @@ impl App {
     }
 
     /// Find an existing document by name, with or without the extension.
+    ///
+    /// A bare name is looked up anywhere under Documents, so
+    /// `open kapitel` finds `Documents/kapitel/eins.md`. The vault root is the
+    /// last resort, for a file the migration had to leave behind.
     fn find_document(&self, name: &str) -> Option<PathBuf> {
-        let with_ext = self.document_path(name);
-        if with_ext.is_file() {
-            return Some(with_ext);
+        let named = self.document_path(name);
+        if named.is_file() {
+            return Some(named);
         }
-        let bare = self.vault().join(name);
-        bare.is_file().then_some(bare)
+        let wanted = Path::new(name)
+            .file_name()?
+            .to_string_lossy()
+            .to_lowercase();
+        let with_ext = if wanted.ends_with(".md") {
+            wanted.clone()
+        } else {
+            format!("{wanted}.md")
+        };
+        let mut matches: Vec<PathBuf> = storage::walk_files(&self.documents())
+            .into_iter()
+            .filter(|path| storage::is_document(path))
+            .filter(|path| {
+                path.file_name().is_some_and(|n| {
+                    let n = n.to_string_lossy().to_lowercase();
+                    n == wanted || n == with_ext
+                })
+            })
+            .collect();
+        matches.sort();
+        if let Some(path) = matches.into_iter().next() {
+            return Some(path);
+        }
+        let legacy = self.vault().join(name);
+        if legacy.is_file() {
+            return Some(legacy);
+        }
+        let legacy_md = self.vault().join(format!("{name}.md"));
+        legacy_md.is_file().then_some(legacy_md)
     }
 
     fn open_document(&mut self, path: PathBuf) -> Result<(), String> {
@@ -1805,32 +1929,84 @@ impl App {
     // ── palette ─────────────────────────────────────────────────────────────
 
     fn open_palette(&mut self) {
+        self.prepare_vault();
         self.palette = Palette::empty();
         self.refresh_palette();
         self.mode = Mode::Palette;
         self.dirty = true;
     }
 
+    /// Rebuild the rows for the folder the palette is looking at.
+    ///
+    /// Folders first, then the files a program here can open. Nothing else is
+    /// listed: this is a shelf, not a file manager.
     fn refresh_palette(&mut self) {
-        let dir = self.vault();
-        let mut entries = vec![
-            ("+ new document".to_string(), Action::NewFile),
-            ("+ sync now".to_string(), Action::SyncNow),
-        ];
-        match storage::list_documents(&dir) {
-            Ok(files) => {
-                for path in files {
-                    let name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    entries.push((name, Action::Open(path)));
+        let here = self.vault().join(&self.palette.path);
+        let at_root = self.palette.path.as_os_str().is_empty();
+        let mut entries: Vec<(String, Action)> = Vec::new();
+        if at_root {
+            entries.push(("+ new document".to_string(), Action::NewFile));
+            entries.push(("+ sync now".to_string(), Action::SyncNow));
+        } else {
+            entries.push(("..".to_string(), Action::Up));
+        }
+
+        let mut folders: Vec<(String, Action)> = Vec::new();
+        let mut files: Vec<(String, Action)> = Vec::new();
+        match std::fs::read_dir(&here) {
+            Ok(listing) => {
+                for entry in listing.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.starts_with('.') {
+                        continue;
+                    }
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let relative = self.palette.path.join(&name);
+                        folders.push((format!("{name}/"), Action::EnterDir(relative)));
+                    } else if let Some(action) = file_action(&path) {
+                        files.push((name, action));
+                    }
                 }
             }
-            Err(e) => self.set_status(format!("cannot list {}: {e}", dir.display())),
+            Err(e) => self.set_status(format!("cannot list {}: {e}", here.display())),
         }
+        folders.sort_by_key(|(name, _)| name.to_lowercase());
+        files.sort_by_key(|(name, _)| name.to_lowercase());
+        entries.extend(folders);
+        entries.extend(files);
+
+        self.palette.title = if at_root {
+            "THE VAULT".into()
+        } else {
+            format!("THE VAULT /{}", self.palette.path.display())
+        };
         self.palette.entries = entries;
         self.palette.refilter();
+    }
+
+    /// Open a folder in the palette; the filter starts fresh.
+    fn palette_enter(&mut self, path: PathBuf) {
+        self.palette.path = path;
+        self.palette.input.clear();
+        self.palette.selected = 0;
+        self.refresh_palette();
+        self.poke();
+    }
+
+    /// One folder up. False at the root, where Esc leaves the vault instead.
+    fn palette_up(&mut self) -> bool {
+        if self.palette.path.as_os_str().is_empty() {
+            return false;
+        }
+        let parent = self
+            .palette
+            .path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        self.palette_enter(parent);
+        true
     }
 
     fn palette_target(&self) -> Option<PathBuf> {
@@ -1861,17 +2037,29 @@ impl App {
             };
             self.has_document = false;
         }
+        self.unsynced = true;
         self.set_status(format!("deleted {name}"));
         self.refresh_palette();
     }
 
     fn palette_rename(&mut self, old: PathBuf, new: &str) {
         let new = new.trim();
-        if new.is_empty() {
+        let name = Path::new(new)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if name.is_empty() {
             self.set_status("name cannot be empty");
             return;
         }
-        let target = self.document_path(new);
+        let parent = old
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.vault());
+        let mut target = parent.join(&name);
+        if target.extension().is_none() {
+            target.set_extension(old.extension().unwrap_or_else(|| "md".as_ref()));
+        }
         if target.exists() {
             self.set_status(format!("{} already exists", self.doc_title_of(&target)));
             return;
@@ -1883,6 +2071,7 @@ impl App {
         if self.doc.path.as_deref() == Some(old.as_path()) {
             self.doc.path = Some(target.clone());
         }
+        self.unsynced = true;
         self.set_status(format!("renamed to {}", self.doc_title_of(&target)));
         self.refresh_palette();
     }
@@ -1894,6 +2083,15 @@ impl App {
         match action {
             Action::Open(path) => self.start_loading(Pending::Document(path)),
             Action::OpenPicture(path) => self.start_loading(Pending::Picture(path)),
+            Action::OpenRom(path) => self.start_loading(Pending::Rom(path)),
+            Action::EnterDir(path) => {
+                self.palette_enter(path);
+                return;
+            }
+            Action::Up => {
+                self.palette_up();
+                return;
+            }
             Action::NewFile => self.start_loading(Pending::NewDocument),
             Action::SyncNow => {
                 if self.sync_cfg.enabled && self.sync.is_some() {
@@ -1944,6 +2142,7 @@ impl App {
             Mode::RiffInsert => self.on_key_riff_insert(event),
             Mode::Software => self.on_key_software(event),
             Mode::Setup => self.on_key_setup(event),
+            Mode::Quit => self.on_key_quit(el, event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Palette => self.on_key_palette(event),
             Mode::Settings => self.on_key_settings(event),
@@ -2480,6 +2679,7 @@ impl App {
                     self.start_loading(Pending::Picture(path));
                     return Ok(String::new());
                 }
+                self.prepare_vault();
                 let path = self
                     .find_document(&name)
                     .ok_or_else(|| format!("no such document: {name}"))?;
@@ -2658,7 +2858,9 @@ impl App {
                 // On the boot screen `exit` means what it means everywhere else:
                 // stop the program. That is CRead itself.
                 if !self.has_document && self.program.is_none() && self.home == Home::Boot {
-                    el.exit();
+                    if !self.ask_quit(Mode::Action) {
+                        el.exit();
+                    }
                     return Ok(String::new());
                 }
                 self.leave_to_boot();
@@ -2699,7 +2901,10 @@ impl App {
                 if self.program.is_some() && self.picture_path.is_some() {
                     let _ = self.save_picture(None);
                 }
-                el.exit();
+                let from = self.mode;
+                if !self.ask_quit(from) {
+                    el.exit();
+                }
                 Ok(String::new())
             }
         }
@@ -3039,6 +3244,27 @@ impl App {
             Pending::NewPicture => {
                 self.new_picture();
             }
+            Pending::Rom(path) => {
+                if !self.is_installed("pocketboi") {
+                    self.set_status("pocketboi is not installed - see SOFTWARE");
+                    self.mode = Mode::Palette;
+                    return;
+                }
+                let mut boi = cread_pocketboi::Pocketboi::new(&self.vault());
+                match boi.play(&path) {
+                    Ok(()) => {
+                        self.program = Some(Box::new(boi));
+                        self.mode = Mode::Program;
+                        self.program_prompt = false;
+                        self.command.clear();
+                        self.dirty = true;
+                    }
+                    Err(e) => {
+                        self.set_status(e);
+                        self.mode = Mode::Palette;
+                    }
+                }
+            }
             Pending::Picture(path) => match self.open_picture(path) {
                 Ok(()) => {}
                 Err(e) => {
@@ -3140,6 +3366,7 @@ impl App {
             return Err("this program has no picture".into());
         };
         picture::save(&path, canvas)?;
+        self.unsynced = true;
         self.picture_path = Some(path.clone());
         Ok(format!(
             "saved {}",
@@ -3154,13 +3381,15 @@ impl App {
         self.palette = Palette::empty();
         self.palette.title = "PICTURES".into();
         self.palette.pictures = true;
+        let base = picture::dir(&self.vault());
         match picture::list(&self.vault()) {
             Ok(files) => {
                 for path in files {
                     let name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
+                        .strip_prefix(&base)
+                        .unwrap_or(&path)
+                        .display()
+                        .to_string();
                     self.palette.entries.push((name, Action::OpenPicture(path)));
                 }
             }
@@ -3650,6 +3879,96 @@ impl App {
         }
     }
 
+    /// Changes on disk the server has not seen: quitting should ask.
+    fn wants_sync_before_quitting(&self) -> bool {
+        self.unsynced
+            && self.sync_cfg.enabled
+            && self.sync_cfg.is_configured()
+            && self.sync.is_some()
+    }
+
+    /// Show the exit dialog if there is anything to sync. False means "quit
+    /// now, nothing to ask".
+    fn ask_quit(&mut self, from: Mode) -> bool {
+        if !self.wants_sync_before_quitting() {
+            return false;
+        }
+        self.quit = Some(QuitPrompt { yes: true, from });
+        self.mode = Mode::Quit;
+        self.dirty = true;
+        true
+    }
+
+    fn on_key_quit(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
+        let Some(prompt) = self.quit else {
+            self.mode = Mode::Action;
+            return;
+        };
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.quit = None;
+                self.mode = prompt.from;
+                self.set_status("not synced");
+                self.poke();
+            }
+            Key::Named(NamedKey::Enter) => self.confirm_quit(el, prompt.yes),
+            Key::Named(NamedKey::ArrowLeft)
+            | Key::Named(NamedKey::ArrowRight)
+            | Key::Named(NamedKey::Tab) => {
+                self.quit = Some(QuitPrompt {
+                    yes: !prompt.yes,
+                    from: prompt.from,
+                });
+                self.poke();
+            }
+            Key::Character(c) if c.eq_ignore_ascii_case("y") => self.confirm_quit(el, true),
+            Key::Character(c) if c.eq_ignore_ascii_case("n") => self.confirm_quit(el, false),
+            _ => {}
+        }
+    }
+
+    fn confirm_quit(&mut self, el: &ActiveEventLoop, sync: bool) {
+        let Some(prompt) = self.quit.take() else {
+            return;
+        };
+        self.mode = prompt.from;
+        if !sync {
+            el.exit();
+            return;
+        }
+        match self.sync_before_quit() {
+            Ok(()) => el.exit(),
+            Err(_) => self.dirty = true,
+        }
+    }
+
+    /// One last round on the way out. The process is about to end, so the
+    /// worker cannot do this one: stop it first (its Drop joins the thread and
+    /// waits for a round in flight), then run a single round here.
+    fn sync_before_quit(&mut self) -> Result<(), String> {
+        self.pause_sync();
+        let vault = self.vault();
+        self.set_status("sync ...");
+        match cread_sync::run_blocking(&vault, &self.sync_cfg) {
+            Ok(report) => {
+                self.unsynced = false;
+                self.set_status(format!("sync: {}", report.summary()));
+                Ok(())
+            }
+            Err(e) => {
+                self.set_status(format!("sync failed: {e}"));
+                self.start_worker();
+                Err(e)
+            }
+        }
+    }
+
+    fn pause_sync(&mut self) {
+        // Dropping the worker shuts the thread down and waits for a round in
+        // flight, so two syncs never run at once.
+        self.sync = None;
+    }
+
     fn on_key_setup(&mut self, event: KeyEvent) {
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => self.to_write(),
@@ -3756,7 +4075,7 @@ impl App {
         }
         items.push(BootItem::Rule);
         items.push(BootItem::Software);
-        items.push(BootItem::Documents);
+        items.push(BootItem::Vault);
         items.push(BootItem::Setup);
         items
     }
@@ -3793,8 +4112,8 @@ impl App {
             bare: true,
         });
         rows.push(ui::BootItem {
-            label: "DOCUMENTS".into(),
-            detail: "open a file from the vault".into(),
+            label: "THE VAULT".into(),
+            detail: "documents, pictures, cartridges".into(),
             broken: false,
             rule: false,
             bare: true,
@@ -3819,7 +4138,7 @@ impl App {
             return;
         };
         match item {
-            BootItem::Documents => self.open_palette(),
+            BootItem::Vault => self.open_palette(),
             BootItem::Rule => {}
             BootItem::Inspiro => self.start_loading(Pending::Inspiro),
             BootItem::Program(index) => self.start_loading(Pending::Program(index)),
@@ -4077,8 +4396,15 @@ impl App {
         }
 
         match &event.logical_key {
-            Key::Named(NamedKey::Escape) => self.to_write(),
+            Key::Named(NamedKey::Escape) => {
+                if self.palette.pictures || !self.palette_up() {
+                    self.to_write();
+                }
+            }
             Key::Named(NamedKey::Enter) => self.palette_accept(),
+            Key::Named(NamedKey::ArrowLeft) if !self.palette.pictures => {
+                self.palette_up();
+            }
             Key::Named(NamedKey::ArrowUp) => {
                 self.palette.selected = self.palette.selected.saturating_sub(1);
                 self.poke();
@@ -4304,6 +4630,15 @@ impl ApplicationHandler for App {
             "palette" => self.open_palette(),
             "settings" => self.open_setup(),
             "webdav" => self.open_settings(),
+            "vault" => self.open_palette(),
+            "quit" => {
+                self.unsynced = true;
+                self.quit = Some(QuitPrompt {
+                    yes: true,
+                    from: Mode::Action,
+                });
+                self.mode = Mode::Quit;
+            }
             "help" => {
                 self.mode = Mode::Help;
             }
@@ -4383,7 +4718,17 @@ impl ApplicationHandler for App {
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => el.exit(),
+            WindowEvent::CloseRequested => {
+                // The window close button is a quit like any other: save what
+                // is unsaved, then give sync a chance to catch up.
+                if self.has_document && self.doc.editor.modified() {
+                    let _ = self.save();
+                }
+                let from = self.mode;
+                if !self.ask_quit(from) {
+                    el.exit();
+                }
+            }
             WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
             WindowEvent::Resized(size) => {
                 if let Some(renderer) = self.renderer.as_mut() {
@@ -4453,11 +4798,23 @@ impl ApplicationHandler for App {
     }
 
     fn exiting(&mut self, _el: &ActiveEventLoop) {
+        self.quit = None;
         // Never lose the last keystrokes on quit.
         if self.doc.editor.modified() {
             let _ = self.save();
         }
         self.discard_scratch();
+    }
+}
+
+/// Which program opens this file, if any. Folders are handled by the browser.
+fn file_action(path: &Path) -> Option<Action> {
+    let extension = path.extension()?.to_string_lossy().to_lowercase();
+    match extension.as_str() {
+        "md" | "txt" | "markdown" => Some(Action::Open(path.to_path_buf())),
+        "png" => Some(Action::OpenPicture(path.to_path_buf())),
+        "gb" | "gbc" => Some(Action::OpenRom(path.to_path_buf())),
+        _ => None,
     }
 }
 
@@ -4830,7 +5187,7 @@ mod tests {
         };
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "", "SOFTWARE", "DOCUMENTS", "SETTINGS"]
+            vec!["A: INSPIRO", "", "SOFTWARE", "THE VAULT", "SETTINGS"]
         );
 
         // Row 0 is Inspiro, the system: it refuses to go.
@@ -4855,7 +5212,7 @@ mod tests {
                 "B: SOFTHAND",
                 "",
                 "SOFTWARE",
-                "DOCUMENTS",
+                "THE VAULT",
                 "SETTINGS"
             ]
         );
@@ -4868,7 +5225,7 @@ mod tests {
         assert_eq!(app.prefs.installed.len(), 0);
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "", "SOFTWARE", "DOCUMENTS", "SETTINGS"]
+            vec!["A: INSPIRO", "", "SOFTWARE", "THE VAULT", "SETTINGS"]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4888,7 +5245,7 @@ mod tests {
                 "C: SOFTHAND",
                 "",
                 "SOFTWARE",
-                "DOCUMENTS",
+                "THE VAULT",
                 "SETTINGS"
             ]
         );
@@ -5030,8 +5387,143 @@ mod tests {
     }
 
     #[test]
+    fn the_vault_browser_walks_folders_and_opens_the_right_program() {
+        let dir = vault("vault-browser");
+        let mut app = app_in(&dir);
+        std::fs::create_dir_all(dir.join("Documents/kapitel")).unwrap();
+        std::fs::write(dir.join("Documents/kapitel/eins.md"), "hi").unwrap();
+        std::fs::create_dir_all(dir.join("Roms")).unwrap();
+        std::fs::write(dir.join("Roms/game.gb"), b"rom").unwrap();
+        std::fs::create_dir_all(dir.join("Pictures")).unwrap();
+        std::fs::write(dir.join("Pictures/a.png"), b"png").unwrap();
+
+        app.open_palette();
+        let names = app.palette.items();
+        assert!(names.contains(&"Documents/".to_string()), "{names:?}");
+        assert!(names.contains(&"Pictures/".to_string()), "{names:?}");
+        assert!(names.contains(&"Roms/".to_string()), "{names:?}");
+        assert_eq!(app.palette.title, "THE VAULT");
+
+        app.palette_enter(PathBuf::from("Roms"));
+        assert_eq!(app.palette.items(), vec!["..", "game.gb"]);
+        assert_eq!(app.palette.title, "THE VAULT /Roms");
+        app.palette.selected = 1;
+        match app.palette.current() {
+            Some(Action::OpenRom(path)) => assert!(path.ends_with("Roms/game.gb")),
+            _ => panic!("a cartridge should open Pocketboi"),
+        }
+
+        app.palette_enter(PathBuf::from("Documents"));
+        assert_eq!(app.palette.items(), vec!["..", "kapitel/"]);
+        app.palette_enter(PathBuf::from("Documents/kapitel"));
+        assert_eq!(app.palette.items(), vec!["..", "eins.md"]);
+
+        assert!(app.palette_up(), "up from a folder");
+        assert_eq!(app.palette.path, PathBuf::from("Documents"));
+        assert!(app.palette_up());
+        assert_eq!(app.palette.path, PathBuf::new());
+        assert!(!app.palette_up(), "the root is the top");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saveas_only_knows_documents() {
+        let dir = vault("saveas");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        assert!(
+            app.doc
+                .path
+                .as_ref()
+                .unwrap()
+                .starts_with(dir.join("Documents")),
+            "a new document is born in Documents/"
+        );
+
+        app.doc.editor.insert_text("kapitel eins");
+        app.save_as("kapitel/eins").unwrap();
+        assert!(dir.join("Documents/kapitel/eins.md").is_file());
+        assert!(!dir.join("kapitel/eins.md").exists(), "not in the root");
+
+        // Dots and absolute paths do not escape the folder.
+        app.save_as("../../ausbruch").unwrap();
+        assert!(dir.join("Documents/ausbruch.md").is_file());
+
+        // A bare name still finds a nested document.
+        let found = app.find_document("eins").unwrap();
+        assert_eq!(found, dir.join("Documents/kapitel/eins.md"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn loose_documents_move_in_when_the_vault_is_first_used() {
+        let dir = vault("migrate-app");
+        std::fs::write(dir.join("alt.md"), "von früher").unwrap();
+        let mut app = app_in(&dir);
+        app.prepare_vault();
+        assert!(dir.join("Documents/alt.md").is_file());
+        assert!(!dir.join("alt.md").exists());
+        assert!(app.unsynced, "a moved file has not reached the server");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quitting_asks_before_leaving_unsynced_work() {
+        let dir = vault("quit-prompt");
+        let mut app = app_in(&dir);
+        app.sync_cfg = SyncConfig {
+            url: "https://example.org/dav".into(),
+            enabled: true,
+            ..SyncConfig::default()
+        };
+        app.sync = Some(Worker::spawn(
+            dir.clone(),
+            app.sync_cfg.clone(),
+            Duration::from_secs(3600),
+        ));
+        assert!(!app.wants_sync_before_quitting(), "nothing written yet");
+
+        app.unsynced = true;
+        assert!(app.wants_sync_before_quitting());
+        assert!(app.ask_quit(Mode::Action));
+        assert_eq!(app.mode, Mode::Quit);
+        assert_eq!(
+            app.quit,
+            Some(QuitPrompt {
+                yes: true,
+                from: Mode::Action
+            })
+        );
+
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("SYNC TO SERVER?"), "{text}");
+        assert!(text.contains("Yes") && text.contains("No"), "{text}");
+
+        // Sync off means no question, ever.
+        app.sync_cfg.enabled = false;
+        app.mode = Mode::Action;
+        app.quit = None;
+        assert!(!app.ask_quit(Mode::Action));
+
+        // A failed last round keeps the app open and the data unsynced.
+        app.sync_cfg.url = "http://127.0.0.1:1".into();
+        app.sync_cfg.enabled = true;
+        assert!(app.sync_before_quit().is_err());
+        assert!(app.unsynced, "nothing reached the server");
+        assert!(app.sync.is_some(), "the worker is running again");
+
+        app.sync = None;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn open_on_the_front_door_shows_the_palette() {
-        let mut app = app();
+        let dir = vault("front-door-open");
+        let mut app = app_in(&dir);
         app.home = Home::Inspiro;
         app.mode = Mode::Action;
         app.compose();
@@ -5045,6 +5537,7 @@ mod tests {
         let text = rows_as_text(&app.screen);
         assert!(text.contains("+ new document"), "palette is on screen");
         assert!(text.contains("Enter open"), "with its hint");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
