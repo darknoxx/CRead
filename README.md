@@ -294,8 +294,10 @@ again, the music stops, and nothing else changes.
 
 It plays the XDG music folder (`~/Musik` or `~/Music`), not a folder of its own:
 `i` opens the browser, Enter walks into a folder, Enter on a track plays it, and
-`i` inside a folder inserts the whole album. Nothing is loaded automatically, so
-the list is what you chose. MP3, FLAC, OGG and WAV.
+`i` inside a folder inserts the whole album. `Esc` and `←` go back up — the
+browser never leaves the music folder, so a stray Backspace cannot land you in
+your home directory. Nothing is loaded automatically, so the list is what you
+chose. MP3, FLAC, OGG and WAV.
 
 ```
 R I F F                                    a Soundtrack for your life.

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.19.0
+
+- **One browser, two roots.** The vault browser and Riff's music folder were two
+  folder walkers with their own selection, scrolling and "one folder up". They
+  are one `Browser` now: the kind decides which files count and what Enter does
+  (open in a program, or load into the deck), the walking and filtering are
+  shared. Riff's list gains the same `..` row and folder markers as the vault.
+- **The music browser stays in the music folder.** `Backspace` at the root used
+  to walk up into the home directory; now the root is the end of the road, just
+  like the vault.
+
 ## 0.18.0
 
 Internal shape, no new behaviour: this is the first half of the cleanup the

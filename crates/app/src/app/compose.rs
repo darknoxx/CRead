@@ -55,22 +55,17 @@ impl App {
             return true;
         }
         if self.mode == Mode::RiffInsert {
-            if let Some(explorer) = self.riff.explorer.as_ref() {
-                let entries: Vec<(String, bool)> = explorer
+            if let Some(browser) = self.riff.explorer.as_ref() {
+                let entries: Vec<(String, bool)> = browser
                     .entries
                     .iter()
-                    .map(|entry| (entry.name.clone(), entry.folder))
+                    .map(|(name, action)| (name.clone(), browser::is_folder(action)))
                     .collect();
-                let rows_free = screen.rows().saturating_sub(6) as usize;
-                let top = explorer
-                    .selected
-                    .saturating_sub(rows_free.saturating_sub(1));
-                let dir = explorer.dir.display().to_string();
+                let dir = browser.dir().display().to_string();
                 let view = ui::ExplorerView {
                     dir: &dir,
                     entries: &entries,
-                    selected: explorer.selected,
-                    top,
+                    selected: browser.selected,
                 };
                 ui::draw_explorer(screen, &self.theme, &view);
             }

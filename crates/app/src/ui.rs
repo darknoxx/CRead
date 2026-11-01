@@ -647,8 +647,6 @@ pub struct ExplorerView<'a> {
     pub dir: &'a str,
     pub entries: &'a [(String, bool)],
     pub selected: usize,
-    /// First entry shown, for scrolling a long folder.
-    pub top: usize,
 }
 
 /// The music folder, one level at a time.
@@ -676,8 +674,12 @@ pub fn draw_explorer(screen: &mut Screen, theme: &Theme, view: &ExplorerView<'_>
 
     let first = 4;
     let last = rows.saturating_sub(2);
-    for (i, (name, folder)) in view.entries.iter().enumerate().skip(view.top) {
-        let y = first + (i - view.top) as u32;
+    // Scroll in the same step the other browser uses: the highlight is always
+    // visible, and the list only moves when it has to.
+    let visible = last.saturating_sub(first) as usize;
+    let top = view.selected.saturating_sub(visible.saturating_sub(1));
+    for (i, (name, folder)) in view.entries.iter().enumerate().skip(top) {
+        let y = first + (i - top) as u32;
         if y >= last {
             break;
         }
@@ -711,8 +713,8 @@ pub fn draw_explorer(screen: &mut Screen, theme: &Theme, view: &ExplorerView<'_>
 
     let bar = rows.saturating_sub(1);
     screen.fill_row(bar, Cell::blank(theme.status_fg, theme.status_bg));
-    screen.put_str(0, bar, " Enter open  ", theme.status_fg, theme.status_bg);
-    let right = "Enter play  i insert folder  Esc back ";
+    screen.put_str(0, bar, " Esc back ", theme.status_fg, theme.status_bg);
+    let right = "Enter open or play   i insert folder ";
     let x = cols.saturating_sub(right.chars().count() as u32);
     screen.put_str(x, bar, right, theme.status_fg, theme.status_bg);
 }

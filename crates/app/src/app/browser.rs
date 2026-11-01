@@ -1,10 +1,20 @@
-//! The vault browser: folders, documents, pictures and cartridges in one list.
+//! One file browser, two roots.
 //!
-//! The shell owns the layout (`Documents/`, `Pictures/`, `Roms/`) and the
-//! programs own their files, so the browser only decides which program gets
-//! which file and how a folder is walked.
+//! The vault (documents, pictures, cartridges) and the music folder are the
+//! same problem: a folder, a list, a selection, a way up. The kind decides
+//! which files count and what Enter does; the walking, filtering and scrolling
+//! are shared, so the two can never disagree about what "one folder up" means.
 
 use super::*;
+
+/// Which shelf a browser is walking.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum BrowserKind {
+    /// The vault: whatever a program here can open.
+    Vault,
+    /// The music folder: albums and playable files.
+    Music,
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) enum BrowserMode {
@@ -17,29 +27,121 @@ pub(super) enum BrowserMode {
         new: String,
     },
 }
+
 pub(super) struct Browser {
+    pub(super) kind: BrowserKind,
+    /// Absolute base. Navigation never leaves it.
+    pub(super) root: PathBuf,
+    /// Folder below the root that is shown; empty means the root itself.
+    pub(super) path: PathBuf,
     pub(super) input: String,
     pub(super) entries: Vec<(String, Action)>,
     pub(super) filtered: Vec<usize>,
     pub(super) selected: usize,
     pub(super) title: String,
     pub(super) mode: BrowserMode,
-    /// Pictures cannot be renamed or deleted from here, so the hint differs.
+    /// The PICTURES picker: pictures only, no rename or delete.
     pub(super) pictures: bool,
-    /// Folder below the vault root that is shown; empty means the root.
-    pub(super) path: PathBuf,
 }
+
 impl Browser {
-    pub(super) fn empty() -> Self {
+    /// The vault browser, with the three rooms and everything in them.
+    pub(super) fn vault(root: PathBuf) -> Self {
+        Self::new(BrowserKind::Vault, root)
+    }
+
+    /// The music browser, opened on the system's music folder.
+    pub(super) fn music(root: PathBuf) -> Self {
+        Self::new(BrowserKind::Music, root)
+    }
+
+    fn new(kind: BrowserKind, root: PathBuf) -> Self {
         Self {
+            kind,
+            root,
+            path: PathBuf::new(),
             input: String::new(),
             entries: Vec::new(),
             filtered: Vec::new(),
             selected: 0,
-            title: "THE VAULT".into(),
+            title: String::new(),
             mode: BrowserMode::Browse,
             pictures: false,
-            path: PathBuf::new(),
+        }
+    }
+
+    /// The absolute folder being shown.
+    pub(super) fn dir(&self) -> PathBuf {
+        self.root.join(&self.path)
+    }
+
+    /// Rebuild the rows for the current folder.
+    pub(super) fn refresh(&mut self) -> Result<(), String> {
+        let here = self.dir();
+        let at_root = self.path.as_os_str().is_empty();
+        let mut entries: Vec<(String, Action)> = Vec::new();
+        if at_root && self.kind == BrowserKind::Vault {
+            entries.push(("+ new document".to_string(), Action::NewFile));
+            entries.push(("+ sync now".to_string(), Action::SyncNow));
+        } else if !at_root {
+            entries.push(("..".to_string(), Action::Up));
+        }
+
+        match self.kind {
+            BrowserKind::Vault => self.list_vault(&here, &mut entries)?,
+            BrowserKind::Music => self.list_music(&here, &mut entries),
+        }
+
+        self.title = match self.kind {
+            BrowserKind::Vault if at_root => "THE VAULT".into(),
+            BrowserKind::Vault => format!("THE VAULT /{}", self.path.display()),
+            BrowserKind::Music => "RIFF \u{00b7} insert music".into(),
+        };
+        self.entries = entries;
+        self.refilter();
+        Ok(())
+    }
+
+    /// Folders first, then the files a program here can open. Nothing else is
+    /// listed: this is a shelf, not a file manager.
+    fn list_vault(&self, here: &Path, entries: &mut Vec<(String, Action)>) -> Result<(), String> {
+        let listing =
+            std::fs::read_dir(here).map_err(|e| format!("cannot list {}: {e}", here.display()))?;
+        let mut folders: Vec<(String, Action)> = Vec::new();
+        let mut files: Vec<(String, Action)> = Vec::new();
+        for entry in listing.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                let relative = self.path.join(&name);
+                folders.push((format!("{name}/"), Action::EnterDir(relative)));
+            } else if let Some(action) = file_action(&path) {
+                files.push((name, action));
+            }
+        }
+        folders.sort_by_key(|(name, _)| name.to_lowercase());
+        files.sort_by_key(|(name, _)| name.to_lowercase());
+        entries.extend(folders);
+        entries.extend(files);
+        Ok(())
+    }
+
+    /// `music::entries` already puts folders first and skips what cannot play.
+    fn list_music(&self, here: &Path, entries: &mut Vec<(String, Action)>) {
+        for entry in music::entries(here) {
+            if entry.folder {
+                let relative = entry
+                    .path
+                    .strip_prefix(&self.root)
+                    .unwrap_or(&entry.path)
+                    .to_path_buf();
+                entries.push((format!("{}/", entry.name), Action::EnterDir(relative)));
+            } else {
+                entries.push((entry.name, Action::PlayTrack(entry.path)));
+            }
         }
     }
 
@@ -68,6 +170,12 @@ impl Browser {
             .map(|i| &self.entries[*i].1)
     }
 }
+
+/// Whether a row is a folder (including the ".." row).
+pub(super) fn is_folder(action: &Action) -> bool {
+    matches!(action, Action::EnterDir(_) | Action::Up)
+}
+
 /// Which program opens this file, if any. Folders are handled by the browser.
 fn file_action(path: &Path) -> Option<Action> {
     let extension = path.extension()?.to_string_lossy().to_lowercase();
@@ -82,57 +190,17 @@ fn file_action(path: &Path) -> Option<Action> {
 impl App {
     pub(super) fn open_browser(&mut self) {
         self.prepare_vault();
-        self.browser = Browser::empty();
+        self.browser = Browser::vault(self.vault());
         self.refresh_browser();
         self.mode = Mode::Browser;
         self.dirty = true;
     }
 
-    /// Folders first, then the files a program here can open. Nothing else is
-    /// listed: this is a shelf, not a file manager.
+    /// Relist the folder the browser is looking at.
     pub(super) fn refresh_browser(&mut self) {
-        let here = self.vault().join(&self.browser.path);
-        let at_root = self.browser.path.as_os_str().is_empty();
-        let mut entries: Vec<(String, Action)> = Vec::new();
-        if at_root {
-            entries.push(("+ new document".to_string(), Action::NewFile));
-            entries.push(("+ sync now".to_string(), Action::SyncNow));
-        } else {
-            entries.push(("..".to_string(), Action::Up));
+        if let Err(e) = self.browser.refresh() {
+            self.set_status(e);
         }
-
-        let mut folders: Vec<(String, Action)> = Vec::new();
-        let mut files: Vec<(String, Action)> = Vec::new();
-        match std::fs::read_dir(&here) {
-            Ok(listing) => {
-                for entry in listing.flatten() {
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    if name.starts_with('.') {
-                        continue;
-                    }
-                    let path = entry.path();
-                    if path.is_dir() {
-                        let relative = self.browser.path.join(&name);
-                        folders.push((format!("{name}/"), Action::EnterDir(relative)));
-                    } else if let Some(action) = file_action(&path) {
-                        files.push((name, action));
-                    }
-                }
-            }
-            Err(e) => self.set_status(format!("cannot list {}: {e}", here.display())),
-        }
-        folders.sort_by_key(|(name, _)| name.to_lowercase());
-        files.sort_by_key(|(name, _)| name.to_lowercase());
-        entries.extend(folders);
-        entries.extend(files);
-
-        self.browser.title = if at_root {
-            "THE VAULT".into()
-        } else {
-            format!("THE VAULT /{}", self.browser.path.display())
-        };
-        self.browser.entries = entries;
-        self.browser.refilter();
     }
 
     /// Open a folder in the browser; the filter starts fresh.
@@ -144,7 +212,7 @@ impl App {
         self.poke();
     }
 
-    /// One folder up. False at the root, where Esc leaves the vault instead.
+    /// One folder up. False at the root, where Esc leaves instead.
     pub(super) fn browser_up(&mut self) -> bool {
         if self.browser.path.as_os_str().is_empty() {
             return false;
@@ -159,6 +227,17 @@ impl App {
         true
     }
 
+    /// Move the highlight inside the list, clamped at both ends.
+    pub(super) fn browser_move(&mut self, delta: isize) {
+        let len = self.browser.filtered.len();
+        if len == 0 {
+            return;
+        }
+        let next = self.browser.selected as isize + delta;
+        self.browser.selected = next.clamp(0, len as isize - 1) as usize;
+        self.poke();
+    }
+
     pub(super) fn browser_accept(&mut self) {
         let Some(action) = self.browser.current().cloned() else {
             return;
@@ -167,6 +246,21 @@ impl App {
             Action::Open(path) => self.start_loading(Pending::Document(path)),
             Action::OpenPicture(path) => self.start_loading(Pending::Picture(path)),
             Action::OpenRom(path) => self.start_loading(Pending::Rom(path)),
+            Action::PlayTrack(path) => {
+                let dir = path.parent().unwrap_or(&path).to_path_buf();
+                let index = music::tracks_in(&dir)
+                    .iter()
+                    .position(|track| track.path == path)
+                    .unwrap_or(0);
+                match self.riff_load(&dir, index) {
+                    Ok(message) => {
+                        self.close_explorer_into_player();
+                        self.set_status(message);
+                    }
+                    Err(e) => self.set_status(e),
+                }
+                return;
+            }
             Action::EnterDir(path) => {
                 self.browser_enter(path);
                 return;
@@ -291,25 +385,23 @@ impl App {
 
         let ctrl = self.mods.control_key() || self.mods.super_key();
         if ctrl && let PhysicalKey::Code(code) = event.physical_key {
-            {
-                match code {
-                    KeyCode::KeyD => {
-                        if let Some(path) = self.browser_target() {
-                            self.browser.mode = BrowserMode::ConfirmDelete(path);
-                            self.poke();
-                        }
-                        return;
+            match code {
+                KeyCode::KeyD => {
+                    if let Some(path) = self.browser_target() {
+                        self.browser.mode = BrowserMode::ConfirmDelete(path);
+                        self.poke();
                     }
-                    KeyCode::KeyR => {
-                        if let Some(old) = self.browser_target() {
-                            let new = self.doc_title_of(&old).trim_end_matches(".md").to_string();
-                            self.browser.mode = BrowserMode::Rename { old, new };
-                            self.poke();
-                        }
-                        return;
-                    }
-                    _ => {}
+                    return;
                 }
+                KeyCode::KeyR => {
+                    if let Some(old) = self.browser_target() {
+                        let new = self.doc_title_of(&old).trim_end_matches(".md").to_string();
+                        self.browser.mode = BrowserMode::Rename { old, new };
+                        self.poke();
+                    }
+                    return;
+                }
+                _ => {}
             }
         }
 
@@ -323,16 +415,8 @@ impl App {
             Key::Named(NamedKey::ArrowLeft) if !self.browser.pictures => {
                 self.browser_up();
             }
-            Key::Named(NamedKey::ArrowUp) => {
-                self.browser.selected = self.browser.selected.saturating_sub(1);
-                self.poke();
-            }
-            Key::Named(NamedKey::ArrowDown) => {
-                if self.browser.selected + 1 < self.browser.filtered.len() {
-                    self.browser.selected += 1;
-                }
-                self.poke();
-            }
+            Key::Named(NamedKey::ArrowUp) => self.browser_move(-1),
+            Key::Named(NamedKey::ArrowDown) => self.browser_move(1),
             Key::Named(NamedKey::Backspace) => {
                 self.browser.input.pop();
                 self.browser.refilter();

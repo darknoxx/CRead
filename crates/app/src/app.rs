@@ -136,6 +136,8 @@ enum Action {
     Open(PathBuf),
     OpenPicture(PathBuf),
     OpenRom(PathBuf),
+    /// A track in the music browser: load it into the deck.
+    PlayTrack(PathBuf),
     EnterDir(PathBuf),
     Up,
     NewFile,
@@ -159,7 +161,7 @@ struct RiffState {
     /// Folder or file the playlist was inserted from.
     source: String,
     /// The music folder browser, while it is open.
-    explorer: Option<Explorer>,
+    explorer: Option<Browser>,
     /// Last whole second drawn, so the counter does not redraw at 60 fps.
     second: u64,
 }
@@ -174,13 +176,6 @@ impl RiffState {
             second: 0,
         }
     }
-}
-
-/// The insert browser: one folder at a time, folders first.
-struct Explorer {
-    dir: PathBuf,
-    entries: Vec<music::Entry>,
-    selected: usize,
 }
 
 /// Which home screen the shell is showing when nothing is open.
@@ -433,6 +428,8 @@ impl App {
         let volume = prefs.volume;
         let (doc, has_document) = Self::initial_document(&opts);
         let sync_cfg = SyncConfig::load();
+        // The browser needs its root before the first frame, not when it opens.
+        let vault = opts.vault.clone().unwrap_or_else(storage::vault_dir);
         Self {
             opts,
             window: None,
@@ -501,7 +498,7 @@ impl App {
             } else {
                 Mode::Action
             },
-            browser: Browser::empty(),
+            browser: Browser::vault(vault),
             form: FormState::from_config(&sync_cfg),
             status: String::new(),
             status_at: Instant::now(),
@@ -1469,28 +1466,11 @@ impl App {
                 self.riff.explorer = None;
                 self.close_explorer_into_player();
             }
-            Key::Named(NamedKey::Enter) => {
-                if let Err(e) = self.explorer_enter() {
-                    self.set_status(e);
-                }
-            }
+            Key::Named(NamedKey::Enter) => self.explorer_enter(),
             Key::Named(NamedKey::ArrowUp) => self.explorer_move(-1),
             Key::Named(NamedKey::ArrowDown) => self.explorer_move(1),
             Key::Named(NamedKey::Backspace) | Key::Named(NamedKey::ArrowLeft) => {
-                let parent = self
-                    .riff
-                    .explorer
-                    .as_ref()
-                    .and_then(|explorer| explorer.dir.parent().map(|p| p.to_path_buf()));
-                if let Some(parent) = parent {
-                    let entries = music::entries(&parent);
-                    if let Some(explorer) = self.riff.explorer.as_mut() {
-                        explorer.dir = parent;
-                        explorer.entries = entries;
-                        explorer.selected = 0;
-                    }
-                    self.poke();
-                }
+                self.explorer_up();
             }
             Key::Character(text) if text.eq_ignore_ascii_case("i") => {
                 if let Err(e) = self.explorer_insert_folder() {
@@ -2104,7 +2084,7 @@ impl App {
 
     /// The picture picker: same list as the browser, other files.
     fn open_pictures(&mut self) {
-        self.browser = Browser::empty();
+        self.browser = Browser::vault(self.vault());
         self.browser.title = "PICTURES".into();
         self.browser.pictures = true;
         let base = picture::dir(&self.vault());
@@ -2360,67 +2340,68 @@ impl App {
     }
 
     fn open_explorer(&mut self) {
-        let dir = music::music_dir();
-        let entries = music::entries(&dir);
-        self.riff.explorer = Some(Explorer {
-            dir,
-            entries,
-            selected: 0,
-        });
+        let mut browser = Browser::music(music::music_dir());
+        if let Err(e) = browser.refresh() {
+            self.set_status(e);
+        }
+        self.riff.explorer = Some(browser);
         self.mode = Mode::RiffInsert;
         self.program_prompt = false;
         self.dirty = true;
     }
 
     fn explorer_move(&mut self, delta: isize) {
-        let Some(explorer) = self.riff.explorer.as_mut() else {
-            return;
-        };
-        let len = explorer.entries.len();
-        if len == 0 {
-            return;
-        }
-        let next = explorer.selected as isize + delta;
-        explorer.selected = next.clamp(0, len as isize - 1) as usize;
-        self.poke();
+        self.browser_move(delta);
     }
 
-    fn explorer_enter(&mut self) -> Result<(), String> {
-        let Some(explorer) = self.riff.explorer.as_ref() else {
-            return Ok(());
+    /// Enter in the music browser: the same accept the vault uses, on the
+    /// browser the explorer owns. It swaps into the shell's slot so there is
+    /// one implementation, then puts it back if the screen is still the list.
+    fn explorer_enter(&mut self) {
+        let Some(browser) = self.riff.explorer.take() else {
+            return;
         };
-        let Some(entry) = explorer.entries.get(explorer.selected).cloned() else {
-            return Ok(());
-        };
-        if entry.folder {
-            let entries = music::entries(&entry.path);
-            if let Some(explorer) = self.riff.explorer.as_mut() {
-                explorer.dir = entry.path;
-                explorer.entries = entries;
-                explorer.selected = 0;
-            }
-            self.poke();
-            return Ok(());
+        let vault_root = self.vault();
+        self.browser = browser;
+        self.browser_accept();
+        if self.mode == Mode::RiffInsert {
+            let browser = std::mem::replace(&mut self.browser, Browser::vault(vault_root));
+            self.riff.explorer = Some(browser);
+        } else {
+            // The track took over; do not leave the music shelf in the slot the
+            // vault browser expects.
+            self.browser = Browser::vault(vault_root);
         }
-        // A single track: the folder becomes the list, this track the entry.
-        let dir = entry.path.parent().unwrap_or(&entry.path).to_path_buf();
-        let index = music::tracks_in(&dir)
-            .iter()
-            .position(|track| track.path == entry.path)
-            .unwrap_or(0);
-        let message = self.riff_load(&dir, index)?;
-        self.close_explorer_into_player();
-        self.set_status(message);
-        Ok(())
+    }
+
+    fn explorer_up(&mut self) {
+        if let Some(browser) = self.riff.explorer.as_mut()
+            && browser.path.as_os_str().is_empty()
+        {
+            // At the music root: nowhere to go, and never into the home folder.
+            return;
+        }
+        if let Some(browser) = self.riff.explorer.as_mut() {
+            browser.path = browser
+                .path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
+            browser.selected = 0;
+            if let Err(e) = browser.refresh() {
+                self.set_status(e);
+            }
+        }
+        self.poke();
     }
 
     /// What `i` would insert: the highlighted folder if the cursor is on one,
     /// otherwise the folder being browsed.
     fn explorer_insert_target(&self) -> Option<PathBuf> {
-        let explorer = self.riff.explorer.as_ref()?;
-        Some(match explorer.entries.get(explorer.selected) {
-            Some(entry) if entry.folder => entry.path.clone(),
-            _ => explorer.dir.clone(),
+        let browser = self.riff.explorer.as_ref()?;
+        Some(match browser.current()? {
+            Action::EnterDir(relative) => browser.root.join(relative),
+            _ => browser.dir(),
         })
     }
 
@@ -3399,11 +3380,9 @@ mod tests {
         std::fs::write(music.join("loose.wav"), b"x").unwrap();
 
         let mut app = app_in(&dir);
-        app.riff.explorer = Some(Explorer {
-            dir: music.clone(),
-            entries: music::entries(&music),
-            selected: 0,
-        });
+        let mut browser = Browser::music(music.clone());
+        browser.refresh().unwrap();
+        app.riff.explorer = Some(browser);
         assert_eq!(
             app.explorer_insert_target(),
             Some(music.join("Album")),
@@ -3428,23 +3407,33 @@ mod tests {
         let mut app = app_in(&dir);
         app.home = Home::Riff;
         app.mode = Mode::Action;
-        let entries = music::entries(&music);
-        app.riff.explorer = Some(Explorer {
-            dir: music.clone(),
-            entries,
-            selected: 0,
-        });
+        let mut browser = Browser::music(music.clone());
+        browser.refresh().unwrap();
+        app.riff.explorer = Some(browser);
         app.mode = Mode::RiffInsert;
         assert_eq!(
             app.riff.explorer.as_ref().unwrap().entries.len(),
             2,
-            "album and one track"
+            "the album and one track, no '..' at the music root"
         );
-        assert!(app.riff.explorer.as_ref().unwrap().entries[0].folder);
+        assert!(browser::is_folder(
+            &app.riff.explorer.as_ref().unwrap().entries[0].1
+        ));
+        assert!(
+            matches!(
+                app.riff.explorer.as_ref().unwrap().entries[1].1,
+                Action::PlayTrack(_)
+            ),
+            "a playable file becomes a track, not an open action"
+        );
 
-        app.explorer_enter().unwrap();
-        assert!(app.riff.explorer.as_ref().unwrap().dir.ends_with("Album"));
-        assert_eq!(app.riff.explorer.as_ref().unwrap().entries.len(), 1);
+        app.explorer_enter();
+        assert!(app.riff.explorer.as_ref().unwrap().dir().ends_with("Album"));
+        assert_eq!(
+            app.riff.explorer.as_ref().unwrap().entries.len(),
+            2,
+            "'..' and the track inside"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
