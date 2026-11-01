@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.2
+
+- **The arrow keys work in Riff's insert list again.** When the vault and music
+  browsers were merged, the up/down handler kept pointing at the shell's browser
+  slot instead of the list on screen: the highlight moved an invisible browser
+  and the visible one stood still. Both now step their own list, and a test
+  keeps the two apart.
+
 ## 0.20.1
 
 - **A window stands on its own page.** The vault browser, the music list's

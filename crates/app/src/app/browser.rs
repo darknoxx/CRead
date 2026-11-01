@@ -169,6 +169,16 @@ impl Browser {
         }
     }
 
+    /// Move the highlight inside the filtered list, clamped at both ends.
+    pub(super) fn step(&mut self, delta: isize) {
+        let len = self.filtered.len();
+        if len == 0 {
+            return;
+        }
+        let next = self.selected as isize + delta;
+        self.selected = next.clamp(0, len as isize - 1) as usize;
+    }
+
     pub(super) fn refilter(&mut self) {
         let needle = self.input.to_lowercase();
         self.filtered = self
@@ -272,12 +282,7 @@ impl App {
 
     /// Move the highlight inside the list, clamped at both ends.
     pub(super) fn browser_move(&mut self, delta: isize) {
-        let len = self.browser.filtered.len();
-        if len == 0 {
-            return;
-        }
-        let next = self.browser.selected as isize + delta;
-        self.browser.selected = next.clamp(0, len as isize - 1) as usize;
+        self.browser.step(delta);
         self.poke();
     }
 

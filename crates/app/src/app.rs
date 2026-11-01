@@ -2331,7 +2331,11 @@ impl App {
     }
 
     fn explorer_move(&mut self, delta: isize) {
-        self.browser_move(delta);
+        let Some(browser) = self.riff.explorer.as_mut() else {
+            return;
+        };
+        browser.step(delta);
+        self.poke();
     }
 
     /// Enter in the music browser: the same accept the vault uses, on the
@@ -3417,6 +3421,43 @@ mod tests {
             2,
             "'..' and the track inside"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_arrow_keys_move_the_music_list_not_the_vault() {
+        let dir = vault("riff-move");
+        let music = dir.join("music");
+        std::fs::create_dir_all(music.join("Album")).unwrap();
+        std::fs::write(music.join("loose.wav"), b"x").unwrap();
+        std::fs::write(music.join("zeta.wav"), b"x").unwrap();
+
+        let mut app = app_in(&dir);
+        app.mode = Mode::RiffInsert;
+        let mut browser = Browser::music(music.clone());
+        browser.refresh().unwrap();
+        app.riff.explorer = Some(browser);
+
+        // The vault's slot is a different browser and must stay out of it.
+        app.browser.selected = 7;
+        app.explorer_move(1);
+        assert_eq!(app.riff.explorer.as_ref().unwrap().selected, 1);
+        assert_eq!(
+            app.browser.selected, 7,
+            "the music list has its own highlight"
+        );
+
+        app.explorer_move(1);
+        assert_eq!(app.riff.explorer.as_ref().unwrap().selected, 2);
+        app.explorer_move(1);
+        assert_eq!(
+            app.riff.explorer.as_ref().unwrap().selected,
+            2,
+            "clamped at the end"
+        );
+        app.explorer_move(-5);
+        assert_eq!(app.riff.explorer.as_ref().unwrap().selected, 0);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
