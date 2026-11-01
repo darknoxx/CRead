@@ -144,4 +144,13 @@ pub trait Program {
     fn redo(&mut self) -> bool {
         false
     }
+
+    /// Did this program write files of its own since it was opened?
+    ///
+    /// The shell asks on the way out, so a cartridge's battery save is not
+    /// silently left behind: the file appears when the program is dropped,
+    /// which is exactly when the shell stops being able to see it.
+    fn wrote_files(&self) -> bool {
+        false
+    }
 }

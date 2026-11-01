@@ -14,7 +14,7 @@ Rust, edition 2024, no async in the UI thread, no web view.
 
 ```bash
 cargo build                     # debug build, optimised deps (see Cargo.toml)
-cargo test                      # 160 tests, under a second
+cargo test                      # 206 tests, under a second
 cargo fmt --all                 # CI enforces --check
 cargo clippy --all-targets      # CI enforces -D warnings
 cargo run -p cread -- --demo -w # run without taking over the screen
@@ -27,12 +27,14 @@ Visual checks without a display, and the way every effect change is verified:
 
 ```bash
 cread --demo -w --size 1280x800 --screenshot /tmp/shot.png
-cread --show welcome|action|search|palette|settings|help --screenshot /tmp/shot.png
+cread --show welcome|action|search|vault|settings|help --screenshot /tmp/shot.png
 cread --demo --size 1280x800 --show action --command "sca" --screenshot /tmp/shot.png
 ```
 
 The last one prefills the prompt, which is the only way to screenshot a typed
-command state.
+command state. Dev views beyond the everyday ones: `webdav` (the sync form),
+`quit` (the exit question), `software`, `pictures`, `riffplay`, `riffinsert`,
+`pocketboi[:<rom>]`, `picture[:<png>]`.
 
 ## Layout
 
@@ -41,6 +43,7 @@ command state.
 | `crates/core` | buffer, cursor, wrap, undo, markdown spans, command parsing, themes, prefs, file IO | **no GPU, no window, no network** — this is what makes the tricky parts unit-testable |
 | `crates/render` | bitmap font, CPU compositor, wgpu pipeline, CRT shader | owns everything that touches the GPU |
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never on the UI thread |
+| `crates/sound` | which output device the machine opens, for game and music alike | a policy both the shell and a program need, so it belongs to neither |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
 

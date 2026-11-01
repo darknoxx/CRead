@@ -4,13 +4,14 @@ members = [
     "crates/core",
     "crates/render",
     "crates/sync",
+    "crates/sound",
     "crates/app",
     "crates/programs/softhand",
     "crates/programs/pocketboi",
 ]
 
 [workspace.package]
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.85"
@@ -19,6 +20,7 @@ rust-version = "1.85"
 cread-core = { path = "crates/core" }
 cread-render = { path = "crates/render" }
 cread-sync = { path = "crates/sync" }
+cread-sound = { path = "crates/sound" }
 cread-softhand = { path = "crates/programs/softhand" }
 cread-pocketboi = { path = "crates/programs/pocketboi" }
 

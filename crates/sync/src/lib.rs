@@ -4,7 +4,7 @@
 //! truth, and a genuine both-sides edit never overwrites anything silently. It
 //! keeps the conflicting remote copy next to the local one instead.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use reqwest_dav::list_cmd::{ListEntity, ListFile};
@@ -163,9 +163,17 @@ fn client(cfg: &Config) -> Result<Client, String> {
     } else {
         Auth::Basic(cfg.username.clone(), cfg.password())
     };
+    // A stuck server must not wedge the app: the worker joins its thread on
+    // quit, and the last round before quitting runs on the UI thread.
+    let agent = reqwest_dav::re_exports::reqwest::ClientBuilder::new()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("cannot create WebDAV agent: {e}"))?;
     ClientBuilder::new()
         .set_host(cfg.url.clone())
         .set_auth(auth)
+        .set_agent(agent)
         .build()
         .map_err(|e| format!("cannot create WebDAV client: {e}"))
 }
@@ -280,8 +288,13 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     let mut touched_remote = false;
 
     // Folders first, so an empty one still exists on the server and can be
-    // filled from the other side.
+    // filled from the other side. The listing already says which ones are
+    // there, so a quiet round costs no MKCOLs at all.
     for (name, _) in tree.iter().filter(|(name, _)| name.ends_with('/')) {
+        let relative = name.trim_end_matches('/');
+        if remote.dirs.contains(relative) {
+            continue;
+        }
         let Some(path) = remote_dir_for(&remote_dir, name) else {
             continue;
         };
@@ -294,7 +307,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
         };
         let local_hash = hash(&bytes);
         let entry = index.files.get(name).cloned();
-        let remote_version = remote.get(name).cloned();
+        let remote_version = remote.files.get(name).cloned();
 
         let local_changed = entry.as_ref().map(|e| e.hash != local_hash).unwrap_or(true);
         let remote_changed = match (&entry, &remote_version) {
@@ -368,7 +381,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     // Files that only exist on the server, from another device or an earlier
     // session. Unknown names are pulled down; names we knew about are left alone
     // because a missing local file means the user deleted it here.
-    for name in remote.keys() {
+    for name in remote.files.keys() {
         if index.files.contains_key(name) || local_exists(&tree, name) {
             continue;
         }
@@ -381,7 +394,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
             name.clone(),
             Entry {
                 hash: hash(&body),
-                version: remote.get(name).cloned().unwrap_or_default(),
+                version: remote.files.get(name).cloned().unwrap_or_default(),
             },
         );
         report.downloaded += 1;
@@ -392,7 +405,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
     if (touched_remote || report.downloaded > 0)
         && let Ok(fresh) = list_remote_tree(&client, &remote_dir, &base).await
     {
-        for (name, version) in fresh {
+        for (name, version) in fresh.files {
             if let Some(entry) = index.files.get_mut(&name) {
                 entry.version = version;
             }
@@ -429,13 +442,16 @@ async fn ensure_remote_dir(client: &Client, dir: &str) {
     }
 }
 
-/// Every file under the remote folder, keyed by its path relative to it.
-async fn list_remote_tree(
-    client: &Client,
-    remote_dir: &str,
-    base: &str,
-) -> Result<BTreeMap<String, String>, String> {
-    let mut out = BTreeMap::new();
+/// What the server already has: files by relative path, and folder paths.
+#[derive(Default)]
+struct Remote {
+    files: BTreeMap<String, String>,
+    dirs: BTreeSet<String>,
+}
+
+/// Every file and folder under the remote folder, keyed by relative path.
+async fn list_remote_tree(client: &Client, remote_dir: &str, base: &str) -> Result<Remote, String> {
+    let mut out = Remote::default();
     list_into(client, remote_dir, base, "", &mut out).await?;
     Ok(out)
 }
@@ -473,7 +489,7 @@ fn list_into<'a>(
     remote_dir: &'a str,
     base: &'a str,
     prefix: &'a str,
-    out: &'a mut BTreeMap<String, String>,
+    out: &'a mut Remote,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + 'a>> {
     Box::pin(async move {
         let listing = client
@@ -499,9 +515,10 @@ fn list_into<'a>(
             };
             match file {
                 Some(file) => {
-                    out.insert(relative, version_of(&file));
+                    out.files.insert(relative, version_of(&file));
                 }
                 None => {
+                    out.dirs.insert(relative.clone());
                     let child = format!("{remote_dir}/{}", encode_segment(&name));
                     list_into(client, &child, base, &relative, out).await?;
                 }
@@ -579,9 +596,26 @@ fn conflict_path(vault: &Path, name: &str) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-    let ext = name.rsplit_once('.').map(|(_, e)| e).unwrap_or("md");
-    vault.join(format!("{stem}.conflict-{stamp}.{ext}"))
+    // Only the file name decides stem and extension: a folder may contain a
+    // dot (`Documents/v1.2/notes`) and splitting the whole path would invent a
+    // folder called `v1.conflict-<stamp>.2`.
+    let path = Path::new(name);
+    let file = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.to_string());
+    let (stem, ext) = match file.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), ext.to_string()),
+        _ => (file, "md".to_string()),
+    };
+    let copy = format!("{stem}.conflict-{stamp}.{ext}");
+    match path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        Some(parent) => vault.join(parent).join(copy),
+        None => vault.join(copy),
+    }
 }
 
 #[cfg(test)]
@@ -617,6 +651,35 @@ mod tests {
             "folders keep a trailing slash, hidden entries are not ours"
         );
         let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn conflict_copies_stay_beside_the_file() {
+        let vault = Path::new("/vault");
+        let plain = conflict_path(vault, "notiz.md");
+        assert_eq!(plain.parent(), Some(vault));
+
+        let nested = conflict_path(vault, "Documents/kapitel/eins.md");
+        assert_eq!(nested.parent(), Some(Path::new("/vault/Documents/kapitel")));
+        assert!(
+            nested
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("eins.conflict-"),
+            "{nested:?}"
+        );
+
+        // A dot in a folder name is not an extension.
+        let dotted = conflict_path(vault, "Documents/v1.2/notes");
+        assert_eq!(dotted.parent(), Some(Path::new("/vault/Documents/v1.2")));
+        let leaf = dotted.file_name().unwrap().to_string_lossy();
+        assert!(leaf.starts_with("notes.conflict-"), "{leaf}");
+        assert!(leaf.ends_with(".md"), "{leaf}");
+
+        // A file with its own extension keeps it.
+        let rom = conflict_path(vault, "Roms/game.gb");
+        assert!(rom.to_string_lossy().ends_with(".gb"));
     }
 
     #[test]

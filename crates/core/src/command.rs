@@ -142,22 +142,22 @@ pub const SPECS: &[Spec] = &[
         name: "saveas",
         aliases: &["sa"],
         argument: "<name>",
-        summary: "save under a new name in the vault",
+        summary: "save under a new name in Documents/",
         scopes: &[Scope::Editor, Scope::Program],
     },
     Spec {
         name: "open",
         aliases: &["o", "e"],
         argument: "[name]",
-        summary: "open a document or picture (bare: list)",
-        scopes: &[Scope::Editor, Scope::Program],
+        summary: "the vault browser, or open a name directly",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "new",
         aliases: &["n"],
         argument: "",
         summary: "start a new document or picture",
-        scopes: &[Scope::Editor, Scope::Program],
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
         name: "rename",
@@ -666,6 +666,16 @@ mod tests {
         assert_eq!(parse("tool fill"), Ok(Command::Tool(Some("fill".into()))));
         assert_eq!(parse("brush"), Ok(Command::Size(None)));
         assert_eq!(parse("help all"), Ok(Command::Help(Some("all".into()))));
+    }
+
+    #[test]
+    fn the_boot_help_lists_the_two_ways_to_start() {
+        let names: Vec<&str> = specs_for(Scope::Boot).iter().map(|s| s.name).collect();
+        assert!(
+            names.contains(&"open"),
+            "the greeting says 'open': {names:?}"
+        );
+        assert!(names.contains(&"new"), "the greeting says 'new': {names:?}");
     }
 
     #[test]

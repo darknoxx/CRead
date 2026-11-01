@@ -81,8 +81,8 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
 ```
 
 The letters are the modules, handed out in the order you installed them: install
-Riff before Softhand and Riff becomes `B`. Below the rule sit the shelf and the
-vault, which are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
+Riff before Softhand and Riff becomes `B`. Below the rule sit the shelf, the
+vault and the settings, which are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
 **Softhand** (paint) and **Riff** (music) sit in the shelf until you switch them
 on there. Every module opens with a fake loading bar before its own front door
 appears.
@@ -170,7 +170,7 @@ SETTINGS                                     the machine, not the document
   │   THEME     colour scheme                          paper   │
   │   FONT      bitmap face                            classic │
   │   SCREEN    window or whole screen                 window  │
-  │   INFO      version and credits                   0.14.0  │
+  │   INFO      version and credits                   0.16.0  │
   │   SOFTWARE  install and remove modules                     │
   └──────────────────────────────────────────────────────────┘
 ```
@@ -183,7 +183,9 @@ reachable from any prompt opens the same screen.
 ## SOFTWARE
 
 CRead OS is the start screen: the logo, a greeting, the drives and a prompt. The
-vault is `A:`, the modules follow, and the last row opens the shelf:
+modules carry the letters (`A:` is Inspiro, the rest follow in install order),
+the rule separates them from the three rows that are not drives, and
+`SOFTWARE` opens the shelf:
 
 ```
 SOFTWARE                                  install and remove modules
@@ -475,6 +477,7 @@ rasterising on the CPU: it still works, it is just how the app is developed.
 crates/core      buffer, cursor, soft wrap, undo, markdown spans, file IO
 crates/render    emulated framebuffer, bitmap font, wgpu CRT pass
 crates/sync      WebDAV client, conflict policy, background worker
+crates/sound     which output device the machine opens
 crates/app       window, input, frame loop, UI composition
 crates/programs/ modules: one crate per program, compiled in
 assets/          bitmap faces, boot logo

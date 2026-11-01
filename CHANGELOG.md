@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.16.0
+
+- **`rename` cannot overwrite another document any more.** It used to call the
+  filesystem and let it replace whatever had that name; now a taken name is
+  refused, and a rename stays in the folder the document lives in — the same
+  rule the browser's `Ctrl+R` uses.
+- **A name that folds away is refused.** `saveas .` or `saveas ..` used to
+  produce `Documents.md` *next to* the folder; pictures had the same hole. Both
+  now say that a name is needed.
+- **Conflict copies stay beside their file.** A dot in a folder name
+  (`Documents/v1.2/notes`) made the old code split the whole path and invent a
+  folder called `v1.conflict-<unix>.2`.
+- **The exit question sees more.** `rename`, `delete` and a cartridge's battery
+  save count as unsynced now; the battery file is written before the last round,
+  not after it. `open` and `new` also show up in the boot screen's `help`.
+- **WebDAV gives up.** The client had no timeout, so a stuck server could hold
+  the worker's thread — and that thread is joined when CRead closes. Ten seconds
+  to connect, thirty for a round.
+- **Quiet sync rounds stay quiet.** Folders are only created when the server is
+  missing them, instead of `MKCOL` for every path segment every round.
+- The sound device policy moved into its own small crate (`crates/sound`): the
+  music deck no longer borrows it from the Pocketboi program. Autosave errors
+  now reach the status line (they used to be cleared in the same frame), the
+  vault tidy-up reports everything in one message, and stale docs/pictures
+  (`disk.png`) are gone.
+
 ## 0.15.0
 
 - **The vault has folders, and `THE VAULT` is a browser.** The third row of the

@@ -1584,7 +1584,7 @@ impl App {
             return;
         };
         if let Err(e) = self.save_to(&path) {
-            self.status = e;
+            self.set_status(e);
         }
     }
 
@@ -1758,7 +1758,7 @@ impl App {
 
     fn save_as(&mut self, name: &str) -> Result<String, String> {
         self.prepare_vault();
-        let path = self.document_path(name);
+        let path = self.document_path(name)?;
         self.save_to(&path)?;
         Ok(format!("saved as {}", self.doc.title()))
     }
@@ -1814,20 +1814,46 @@ impl App {
     /// Resolve a user-supplied name inside Documents, adding `.md` when needed.
     ///
     /// Subfolders are fine (`saveas kapitel/eins`), `..` and absolute paths are
-    /// not: a document has exactly one home.
-    fn document_path(&self, name: &str) -> PathBuf {
+    /// not: a document has exactly one home. A name that folds away to nothing
+    /// (`.`, `..`, an empty string) is refused instead of becoming
+    /// `<vault>/Documents.md`, a file next to the folder.
+    fn document_path(&self, name: &str) -> Result<PathBuf, String> {
         let mut relative = PathBuf::new();
         for part in Path::new(name).components() {
             if let std::path::Component::Normal(part) = part {
                 relative.push(part);
             }
         }
+        if relative.as_os_str().is_empty() {
+            return Err("a document needs a name".into());
+        }
         let path = self.documents().join(relative);
-        if path.extension().is_some() {
+        Ok(if path.extension().is_some() {
             path
         } else {
             path.with_extension("md")
+        })
+    }
+
+    /// The path `old` gets when renamed to `name`: same folder, same extension
+    /// when none was typed. One rule for the command and the browser.
+    fn rename_target(&self, old: &Path, name: &str) -> Result<PathBuf, String> {
+        let name = Path::new(name)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if name.is_empty() {
+            return Err("a name is needed".into());
         }
+        let parent = old
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| self.vault());
+        let mut target = parent.join(&name);
+        if target.extension().is_none() {
+            target.set_extension(old.extension().unwrap_or_else(|| "md".as_ref()));
+        }
+        Ok(target)
     }
 
     /// Find an existing document by name, with or without the extension.
@@ -1836,8 +1862,9 @@ impl App {
     /// `open kapitel` finds `Documents/kapitel/eins.md`. The vault root is the
     /// last resort, for a file the migration had to leave behind.
     fn find_document(&self, name: &str) -> Option<PathBuf> {
-        let named = self.document_path(name);
-        if named.is_file() {
+        if let Ok(named) = self.document_path(name)
+            && named.is_file()
+        {
             return Some(named);
         }
         let wanted = Path::new(name)
@@ -1863,11 +1890,14 @@ impl App {
         if let Some(path) = matches.into_iter().next() {
             return Some(path);
         }
-        let legacy = self.vault().join(name);
+        // The vault root is the last resort, for a file the migration had to
+        // leave behind - and only by its bare name, never by a path.
+        let leaf = Path::new(name).file_name()?;
+        let legacy = self.vault().join(leaf);
         if legacy.is_file() {
             return Some(legacy);
         }
-        let legacy_md = self.vault().join(format!("{name}.md"));
+        let legacy_md = legacy.with_extension("md");
         legacy_md.is_file().then_some(legacy_md)
     }
 
@@ -1887,10 +1917,14 @@ impl App {
     }
 
     fn rename_current(&mut self, name: &str) -> Result<String, String> {
-        let target = self.document_path(name);
         match self.doc.path.clone().filter(|p| p.is_file()) {
             Some(old) => {
+                let target = self.rename_target(&old, name)?;
+                if target != old && target.exists() {
+                    return Err(format!("{} already exists", self.doc_title_of(&target)));
+                }
                 std::fs::rename(&old, &target).map_err(|e| format!("rename failed: {e}"))?;
+                self.unsynced = true;
                 // A name of its own means it is no longer a placeholder.
                 self.scratch = None;
                 self.doc.path = Some(target.clone());
@@ -1907,6 +1941,7 @@ impl App {
             return Err("nothing to delete".into());
         };
         std::fs::remove_file(&path).map_err(|e| format!("delete failed: {e}"))?;
+        self.unsynced = true;
         if self.scratch.as_deref() == Some(path.as_path()) {
             self.scratch = None;
         }
@@ -2043,24 +2078,14 @@ impl App {
     }
 
     fn palette_rename(&mut self, old: PathBuf, new: &str) {
-        let new = new.trim();
-        let name = Path::new(new)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if name.is_empty() {
-            self.set_status("name cannot be empty");
-            return;
-        }
-        let parent = old
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| self.vault());
-        let mut target = parent.join(&name);
-        if target.extension().is_none() {
-            target.set_extension(old.extension().unwrap_or_else(|| "md".as_ref()));
-        }
-        if target.exists() {
+        let target = match self.rename_target(&old, new.trim()) {
+            Ok(target) => target,
+            Err(e) => {
+                self.set_status(e);
+                return;
+            }
+        };
+        if target != old && target.exists() {
             self.set_status(format!("{} already exists", self.doc_title_of(&target)));
             return;
         }
@@ -2672,7 +2697,7 @@ impl App {
             }
             Command::Open(Some(name)) => {
                 if self.in_softhand() {
-                    let path = picture::resolve(&self.vault(), &name);
+                    let path = picture::resolve(&self.vault(), &name)?;
                     if !path.is_file() {
                         return Err(format!("no such picture: {name}"));
                     }
@@ -2849,9 +2874,18 @@ impl App {
                     self.save()?;
                 }
                 // A program with its own levels closes one of them first.
-                if let Some(program) = self.program.as_mut()
-                    && program.exit()
-                {
+                let mut closed = false;
+                let mut wrote = false;
+                if let Some(program) = self.program.as_mut() {
+                    closed = program.exit();
+                    if closed {
+                        wrote = program.wrote_files();
+                    }
+                }
+                if closed {
+                    if wrote {
+                        self.unsynced = true;
+                    }
                     self.dirty = true;
                     return Ok(String::new());
                 }
@@ -3304,7 +3338,7 @@ impl App {
 
     /// Drop everything and stand on the boot screen again.
     fn leave_to_boot(&mut self) {
-        self.program = None;
+        self.close_program();
         self.picture_path = None;
         self.program_prompt = false;
         self.program_point = (-1, -1);
@@ -3321,6 +3355,19 @@ impl App {
         self.command.clear();
         self.command_error.clear();
         self.dirty = true;
+    }
+
+    /// Drop the open program. Dropping is also when a cartridge writes its
+    /// battery save, so the shell marks the vault as changed first.
+    fn close_program(&mut self) {
+        if self
+            .program
+            .as_ref()
+            .is_some_and(|program| program.wrote_files())
+        {
+            self.unsynced = true;
+        }
+        self.program = None;
     }
 
     /// A fresh canvas on an empty sheet.
@@ -3353,7 +3400,7 @@ impl App {
     fn save_picture(&mut self, name: Option<&str>) -> Result<String, String> {
         let vault = self.vault();
         let path = match name {
-            Some(name) => picture::resolve(&vault, name),
+            Some(name) => picture::resolve(&vault, name)?,
             None => match self.picture_path.clone() {
                 Some(path) => path,
                 None => picture::free_name(&vault),
@@ -3936,6 +3983,9 @@ impl App {
             el.exit();
             return;
         }
+        // A cartridge writes its battery when the program is dropped; do that
+        // before the last round, or the file would appear after it.
+        self.close_program();
         match self.sync_before_quit() {
             Ok(()) => el.exit(),
             Err(_) => self.dirty = true,
@@ -5467,6 +5517,85 @@ mod tests {
         assert!(!dir.join("alt.md").exists());
         assert!(app.unsynced, "a moved file has not reached the server");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_name_that_folds_away_is_refused_not_redirected() {
+        let dir = vault("fold-name");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        app.doc.editor.insert_text("x");
+        for bad in [".", "..", "../.."] {
+            assert!(app.save_as(bad).is_err(), "{bad:?} must not name a file");
+        }
+        assert!(
+            !dir.join("Documents.md").exists(),
+            "no document next to the folder"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_refuses_to_overwrite_and_stays_in_its_folder() {
+        let dir = vault("rename-guard");
+        let mut app = app_in(&dir);
+        std::fs::create_dir_all(dir.join("Documents/kapitel")).unwrap();
+        std::fs::write(dir.join("Documents/kapitel/eins.md"), "eins").unwrap();
+        std::fs::write(dir.join("Documents/kapitel/belegt.md"), "belegt").unwrap();
+        app.open_document(dir.join("Documents/kapitel/eins.md"))
+            .unwrap();
+
+        let err = app.rename_current("belegt").unwrap_err();
+        assert!(err.contains("already exists"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("Documents/kapitel/belegt.md")).unwrap(),
+            "belegt",
+            "the other document is untouched"
+        );
+        assert!(dir.join("Documents/kapitel/eins.md").is_file());
+
+        app.rename_current("zwei").unwrap();
+        assert!(
+            dir.join("Documents/kapitel/zwei.md").is_file(),
+            "a rename stays in its folder"
+        );
+        assert!(!dir.join("Documents/zwei.md").exists());
+        assert!(app.unsynced, "a rename is a local change");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deleting_a_document_counts_as_a_change() {
+        let dir = vault("delete-counts");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        app.doc.editor.insert_text("weg damit");
+        app.save().unwrap();
+        app.unsynced = false;
+        app.delete_current().unwrap();
+        assert!(app.unsynced, "the server still has the file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_bare_name_never_escapes_the_vault_root() {
+        let dir = vault("find-escape");
+        let app = app_in(&dir);
+        let outside = dir
+            .parent()
+            .unwrap()
+            .join(format!("cread-aussen-{}.md", std::process::id()));
+        std::fs::write(&outside, "geheim").unwrap();
+
+        for name in ["../cread-aussen", "../../cread-aussen"] {
+            assert!(
+                app.find_document(name).is_none(),
+                "{name:?} must not reach outside the vault"
+            );
+        }
+        let _ = std::fs::remove_file(&outside);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

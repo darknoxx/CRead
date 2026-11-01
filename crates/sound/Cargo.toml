@@ -1,0 +1,7 @@
+[package]
+name = "cread-sound"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rodio = "0.21"

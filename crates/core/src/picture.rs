@@ -44,20 +44,24 @@ pub fn free_name(vault: &Path) -> PathBuf {
 /// Resolve a user-supplied picture name, adding `.png`.
 ///
 /// Pictures always land in `Pictures/`, subfolders allowed, `..` not: a
-/// painting is never saved somewhere else in the vault.
-pub fn resolve(vault: &Path, name: &str) -> PathBuf {
+/// painting is never saved somewhere else in the vault. A name that folds away
+/// to nothing (`""`, `.`, `..`) is an error, not a file next to the folder.
+pub fn resolve(vault: &Path, name: &str) -> Result<PathBuf, String> {
     let mut relative = PathBuf::new();
     for part in Path::new(name).components() {
         if let std::path::Component::Normal(part) = part {
             relative.push(part);
         }
     }
+    if relative.as_os_str().is_empty() {
+        return Err("a picture needs a name".into());
+    }
     let path = dir(vault).join(relative);
-    if path.extension().is_some() {
+    Ok(if path.extension().is_some() {
         path
     } else {
         path.with_extension("png")
-    }
+    })
 }
 
 /// Write a surface as a 16-colour PNG.
@@ -184,11 +188,11 @@ mod tests {
     fn a_bare_name_gets_the_pictures_folder_and_an_extension() {
         let vault = Path::new("/tmp/vault");
         assert_eq!(
-            resolve(vault, "doodle"),
+            resolve(vault, "doodle").unwrap(),
             Path::new("/tmp/vault/Pictures/doodle.png")
         );
         assert_eq!(
-            resolve(vault, "doodle.png"),
+            resolve(vault, "doodle.png").unwrap(),
             Path::new("/tmp/vault/Pictures/doodle.png")
         );
     }
@@ -197,20 +201,26 @@ mod tests {
     fn a_picture_cannot_escape_its_folder() {
         let vault = Path::new("/tmp/vault");
         assert_eq!(
-            resolve(vault, "../../etc/passwd"),
+            resolve(vault, "../../etc/passwd").unwrap(),
             Path::new("/tmp/vault/Pictures/etc/passwd.png"),
             "dots are dropped, not followed"
         );
         assert_eq!(
-            resolve(vault, "/tmp/elsewhere/x.png"),
+            resolve(vault, "/tmp/elsewhere/x.png").unwrap(),
             Path::new("/tmp/vault/Pictures/tmp/elsewhere/x.png"),
             "an absolute name is re-rooted inside Pictures"
         );
         assert_eq!(
-            resolve(vault, "sketch/blue"),
+            resolve(vault, "sketch/blue").unwrap(),
             Path::new("/tmp/vault/Pictures/sketch/blue.png"),
             "subfolders are fine"
         );
+        for empty in ["", ".", "..", "../.."] {
+            assert!(
+                resolve(vault, empty).is_err(),
+                "{empty:?} must not become a file next to the folder"
+            );
+        }
     }
 
     #[test]

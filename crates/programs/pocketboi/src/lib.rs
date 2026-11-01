@@ -14,9 +14,10 @@ use std::time::Duration;
 
 use cread_core::program::{KeyPress, Outcome, PointerEvent, Program};
 use cread_core::{Cell, Raster, Screen};
+use cread_sound::open_output;
 use gilrs::{Axis, Button, EventType, Gilrs};
 use mizu_core::{GameBoy, JoypadButton};
-use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
+use rodio::{OutputStream, Sink, Source};
 
 /// What Mizu's APU actually emits.
 ///
@@ -438,41 +439,6 @@ struct Sound {
 /// enough that a button press is heard when it happens.
 const TARGET_SECONDS: f32 = 0.040;
 
-/// Open the output the way a desktop expects it.
-///
-/// Not `open_default_stream`: that one falls back to the first *hardware*
-/// device it can find when the default refuses to open, which is how a game
-/// ends up on the speakers while the system is set to headphones. The sound
-/// server's own PCM (`pipewire`, `pulse`) is the one that follows the system
-/// default and moves a stream when you switch output, so it is asked for by
-/// name; plain `default` is the next choice, hardware never.
-pub fn open_output() -> Option<OutputStream> {
-    use rodio::cpal::traits::{DeviceTrait, HostTrait};
-    use rodio::{Device, cpal};
-    let host = cpal::default_host();
-    let mut fallback: Option<Device> = None;
-    if let Ok(devices) = host.output_devices() {
-        for device in devices {
-            let Ok(name) = device.name() else { continue };
-            match name.to_ascii_lowercase().as_str() {
-                "pipewire" | "pulse" => {
-                    return OutputStreamBuilder::from_device(device)
-                        .ok()?
-                        .open_stream_or_fallback()
-                        .ok();
-                }
-                "default" if fallback.is_none() => fallback = Some(device),
-                _ => {}
-            }
-        }
-    }
-    let device = fallback.or_else(|| host.default_output_device())?;
-    OutputStreamBuilder::from_device(device)
-        .ok()?
-        .open_stream_or_fallback()
-        .ok()
-}
-
 impl Sound {
     fn open() -> Option<Self> {
         let stream = open_output()?;
@@ -563,12 +529,14 @@ pub struct Pocketboi {
     ink: u8,
     /// Which of [`PALETTES`] the picture is painted in.
     palette: usize,
+    /// A cartridge was played, so leaving may write its battery save.
+    wrote: bool,
 }
 
 impl Pocketboi {
     /// Opens on the cartridge shelf inside the vault.
     pub fn new(vault: &Path) -> Self {
-        let dir = vault.join("Roms");
+        let dir = cread_core::storage::roms_in(vault);
         // Make the shelf visible instead of leaving the user to guess the path.
         let _ = std::fs::create_dir_all(&dir);
         let mut boi = Self {
@@ -578,6 +546,7 @@ impl Pocketboi {
             muted: false,
             pad: None,
             pad_failed: false,
+            wrote: false,
             paper: 0,
             ink: 15,
             palette: 0,
@@ -593,6 +562,9 @@ impl Pocketboi {
         self.game = None;
         let machine = Machine::start(path, self.muted)?;
         self.game = Some(machine);
+        // Mizu writes the cartridge's SRAM when the machine is dropped; the
+        // shell has to know that a file is coming.
+        self.wrote = true;
         Ok(())
     }
 
@@ -833,6 +805,10 @@ impl Program for Pocketboi {
         }
     }
 
+    fn wrote_files(&self) -> bool {
+        self.wrote
+    }
+
     fn exit(&mut self) -> bool {
         // Back to the shelf first; the shell only gets the screen once the
         // cartridge is out.
@@ -942,7 +918,7 @@ mod tests {
     #[test]
     fn the_shelf_lists_folders_then_cartridges_and_ignores_the_rest() {
         let vault = temp("shelf");
-        let roms = vault.join("Roms");
+        let roms = cread_core::storage::roms_in(&vault);
         std::fs::create_dir_all(roms.join("Homebrew")).unwrap();
         for name in ["Tetris.gb", "Pokemon.GBC", "notes.txt", "cover.png"] {
             std::fs::write(roms.join(name), b"x").unwrap();
@@ -967,7 +943,7 @@ mod tests {
     #[test]
     fn the_arrow_keys_walk_the_shelf_and_backspace_goes_up() {
         let vault = temp("walk");
-        let roms = vault.join("Roms");
+        let roms = cread_core::storage::roms_in(&vault);
         std::fs::create_dir_all(roms.join("Homebrew")).unwrap();
         std::fs::write(roms.join("a.gb"), b"x").unwrap();
         let mut boi = Pocketboi::new(&vault);
@@ -1105,7 +1081,7 @@ mod tests {
     #[test]
     fn exit_steps_back_to_the_shelf_before_it_leaves_the_module() {
         let vault = temp("exit");
-        let roms = vault.join("Roms");
+        let roms = cread_core::storage::roms_in(&vault);
         std::fs::create_dir_all(&roms).unwrap();
         std::fs::copy("/tmp/opencode/test.gb", roms.join("test.gb")).ok();
         let mut boi = Pocketboi::new(&vault);

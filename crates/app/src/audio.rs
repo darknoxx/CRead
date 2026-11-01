@@ -24,7 +24,7 @@ pub struct Audio {
 impl Audio {
     /// Open the default output. Fails cleanly when the machine has no sound.
     pub fn open(volume: u8) -> Result<Self, String> {
-        let stream = cread_pocketboi::open_output().ok_or_else(|| "no sound device".to_string())?;
+        let stream = cread_sound::open_output().ok_or_else(|| "no sound device".to_string())?;
         let audio = Self {
             sink: Sink::connect_new(stream.mixer()),
             stream,
