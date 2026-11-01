@@ -24,6 +24,7 @@ shell. Type a command, press `Enter`, and you are back in the text.
 - `rename <name>` and `delete` tidy up the vault.
 - `sync` pushes everything to WebDAV.
 - `exit` goes back to the boot screen, `exit!` quits from anywhere.
+- `shutdown` saves and powers the machine off, after asking once.
 - `manual` opens the user manual, also found in `SETTINGS`.
 - `help` lists the rest, including the screen effects.
 

@@ -106,12 +106,20 @@ impl Index {
             .unwrap_or_default()
     }
 
-    fn save(&self, vault: &Path) -> std::io::Result<()> {
+    /// Write the index, but only when it actually changed. A sync round runs
+    /// every minute; on an SD card the difference between a few hundred bytes
+    /// a minute and nothing at all is worth the comparison.
+    fn save(&self, vault: &Path) -> std::io::Result<bool> {
         let dir = vault.join(".cread-sync");
         std::fs::create_dir_all(&dir)?;
         let text =
             serde_json::to_string_pretty(self).map_err(|e| std::io::Error::other(e.to_string()))?;
-        std::fs::write(dir.join("index.json"), text)
+        let path = dir.join("index.json");
+        if std::fs::read_to_string(&path).ok().as_deref() == Some(text.as_str()) {
+            return Ok(false);
+        }
+        storage::save_bytes_atomic(&path, text.as_bytes())?;
+        Ok(true)
     }
 }
 
@@ -709,6 +717,29 @@ fn conflict_path(vault: &Path, name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unchanged_index_is_not_rewritten() {
+        let vault = std::env::temp_dir().join(format!("cread-index-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vault);
+        std::fs::create_dir_all(&vault).unwrap();
+
+        let mut index = Index::default();
+        assert!(index.save(&vault).unwrap(), "the first save writes");
+        assert!(!index.save(&vault).unwrap(), "an identical save is a no-op");
+
+        index.files.insert(
+            "letter.md".into(),
+            Entry {
+                hash: "abc".into(),
+                version: "1".into(),
+                draft: false,
+            },
+        );
+        assert!(index.save(&vault).unwrap(), "a changed index writes");
+
+        let _ = std::fs::remove_dir_all(&vault);
+    }
 
     #[test]
     fn the_draft_marker_says_which_file_is_unnamed() {

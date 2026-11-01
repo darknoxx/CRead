@@ -146,6 +146,15 @@ impl App {
         }
         self.close_program();
 
+        // A kiosk is a whole session, not just this process: cage ends with
+        // us, so spawning a new CRead would leave it without a compositor.
+        // Exiting lets systemd start cage and the new binary together.
+        if self.opts.kiosk {
+            self.set_status(format!("updated to {version} - restarting"));
+            el.exit();
+            return;
+        }
+
         let Some(exe) = self.restart_target() else {
             self.set_status(format!("updated to {version}, but cannot find the binary"));
             self.mode = Mode::Setup;

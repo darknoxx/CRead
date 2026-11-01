@@ -26,7 +26,8 @@ OPTIONS:
         --boot              Replay the CRT warm-up (use with --screenshot)
         --music             Start the remembered music at launch
         --sync-once         Run one WebDAV sync round, print the result, exit
-        --update-once      Check github, install a newer release, print the result, exit
+        --update-once       Check github, install a newer release, print the result, exit
+        --kiosk             Hand the update restart to the service manager
         --show VIEW         Start in a view: editor | welcome | action | search |
                             view | inspiro | softhand | riff | picture |
                             software | palette | settings | help
@@ -54,6 +55,9 @@ pub struct Options {
     pub demo: bool,
     pub sync_once: bool,
     pub update_once: bool,
+    /// Running as a kiosk: an update ends the process instead of spawning a
+    /// new one; the service manager owns the restart.
+    pub kiosk: bool,
     pub show: String,
     pub screenshot_delay: u64,
     /// Replay the CRT warm-up, even when screenshotting.
@@ -79,6 +83,7 @@ impl Default for Options {
             demo: false,
             sync_once: false,
             update_once: false,
+            kiosk: false,
             show: String::from("editor"),
             screenshot_delay: 0,
             boot: false,
@@ -149,6 +154,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             "--music" => opts.music = true,
             "--sync-once" => opts.sync_once = true,
             "--update-once" => opts.update_once = true,
+            "--kiosk" => opts.kiosk = true,
             "--screenshot-delay" => {
                 let v = args.next().ok_or("--screenshot-delay needs a value")?;
                 opts.screenshot_delay = v.parse().map_err(|_| format!("bad delay: {v}"))?;
@@ -185,6 +191,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "updatecheck",
                     "updateprompt",
                     "quit",
+                    "shutdown",
                     "help",
                     "manual",
                     "notice",
@@ -244,6 +251,12 @@ mod tests {
         assert_eq!(o.theme, None, "theme comes from preferences by default");
         assert!(o.crt.scanline > 0.0);
         assert!(o.file.is_none());
+    }
+
+    #[test]
+    fn kiosk_is_opt_in() {
+        assert!(!run(&[]).kiosk);
+        assert!(run(&["--kiosk"]).kiosk);
     }
 
     #[test]

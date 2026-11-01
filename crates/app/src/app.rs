@@ -8,6 +8,7 @@ mod boot;
 mod browser;
 mod commands;
 mod compose;
+mod shutdown;
 mod sync;
 mod update;
 mod webdav;
@@ -15,6 +16,7 @@ mod webdav;
 use browser::{Browser, BrowserKind, BrowserMode};
 use webdav::FormState;
 
+use shutdown::ShutdownPrompt;
 use sync::QuitPrompt;
 
 use cread_core::{
@@ -256,6 +258,8 @@ enum Mode {
     UpdatePrompt,
     /// "Sync to server?" on the way out.
     Quit,
+    /// "Save and power off?" before the machine goes down.
+    Shutdown,
     /// The user manual: read-only Markdown with a scrollbar.
     Manual,
     /// A small box confirming one thing, e.g. the sync switch.
@@ -358,6 +362,8 @@ struct App {
     unsynced: bool,
     /// The "sync before quitting?" dialog while it is open.
     quit: Option<QuitPrompt>,
+    /// The "save and power off?" dialog while it is open.
+    shutdown: Option<ShutdownPrompt>,
 
     boot_selected: usize,
 
@@ -551,6 +557,7 @@ impl App {
             vault_ready: false,
             unsynced: false,
             quit: None,
+            shutdown: None,
 
             boot_selected: 0,
 
@@ -1319,6 +1326,7 @@ impl App {
             Mode::Software => self.on_key_software(event),
             Mode::Setup => self.on_key_setup(event),
             Mode::Quit => self.on_key_quit(el, event),
+            Mode::Shutdown => self.on_key_shutdown(el, event),
             Mode::Checking => self.on_key_checking(event),
             Mode::UpdatePrompt => self.on_key_update_prompt(event),
             Mode::Manual => self.on_key_manual(event),
@@ -3513,6 +3521,9 @@ impl ApplicationHandler for App {
                 self.mode = Mode::UpdatePrompt;
             }
             "documents" => self.open_documents(),
+            "shutdown" => {
+                let _ = self.cmd_shutdown();
+            }
             "quit" => {
                 self.unsynced = true;
                 self.quit = Some(QuitPrompt {
@@ -4717,6 +4728,26 @@ mod tests {
         app.compose();
         app.start_screensaver();
         app.compose();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn shutdown_asks_first_and_can_be_cancelled() {
+        let dir = vault("shutdown");
+        let mut app = app_in(&dir);
+        app.mode = Mode::Action;
+
+        app.cmd_shutdown().unwrap();
+        assert_eq!(app.mode, Mode::Shutdown);
+        assert_eq!(app.shutdown.map(|prompt| prompt.yes), Some(false));
+
+        app.compose();
+        assert!(rows_as_text(&app.screen).contains("POWER OFF"));
+
+        app.cancel_shutdown();
+        assert_eq!(app.mode, Mode::Action);
+        assert!(app.shutdown.is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

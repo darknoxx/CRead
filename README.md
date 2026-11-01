@@ -36,15 +36,16 @@ cargo build --release
 
 ## Download a build
 
-Every push to `main` builds a ready-to-run Linux binary in CI:
+Every push to `main` builds ready-to-run Linux binaries in CI, for x86_64 and
+for the Raspberry Pi's aarch64:
 
 1. Open the **Actions** tab and pick the newest *Release build* run.
-2. Download the `cread-linux-x86_64` artifact.
-3. `tar xzf cread-linux-x86_64.tar.gz && ./cread`
+2. Download the `cread-linux-x86_64` or `cread-linux-aarch64` artifact.
+3. `tar xzf cread-linux-x86_64.tar.gz && ./cread` (use the `aarch64` name on a Pi)
 
 Modules are compiled in; `software` in the boot screen's prompt switches them on.
 
-Tagged releases also publish the tarball on the
+Tagged releases also publish both tarballs on the
 [Releases](https://github.com/darknoxx/CRead/releases) page, which is the
 easiest way to get a build without a Rust toolchain. The Linux binary is made
 against glibc 2.35 and only needs symbols up to `GLIBC_2.34`, so it runs on
@@ -147,6 +148,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | `help` | `?`, `h` | the list above, on screen |
 | `about` | | version and credits |
 | `exit!` | `quit`, `q`, `x` | save and exit from anywhere |
+| `shutdown` | `poweroff` | save and power off the machine |
 
 Saving is yours to do: nothing is written until you run `save`. If you would
 rather not think about it, `autosave on` writes 1.5 seconds after you stop
@@ -186,8 +188,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         version and credits                  0.25.2 │
-  │   UPDATE       check github for a new version       0.25.2 │
+  │   INFO         version and credits                  0.26.0 │
+  │   UPDATE       check github for a new version       0.26.0 │
   │   SOFTWARE     install and remove modules                  │
   │   USER MANUAL  read the manual                             │
   └────────────────────────────────────────────────────────────┘
@@ -496,6 +498,7 @@ public half, and you can check a download yourself:
 
 ```bash
 minisign -V -p minisign.pub -m cread-linux-x86_64.tar.gz
+# on a Pi the asset is cread-linux-aarch64.tar.gz
 # or: rsign verify -p minisign.pub cread-linux-x86_64.tar.gz
 ```
 
@@ -566,6 +569,8 @@ document. With sync off there is nothing to ask, so the box never appears.
 --no-crt          disable all effects
 --backend NAME    vulkan | gl
 --size WxH        window size (also drives --screenshot)
+--vault DIR       use another folder as the vault
+--kiosk           hand an update's restart to systemd (kiosk installs)
 --screenshot PATH render one frame to PNG and exit
 ```
 
@@ -584,6 +589,10 @@ cread: AMD Radeon 780M (Vulkan, IntegratedGpu) · surface Bgra8Unorm
 
 `llvmpipe (Vulkan, Cpu)` instead means there is no GPU driver and Mesa is
 rasterising on the CPU: it still works, it is just how the app is developed.
+
+On a Raspberry Pi 4 or 5 the same binary runs as a kiosk under cage; the
+recipe, including WebDAV and SD-card notes, is in
+[docs/raspberry-pi.md](docs/raspberry-pi.md).
 
 ## Layout
 

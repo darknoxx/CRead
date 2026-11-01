@@ -1,0 +1,25 @@
+[Unit]
+Description=CRead kiosk
+After=systemd-user-sessions.service
+Wants=systemd-user-sessions.service
+Conflicts=getty@tty1.service
+
+[Service]
+User=@USER@
+Group=@USER@
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+Environment=CREAD_VAULT=@VAULT@
+Environment=XKB_DEFAULT_LAYOUT=@XKB@
+
+# cage owns the DRM session; CRead is its only client. The binary lives in a
+# user-owned folder so the in-app updater can replace it without root.
+ExecStart=/usr/bin/cage -- /opt/cread/cread --kiosk
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

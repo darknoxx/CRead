@@ -38,7 +38,12 @@ impl App {
     fn dialog_open(&self) -> bool {
         matches!(
             self.mode,
-            Mode::Browser | Mode::Webdav | Mode::Quit | Mode::UpdatePrompt | Mode::Notice
+            Mode::Browser
+                | Mode::Webdav
+                | Mode::Quit
+                | Mode::Shutdown
+                | Mode::UpdatePrompt
+                | Mode::Notice
         )
     }
 
@@ -762,6 +767,16 @@ impl App {
                     &self.theme,
                     "SYNC TO SERVER?",
                     "Changes in this session have not been sent yet.",
+                    yes,
+                );
+            }
+            Mode::Shutdown => {
+                let yes = self.shutdown.map(|prompt| prompt.yes).unwrap_or(false);
+                ui::draw_confirm(
+                    screen,
+                    &self.theme,
+                    "POWER OFF",
+                    "Save and shut down the machine?",
                     yes,
                 );
             }

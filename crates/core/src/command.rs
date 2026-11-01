@@ -52,6 +52,8 @@ pub enum Command {
     Exit,
     /// `exit!` - save and quit, from anywhere.
     ExitForce,
+    /// Save and power the machine off, after asking once.
+    Shutdown,
     Settings,
     /// The music player. `riff <verb>` works from any prompt.
     Riff(RiffAction),
@@ -393,6 +395,13 @@ pub const SPECS: &[Spec] = &[
         summary: "save and quit from anywhere",
         scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
+    Spec {
+        name: "shutdown",
+        aliases: &["poweroff"],
+        argument: "",
+        summary: "save and power off the machine",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
 ];
 
 /// The commands that belong to one screen, in table order.
@@ -493,6 +502,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
             }
         }
         "exit!" => Command::ExitForce,
+        "shutdown" => Command::Shutdown,
         "settings" => Command::Settings,
         "update" => Command::Update,
         "manual" => Command::Manual,
@@ -725,6 +735,8 @@ mod tests {
     fn update_is_a_command_like_everything_else() {
         assert_eq!(parse("update"), Ok(Command::Update));
         assert_eq!(parse("manual"), Ok(Command::Manual));
+        assert_eq!(parse("shutdown"), Ok(Command::Shutdown));
+        assert_eq!(parse("poweroff"), Ok(Command::Shutdown));
         assert_eq!(parse("handbook"), Ok(Command::Manual));
         assert_eq!(parse("UP"), Ok(Command::Update));
         assert!(

@@ -6,19 +6,28 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  DIST: cread-linux-x86_64
 
 jobs:
-  linux:
-    name: linux x86_64
-    runs-on: ubuntu-latest
-    # Build against glibc 2.35 so the binary also runs on Ubuntu 22.04, not just
-    # on whatever the runner image happens to ship.
+  build:
+    name: linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    # One glibc baseline for both architectures. The arm64 image is native on
+    # the arm runner, so this is not a cross build.
     container: ubuntu:22.04
+    env:
+      DIST: cread-linux-${{ matrix.arch }}
     steps:
       - name: Bootstrap
         run: |
@@ -45,21 +54,57 @@ jobs:
           mkdir -p dist
           strip target/release/cread
           cp target/release/cread dist/
-          cp README.md LICENSE THIRD-PARTY.md dist/
+          cp README.md LICENSE THIRD-PARTY.md minisign.pub dist/
           cp assets/fonts/README.md dist/FONTS.md
+          cp docs/raspberry-pi.md dist/RASPBERRY-PI.md
+          cp -r packaging dist/packaging
           printf '%s\n' \
             "commit: ${GITHUB_SHA}" \
             "ref:    ${GITHUB_REF_NAME}" \
+            "arch:   ${{ matrix.arch }}" \
             "built:  $(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             "glibc:  $(ldd --version | head -1)" \
             "run:    ./cread --help" \
             > dist/VERSION.txt
           tar -C dist -czf "${DIST}.tar.gz" .
-          sha256sum "${DIST}.tar.gz" | tee "${DIST}.tar.gz.sha256"
           ls -lh "${DIST}.tar.gz"
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.DIST }}
+          path: ${{ env.DIST }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: sign and publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Download both architectures
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cread-linux-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          for file in *.tar.gz; do
+            sha256sum "$file" > "$file.sha256"
+          done
+          ls -lh
+
       - name: Sign
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
         run: |
@@ -70,26 +115,16 @@ jobs:
           cargo install rsign2 --locked --root /tmp/rsign >/dev/null
           printf '%s\n' "$MINISIGN_KEY" > /tmp/minisign.key
           chmod 600 /tmp/minisign.key
-          /tmp/rsign/bin/rsign sign -W -s /tmp/minisign.key "${DIST}.tar.gz"
+          cd dist
+          for file in *.tar.gz; do
+            /tmp/rsign/bin/rsign sign -W -s /tmp/minisign.key "$file"
+          done
           rm -f /tmp/minisign.key
-          ls -l "${DIST}.tar.gz.minisig"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ env.DIST }}
-          path: |
-            ${{ env.DIST }}.tar.gz
-            ${{ env.DIST }}.tar.gz.sha256
-            ${{ env.DIST }}.tar.gz.minisig
-          if-no-files-found: error
-          retention-days: 90
+          ls -l
 
       - name: Release notes from CHANGELOG
-        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           version="${GITHUB_REF_NAME#v}"
-          # awk, not python: the ubuntu:22.04 image has no python3.
           awk -v ver="## ${version}" '
             $0 == ver        { found = 1; next }
             found && /^## / { exit }
@@ -99,12 +134,11 @@ jobs:
           head -3 RELEASE_NOTES.md
 
       - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            ${{ env.DIST }}.tar.gz
-            ${{ env.DIST }}.tar.gz.sha256
-            ${{ env.DIST }}.tar.gz.minisig
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/*.tar.gz.minisig
           body_path: RELEASE_NOTES.md
           generate_release_notes: false

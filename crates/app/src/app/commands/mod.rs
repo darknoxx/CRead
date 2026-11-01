@@ -49,6 +49,7 @@ impl App {
             Command::About => self.cmd_about(),
             Command::Exit => self.cmd_exit(el),
             Command::ExitForce => self.cmd_exit_force(el),
+            Command::Shutdown => self.cmd_shutdown(),
 
             Command::Riff(action) => self.cmd_riff(action),
             Command::Tool(_) | Command::Size(_) | Command::Colour(_) | Command::Mute => {

@@ -34,8 +34,8 @@ cread --demo --size 1280x800 --show action --command "sca" --screenshot /tmp/sho
 The last one prefills the prompt, which is the only way to screenshot a typed
 command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 `manual`, `notice` (the sync confirmation), `quit` (the exit question),
-`software`, `pictures`, `riffplay`, `riffinsert`, `pocketboi[:<rom>]`,
-`picture[:<png>]`.
+`shutdown` (the power-off question), `software`, `pictures`, `riffplay`,
+`riffinsert`, `pocketboi[:<rom>]`, `picture[:<png>]`.
 
 ## Layout
 
@@ -48,6 +48,8 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 | `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | unsigned or unverified bytes are never installed |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition; the screens in `app/{boot,browser,compose,sync,webdav}.rs`, commands in `app/commands/*` | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
+| `packaging/` | kiosk unit, polkit rule, install and headless-update scripts | the Pi recipe; nothing here is compiled into the binary |
+| `docs/` | the Raspberry Pi recipe | setup, not user documentation; the manual lives in `crates/app/src/manual.md` |
 
 ## Invariants
 
@@ -129,6 +131,13 @@ Only a key wakes it (the mouse is ignored); the key that wakes it is swallowed.
 The idle timer counts keyboard *and* pointer activity, so painting with the
 mouse does not summon the clock. `cread_screensaver`'s `IDLE_MINUTES` is the
 list `SETTINGS` cycles through.
+
+**A kiosk update is a session restart, not a process restart.** `--kiosk`
+changes the last step of the updater: after the signed binary is in place it
+saves and exits instead of spawning a new process, because cage ends with
+CRead. systemd's `Restart=always` starts cage and the new binary together. On
+a kiosk the binary is user-owned in `/opt/cread`, so the in-app updater needs
+no root. `packaging/cread-update.sh` is the headless `--update-once` fallback.
 
 **An update is signed or it is nothing.** The updater trusts two minisign keys
 baked into `crates/update`: the current one and a spare for rotation (a binary
@@ -238,18 +247,20 @@ recreated on the server; only hidden entries (the sync index lives in
 2. Move the *Unreleased* CHANGELOG entries under `## X.Y.Z`.
 3. `git tag -a vX.Y.Z -m "..."` and push both branch and tag.
 
-The release job signs `${DIST}.tar.gz` with the key in the `MINISIGN_KEY`
+The publish job signs each `${DIST}.tar.gz` with the key in the `MINISIGN_KEY`
 secret (`rsign sign`, minisign format) and publishes the `.minisig` next to the
 archive; the job fails if the secret is missing, because the updater refuses
 unsigned releases. The secret key lives outside the repository; the public half
 is `minisign.pub`, and the spare's public key is in `crates/update/src/lib.rs`.
 Rotating keys: ship the next public key in a release *before* signing with it.
 
-The `release` workflow builds inside `ubuntu:22.04` (so the binary needs no
-glibc newer than 2.34), packages `cread-linux-x86_64.tar.gz` with a `VERSION.txt`
-and a checksum, uploads it as an artifact, and attaches it to a GitHub Release
-whose body is the matching CHANGELOG section. `ci` runs fmt, clippy and tests on
-every push and pull request.
+The `release` workflow builds inside `ubuntu:22.04` on x86_64 and on a native
+arm64 runner (so the binaries need no glibc newer than 2.34), packages
+`cread-linux-x86_64.tar.gz` and `cread-linux-aarch64.tar.gz` with a `VERSION.txt`
+and the packaging files, uploads them as artifacts, and a single publish job
+adds the checksums and minisign signatures and attaches both to one GitHub
+Release whose body is the matching CHANGELOG section. `ci` runs fmt, clippy and
+tests on every push and pull request, plus the tests natively on aarch64.
 
 Pushing is done over HTTPS with the `gh` credential helper; the SSH key here is
 passphrase-protected and there is usually no agent running.

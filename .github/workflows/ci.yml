@@ -46,3 +46,28 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace
+
+  # The Pi runs the same tests natively. Public repositories get the arm64
+  # runner for free; if the label ever changes, replace this job with `cross`.
+  arm64:
+    name: test (aarch64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libwayland-dev wayland-protocols \
+            libasound2-dev libudev-dev \
+            libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Tests
+        run: cargo test --workspace

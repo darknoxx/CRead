@@ -783,6 +783,7 @@ The most important commands. Upper and lower case do not matter.
 | `riff [command]` | `music` | The music player. |
 | `roll [on\|off]` | `drift` | The scanlines drift. |
 | `save` | `w`, `safe`, `write` | Saves. |
+| `shutdown` | `poweroff` | Saves and powers the machine off. |
 | `saveas name` | `sa` | Saves under a new name. |
 | `scanlines [on\|off]` | `scan`, `sl` | The fine lines. |
 | `screensaver [on\|off\|minutes]` | `saver` | The screensaver. |

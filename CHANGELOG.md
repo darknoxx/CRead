@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.26.0
+
+- **`shutdown` saves and powers the machine off.** It asks once, writes the
+  document and the running program, and then calls the system's power-off.
+  `exit!` only ends the session, which a kiosk immediately restarts, so a
+  Raspberry Pi needed a real shutdown. A polkit rule in `packaging/` lets the
+  kiosk user do it without a password.
+- **`--kiosk` hands an update's restart to systemd.** After a signed update
+  the app saves and exits instead of spawning a second CRead; cage ends with
+  it, and `Restart=always` starts cage and the new binary together.
+- **Raspberry Pi 4/5 support**: aarch64 release binaries, a CI test job on a
+  native arm64 runner, a cage-based kiosk unit, an install script and the
+  recipe in `docs/raspberry-pi.md`. The vault stays local with WebDAV sync;
+  there is no SMB mount, so writing works offline.
+- **The sync index is only written when it changed.** A quiet 60-second round
+  no longer costs an SD-card write.
+- **`README`/manual/welcome** list `shutdown`, the aarch64 build and the Pi
+  recipe.
+
 ## 0.25.2
 
 - **The manual names itself and the sync box.** `USER MANUAL` is listed in the
