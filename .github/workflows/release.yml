@@ -45,7 +45,8 @@ jobs:
           mkdir -p dist
           strip target/release/cread
           cp target/release/cread dist/
-          cp README.md dist/
+          cp README.md LICENSE THIRD-PARTY.md dist/
+          cp assets/fonts/README.md dist/FONTS.md
           printf '%s\n' \
             "commit: ${GITHUB_SHA}" \
             "ref:    ${GITHUB_REF_NAME}" \

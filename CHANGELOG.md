@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.21.2
+
+- **The release now carries its paperwork.** The tarball held `cread`,
+  `README.md` and `VERSION.txt` only; MIT asks for the licence text to travel
+  with the binary, and the fonts want their attribution. `LICENSE`,
+  `THIRD-PARTY.md` and `FONTS.md` are in the archive from this release on.
+
 ## 0.21.1
 
 Nothing about the program changed; this is the repository getting ready to be
