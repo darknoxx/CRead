@@ -143,6 +143,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | `fullscreen` / `windowed` | `fs` | |
 | `undo` / `redo` | `u` | also on `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `settings` | `set`, `cfg` | WebDAV setup |
+| `manual` | `handbook` | the user manual, read-only |
 | `help` | `?`, `h` | the list above, on screen |
 | `about` | | version and credits |
 | `exit!` | `quit`, `q`, `x` | save and exit from anywhere |
@@ -172,23 +173,28 @@ that belong to the device and not to a document.
 
 ```
 SETTINGS
-  ┌──────────────────────────────────────────────────────────┐
-  │ ► WEBDAV    sync the whole vault                    off    │
-  │ ───────────────────────────────────────────────────────── │
-  │   THEME     colour scheme                          paper   │
-  │   FONT      bitmap face                            classic │
-  │   SCREEN    window or whole screen                 window  │
-  │   SCREENSAVER clock when idle                      on      │
-  │   IDLE      until it starts                        5 min   │
-  │ ───────────────────────────────────────────────────────── │
-  │   TIME      clock format                           24 hours│
-  │   DATE      date format                            DD.MM.YY│
-  │ ───────────────────────────────────────────────────────── │
-  │   INFO      version and credits                   0.24.0  │
-  │   UPDATE    check github for a new version        0.24.0  │
-  │   SOFTWARE  install and remove modules                     │
-  └──────────────────────────────────────────────────────────┘
+  ┌────────────────────────────────────────────────────────────┐
+  │ ► WEBDAV       sync the whole vault                    off │
+  │ ────────────────────────────────────────────────────────── │
+  │   THEME        colour scheme                         paper │
+  │   FONT         bitmap face                         classic │
+  │   SCREEN       window or whole screen               window │
+  │   SCREENSAVER  clock when idle                          on │
+  │   IDLE         until it starts                       5 min │
+  │ ────────────────────────────────────────────────────────── │
+  │   TIME         clock format                       24 hours │
+  │   DATE         date format                        DD.MM.YY │
+  │ ────────────────────────────────────────────────────────── │
+  │   INFO         version and credits                  0.25.0 │
+  │   UPDATE       check github for a new version       0.25.0 │
+  │   SOFTWARE     install and remove modules                  │
+  │   USER MANUAL  read the handbook                           │
+  └────────────────────────────────────────────────────────────┘
 ```
+
+`USER MANUAL` opens the handbook that ships inside the binary: the same text
+as `crates/app/src/manual.md`, read-only, with a scrollbar on the right. It is
+not an Inspiro document; `Esc` takes you back to SETTINGS.
 
 WebDAV syncs the *vault* — documents, pictures and ROMs — so it is set up here,
 next to the other switches that belong to the machine. `Enter` acts on the

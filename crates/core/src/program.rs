@@ -145,6 +145,11 @@ pub trait Program {
         false
     }
 
+    /// The keys this program answers to, as one line under its work surface.
+    fn key_legend(&self) -> &'static str {
+        ""
+    }
+
     /// Does the program have unsaved changes? The shell shows it in the top
     /// bar the way the editor shows `modified`.
     fn modified(&self) -> bool {

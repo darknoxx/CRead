@@ -33,7 +33,7 @@ cread --demo --size 1280x800 --show action --command "sca" --screenshot /tmp/sho
 
 The last one prefills the prompt, which is the only way to screenshot a typed
 command state. Dev views beyond the everyday ones: `webdav` (the sync form),
-`quit` (the exit question), `software`, `pictures`, `riffplay`, `riffinsert`,
+`manual`, `notice` (the sync confirmation), `quit` (the exit question), `software`, `pictures`, `riffplay`, `riffinsert`,
 `pocketboi[:<rom>]`, `picture[:<png>]`.
 
 ## Layout
@@ -105,6 +105,20 @@ place that formats them). Programs draw on the classic 80x25 stage; the shell ce
 grid (Softhand's 24 rows sit below the bar) and blits the pixel layer at that
 same origin — `raster_point` subtracts it, otherwise the brush lands off the
 cursor.
+
+**The manual is embedded, not a document.** `crates/app/src/manual.md` is
+compiled in with `include_str!`; `USER MANUAL` is the last row in `SETTINGS`
+(and `manual` works from any prompt) and opens it in `Mode::Manual`: read-only
+Markdown on the theme page, `USER MANUAL` in the top bar, an action bar and a
+scrollbar. It is not an Inspiro document and never enters the vault, so sync
+cannot touch it. Edit the file in the repository, not a copy in the vault.
+
+**Scrollable screens carry a scrollbar.** `ui::draw_scrollbar` paints one
+column at the right edge from `first`/`visible`/`total`; Inspiro (write and
+reading mode) and the manual use it, and it draws nothing when everything fits.
+`Editor::scroll_metrics` gives the editor its two numbers. Softhand's key legend
+sits under the colour strip; the smallest 25-row grid has no row left for it,
+so it is skipped there rather than covering the palette.
 
 **The screensaver is the machine resting.** It is a shell mode
 (`Mode::Screensaver`), not a module on the `SOFTWARE` shelf, and it is

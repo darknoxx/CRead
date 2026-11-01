@@ -186,6 +186,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "updateprompt",
                     "quit",
                     "help",
+                    "manual",
+                    "notice",
                 ];
                 if !known.contains(&v.as_str())
                     && !v.starts_with("picture:")

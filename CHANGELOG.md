@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.25.0
+
+- **The user manual is part of the machine.** `USER MANUAL` is the last row in
+  `SETTINGS` (and `manual` works from any prompt): the Markdown is compiled
+  into the binary, rendered like reading mode, with `USER MANUAL` in the top
+  bar and a scrollbar on the right. It is read-only and not an Inspiro
+  document; `Esc` returns to where it was opened.
+- **Inspiro has a scrollbar** in write and reading mode: a track and a thumb
+  on the right that follow the visible rows. Sharing the manual needed exactly
+  this, so the editor got it too.
+- **Switching sync shows a small box**: `SYNC ON` or `SYNC OFF`. The switch
+  applies at once and is written to disk; a form that only pretends to be on
+  would be a lie. Any key closes the box and returns to the form.
+- **Softhand's tool keys are visible**: `B pencil  E eraser  L line  R rect
+  F fill  I pick` sits under the colour strip. On the smallest grid there is
+  no row left and the legend is skipped.
+
 ## 0.24.2
 
 - **`SETTINGS` has no subtitle.** The bar shows the title and nothing else;

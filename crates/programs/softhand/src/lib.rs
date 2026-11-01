@@ -322,6 +322,10 @@ impl Program for Softhand {
         self.modified
     }
 
+    fn key_legend(&self) -> &'static str {
+        "B pencil   E eraser   L line   R rect   F fill   I pick"
+    }
+
     fn mark_saved(&mut self) {
         self.modified = false;
     }

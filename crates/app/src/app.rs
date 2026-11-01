@@ -39,10 +39,13 @@ use crate::cli::Options;
 
 use crate::screensaver::next_idle_minutes;
 use crate::ui;
+
 use cread_sync::{Config as SyncConfig, Report as SyncReport, Worker};
 use cread_update::Event as UpdateEvent;
 
 const WELCOME: &str = include_str!("welcome.md");
+/// The user manual, embedded so it is always there — like a built-in book.
+const MANUAL: &str = include_str!("manual.md");
 
 /// How long the editor waits after the last keystroke before writing to disk.
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
@@ -247,6 +250,10 @@ enum Mode {
     UpdatePrompt,
     /// "Sync to server?" on the way out.
     Quit,
+    /// The user manual: read-only Markdown with a scrollbar.
+    Manual,
+    /// A small box confirming one thing, e.g. the sync switch.
+    Notice,
     /// The clock, after a while without input.
     Screensaver,
 }
@@ -300,6 +307,7 @@ enum SetupAction {
     Info,
     Update,
     Software,
+    Manual,
 }
 
 /// What the last check found, remembered for the settings row.
@@ -399,6 +407,12 @@ struct App {
     persist: bool,
     /// The clock, drawn full-screen and outside the theme.
     screensaver_raster: Raster,
+    manual_rows: Vec<cread_core::markdown::Rendered>,
+    manual_top: usize,
+    manual_width: usize,
+    manual_back: Mode,
+    notice_text: String,
+    notice_back: Mode,
     /// The running program, if any.
     program: Option<Box<dyn Program>>,
     /// Which module the program belongs to. The shell needs this where the
@@ -572,6 +586,12 @@ impl App {
             screensaver_back: Mode::Action,
             persist: true,
             screensaver_raster: Raster::new(1, 1),
+            manual_rows: Vec::new(),
+            manual_top: 0,
+            manual_width: 0,
+            manual_back: Mode::Setup,
+            notice_text: String::new(),
+            notice_back: Mode::Setup,
             program: None,
             program_id: None,
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
@@ -1295,6 +1315,8 @@ impl App {
             Mode::Quit => self.on_key_quit(el, event),
             Mode::Checking => self.on_key_checking(event),
             Mode::UpdatePrompt => self.on_key_update_prompt(event),
+            Mode::Manual => self.on_key_manual(event),
+            Mode::Notice => self.on_key_notice(),
             Mode::Screensaver => {
                 // Waking happens above; nothing else reaches this screen.
             }
@@ -1870,6 +1892,66 @@ impl App {
         true
     }
 
+    /// Open the built-in manual, rendered for the current width.
+    pub(super) fn open_manual(&mut self, back: Mode) {
+        self.show_manual(back);
+    }
+
+    fn show_manual(&mut self, back: Mode) {
+        let (width, _) = ui::layout(self.screen.cols());
+        let lines: Vec<String> = MANUAL.lines().map(str::to_string).collect();
+        self.manual_rows = cread_core::markdown::render(&lines, width);
+        self.manual_width = width;
+        self.manual_top = 0;
+        self.manual_back = back;
+        self.mode = Mode::Manual;
+        self.dirty = true;
+    }
+
+    fn leave_manual(&mut self) {
+        self.mode = self.manual_back;
+        self.dirty = true;
+    }
+
+    fn scroll_manual(&mut self, delta: isize) {
+        let height = ui::text_height(self.screen.rows());
+        let max = self.manual_rows.len().saturating_sub(height) as isize;
+        self.manual_top = (self.manual_top as isize + delta).clamp(0, max.max(0)) as usize;
+        self.poke();
+    }
+
+    fn on_key_manual(&mut self, event: KeyEvent) {
+        let page = ui::text_height(self.screen.rows()) as isize;
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => self.leave_manual(),
+            Key::Named(NamedKey::ArrowDown) => self.scroll_manual(1),
+            Key::Named(NamedKey::ArrowUp) => self.scroll_manual(-1),
+            Key::Named(NamedKey::PageDown) | Key::Named(NamedKey::Space) => {
+                self.scroll_manual(page.saturating_sub(1))
+            }
+            Key::Named(NamedKey::PageUp) => self.scroll_manual(-page.saturating_sub(1)),
+            Key::Named(NamedKey::Home) => {
+                self.manual_top = 0;
+                self.poke();
+            }
+            Key::Named(NamedKey::End) => self.scroll_manual(isize::MAX / 2),
+            _ => {}
+        }
+    }
+
+    /// A small confirmation box; any key closes it and returns.
+    pub(super) fn open_notice(&mut self, message: impl Into<String>, back: Mode) {
+        self.notice_text = message.into();
+        self.notice_back = back;
+        self.mode = Mode::Notice;
+        self.dirty = true;
+    }
+
+    fn on_key_notice(&mut self) {
+        self.mode = self.notice_back;
+        self.dirty = true;
+    }
+
     /// Hide the screen behind the clock. Any key brings back what was there.
     pub(super) fn start_screensaver(&mut self) {
         if self.mode == Mode::Screensaver {
@@ -2051,6 +2133,10 @@ impl App {
     fn on_wheel(&mut self, lines: isize) {
         if self.mode == Mode::View {
             self.scroll_view(-lines);
+            return;
+        }
+        if self.mode == Mode::Manual {
+            self.scroll_manual(-lines * 3);
             return;
         }
         if self.mode != Mode::Write {
@@ -2855,6 +2941,10 @@ impl App {
                 ui::MenuItem::row("SOFTWARE", "install and remove modules", ""),
                 Some(Action::Software),
             ),
+            (
+                ui::MenuItem::row("USER MANUAL", "read the handbook", ""),
+                Some(Action::Manual),
+            ),
         ]
     }
 
@@ -2986,6 +3076,7 @@ impl App {
             }
             SetupAction::Update => self.start_update_check(),
             SetupAction::Software => self.open_software(),
+            SetupAction::Manual => self.open_manual(Mode::Setup),
         }
     }
 
@@ -3408,6 +3499,11 @@ impl ApplicationHandler for App {
             }
             "help" => {
                 self.mode = Mode::Help;
+            }
+            "manual" => self.open_manual(self.mode),
+            "notice" => {
+                self.open_webdav();
+                self.open_notice("SYNC ON", Mode::Webdav);
             }
             "view" => self.enter_view(),
             "inspiro" => {
@@ -4430,11 +4526,99 @@ mod tests {
         for _ in 0..40 {
             app.setup_step(1);
         }
-        assert_eq!(app.setup_rows()[app.setup_selected].name, "SOFTWARE");
+        assert_eq!(app.setup_rows()[app.setup_selected].name, "USER MANUAL");
         assert!(
             !app.setup_rows()[app.setup_selected].rule,
             "never lands on a rule"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_settings_open_the_manual_and_esc_brings_them_back() {
+        let dir = vault("manual");
+        let mut app = app_in(&dir);
+        app.open_setup();
+        let index = app
+            .setup_rows()
+            .iter()
+            .position(|row| row.name == "USER MANUAL")
+            .expect("the manual row");
+        assert_eq!(
+            index,
+            app.setup_rows().len() - 1,
+            "the manual is the last point"
+        );
+
+        app.setup_selected = index;
+        app.setup_activate();
+        assert_eq!(app.mode, Mode::Manual);
+
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("CRead OS"), "the manual is on screen");
+        assert!(text.contains("USER MANUAL"), "the bar says where we are");
+
+        app.scroll_manual(40);
+        assert!(app.manual_top > 0, "it scrolls");
+
+        app.leave_manual();
+        assert_eq!(app.mode, Mode::Setup, "back to the settings");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn switching_sync_says_so_and_returns_to_the_form() {
+        let dir = vault("sync-notice");
+        let mut app = app_in(&dir);
+        app.open_webdav();
+        app.form.url = "https://example.com/dav".into();
+        app.form.enabled = false;
+
+        app.toggle_sync();
+        assert_eq!(app.mode, Mode::Notice);
+        assert_eq!(app.notice_text, "SYNC ON");
+        assert!(app.sync_cfg.enabled, "the switch is real");
+        app.compose();
+        assert!(rows_as_text(&app.screen).contains("SYNC ON"));
+        app.on_key_notice();
+        assert_eq!(app.mode, Mode::Webdav, "back to the form");
+
+        app.toggle_sync();
+        assert_eq!(app.notice_text, "SYNC OFF");
+        assert!(!app.sync_cfg.enabled);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn softhand_shows_its_tool_keys_under_the_colours() {
+        let dir = vault("softhand-legend");
+        let mut app = app_in(&dir);
+        app.new_picture();
+        app.screen = Screen::new(80, 32);
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("B pencil"), "the legend is there: {text}");
+        assert!(text.contains("E eraser"));
+        assert!(text.contains("I pick"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_long_document_has_a_scrollbar_on_the_right() {
+        let dir = vault("scrollbar");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        app.doc.editor = Editor::from_text(&"line\n".repeat(60));
+        app.compose();
+        let column: String = (2..app.screen.rows() - 2)
+            .map(|y| app.screen.get(app.screen.cols() - 1, y).unwrap().ch)
+            .collect();
+        assert!(column.contains('\u{2588}'), "there is a thumb: {column:?}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

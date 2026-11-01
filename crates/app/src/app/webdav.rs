@@ -7,11 +7,11 @@ use super::*;
 
 /// Editable copy of the WebDAV settings, shown as a form.
 pub(super) struct FormState {
-    url: String,
+    pub(super) url: String,
     username: String,
     password: String,
     remote_dir: String,
-    enabled: bool,
+    pub(super) enabled: bool,
     pub(super) focus: usize,
     pub(super) note: String,
 }
@@ -96,20 +96,42 @@ impl App {
         self.dirty = true;
     }
 
-    pub(super) fn save_webdav(&mut self) {
+    /// The switch applies at once and says so; a form that only pretends to
+    /// be on would be a lie.
+    pub(super) fn toggle_sync(&mut self) {
+        let wanted = !self.form.enabled;
+        self.form.enabled = wanted;
+        match self.persist_webdav() {
+            Ok(()) => self.open_notice(if wanted { "SYNC ON" } else { "SYNC OFF" }, Mode::Webdav),
+            Err(e) => {
+                self.form.enabled = !wanted;
+                self.form.note = e;
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Write the form to disk and hand it to the worker, without leaving.
+    fn persist_webdav(&mut self) -> Result<(), String> {
         let cfg = self.form.to_config();
         if cfg.enabled && !cfg.is_configured() {
-            self.form.note = "a server URL is required".into();
-            self.dirty = true;
-            return;
+            return Err("a server URL is required".into());
         }
-        match cfg.save() {
+        if self.persist {
+            cfg.save()
+                .map_err(|e| format!("cannot write config: {e}"))?;
+        }
+        self.sync_cfg = cfg.clone();
+        self.start_worker();
+        if let Some(worker) = self.sync.as_ref() {
+            worker.configure(cfg);
+        }
+        Ok(())
+    }
+
+    pub(super) fn save_webdav(&mut self) {
+        match self.persist_webdav() {
             Ok(()) => {
-                self.sync_cfg = cfg.clone();
-                self.start_worker();
-                if let Some(worker) = self.sync.as_ref() {
-                    worker.configure(cfg);
-                }
                 self.to_write();
                 self.set_status(if self.sync_cfg.enabled {
                     "sync on"
@@ -117,7 +139,7 @@ impl App {
                     "sync off"
                 });
             }
-            Err(e) => self.form.note = format!("cannot write config: {e}"),
+            Err(e) => self.form.note = e,
         }
         self.dirty = true;
     }
@@ -133,8 +155,7 @@ impl App {
             Key::Named(NamedKey::Escape) => self.to_write(),
             Key::Named(NamedKey::Enter) => {
                 if self.form.focus == 4 {
-                    self.form.enabled = !self.form.enabled;
-                    self.poke();
+                    self.toggle_sync();
                 } else {
                     self.save_webdav();
                 }

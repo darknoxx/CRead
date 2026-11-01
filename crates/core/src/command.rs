@@ -59,6 +59,8 @@ pub enum Command {
     Help(Option<String>),
     /// Ask GitHub whether a newer release exists.
     Update,
+    /// Read the built-in user manual.
+    Manual,
     /// The clock screensaver: start it, switch it on/off, or set the idle time.
     Screensaver(ScreensaverAction),
     About,
@@ -357,6 +359,13 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
+        name: "manual",
+        aliases: &["handbook"],
+        argument: "",
+        summary: "read the user manual",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
+    Spec {
         name: "help",
         aliases: &["?", "h"],
         argument: "[all]",
@@ -486,6 +495,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "exit!" => Command::ExitForce,
         "settings" => Command::Settings,
         "update" => Command::Update,
+        "manual" => Command::Manual,
         "screensaver" => match rest {
             "" => Command::Screensaver(ScreensaverAction::Start),
             "on" => Command::Screensaver(ScreensaverAction::Enabled(true)),
@@ -714,6 +724,8 @@ mod tests {
     #[test]
     fn update_is_a_command_like_everything_else() {
         assert_eq!(parse("update"), Ok(Command::Update));
+        assert_eq!(parse("manual"), Ok(Command::Manual));
+        assert_eq!(parse("handbook"), Ok(Command::Manual));
         assert_eq!(parse("UP"), Ok(Command::Update));
         assert!(
             specs_for(Scope::Editor)

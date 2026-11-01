@@ -667,6 +667,26 @@ impl Editor {
     // ── viewport ────────────────────────────────────────────────────────────
 
     /// Visual rows starting at `top`, at most `limit` of them.
+    /// Total visual rows at this width, and the index of the first visible
+    /// one. The scrollbar needs both; `visible_rows` only knows the window.
+    pub fn scroll_metrics(&self, width: usize) -> (usize, usize) {
+        let width = width.max(1);
+        let mut total = 0;
+        let mut first = 0;
+        for (index, line) in self.lines.iter().enumerate() {
+            let rows = wrap(line, width);
+            if index == self.top.line {
+                first = total
+                    + rows
+                        .iter()
+                        .position(|(start, end)| *start <= self.top.col && self.top.col < *end)
+                        .unwrap_or(0);
+            }
+            total += rows.len();
+        }
+        (first, total)
+    }
+
     pub fn visible_rows(&self, width: usize, limit: usize) -> Vec<VisualRow> {
         let width = width.max(1);
         let mut rows = Vec::new();
@@ -894,6 +914,21 @@ mod tests {
         assert_eq!(e.text(), "a");
         e.undo();
         assert_eq!(e.text(), "");
+    }
+
+    #[test]
+    fn the_scroll_metrics_count_rows_and_the_visible_one() {
+        let mut editor = Editor::from_text(&"x".repeat(25));
+        let (first, total) = editor.scroll_metrics(10);
+        assert_eq!((first, total), (0, 3), "25 chars wrap into three rows");
+
+        editor.top = Position { line: 0, col: 10 };
+        let (first, total) = editor.scroll_metrics(10);
+        assert_eq!(total, 3);
+        assert_eq!(first, 1, "the second visual row is on top");
+
+        let editor = Editor::from_text("aaa\nbbb");
+        assert_eq!(editor.scroll_metrics(10), (0, 2));
     }
 
     #[test]

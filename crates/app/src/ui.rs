@@ -27,6 +27,50 @@ pub fn text_height(rows: u32) -> usize {
     rows.saturating_sub(CHROME_ROWS).max(1) as usize
 }
 
+/// Where a scrollable screen is: the first visible row and how many there are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Scroll {
+    pub first: usize,
+    pub visible: usize,
+    pub total: usize,
+}
+
+/// A one-column scrollbar: a track and a thumb that follows the view.
+///
+/// Drawn at `x` between `top` and `bottom` (inclusive). Nothing appears when
+/// the whole content fits, so a short document has no furniture.
+pub fn draw_scrollbar(
+    screen: &mut Screen,
+    theme: &Theme,
+    x: u32,
+    top: u32,
+    bottom: u32,
+    scroll: Scroll,
+) {
+    let Scroll {
+        first,
+        visible,
+        total,
+    } = scroll;
+    if total <= visible || visible == 0 || bottom < top {
+        return;
+    }
+    let height = (bottom - top + 1) as usize;
+    let thumb = ((visible * height) / total).max(1).min(height);
+    let travel = height - thumb;
+    let max_first = total - visible;
+    let offset = first.min(max_first) * travel / max_first;
+    for row in 0..height {
+        let in_thumb = row >= offset && row < offset + thumb;
+        let (ch, colour) = if in_thumb {
+            ('\u{2588}', theme.accent)
+        } else {
+            ('\u{2502}', theme.dim)
+        };
+        screen.put(x, top + row as u32, Cell::new(ch, colour, theme.bg));
+    }
+}
+
 /// What occupies the bottom line.
 pub enum Bottom<'a> {
     /// Write mode: statistics and a hint.
@@ -69,6 +113,8 @@ pub struct DocumentView<'a> {
     pub cursor_on: bool,
     /// `♪ track · 0:42` while music plays, drawn in the gap of the status bar.
     pub now: Option<&'a str>,
+    /// First visible visual row and how many there are (for the scrollbar).
+    pub scroll: (usize, usize),
 }
 
 pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>) {
@@ -87,6 +133,19 @@ pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>
         },
     );
     draw_text(screen, theme, view);
+    let height = text_height(rows);
+    draw_scrollbar(
+        screen,
+        theme,
+        cols.saturating_sub(1),
+        2,
+        rows.saturating_sub(3),
+        Scroll {
+            first: view.scroll.0,
+            visible: height,
+            total: view.scroll.1,
+        },
+    );
     match &view.bottom {
         Bottom::Status { message } => draw_status_bar(screen, theme, view, message),
         Bottom::Prompt {
@@ -858,6 +917,80 @@ pub fn draw_loading(
 
 // ── reader (view mode) ──────────────────────────────────────────────────────
 
+pub struct ManualView<'a> {
+    pub clock: &'a str,
+    pub rows: &'a [markdown::Rendered],
+    pub top: usize,
+}
+
+/// The user manual: read-only Markdown in the theme's page, with a scrollbar.
+pub fn draw_manual(screen: &mut Screen, theme: &Theme, view: &ManualView<'_>) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    screen.fill(Cell::blank(theme.fg, theme.bg));
+
+    draw_top_bar(
+        screen,
+        theme,
+        &TopBar {
+            title: "",
+            state: "",
+            clock: view.clock,
+            location: "USER MANUAL",
+        },
+    );
+
+    let (_, margin) = layout(cols);
+    let height = text_height(rows);
+    let margin = margin as u32;
+    let total = view.rows.len();
+    let top = view.top.min(total.saturating_sub(1));
+    draw_rendered_rows(screen, theme, view.rows, top, 2, height, margin);
+    draw_scrollbar(
+        screen,
+        theme,
+        cols.saturating_sub(1),
+        2,
+        rows.saturating_sub(3),
+        Scroll {
+            first: top,
+            visible: height,
+            total,
+        },
+    );
+
+    let bar = rows.saturating_sub(1);
+    let (fg, bg) = (theme.status_fg, theme.status_bg);
+    screen.fill_row(bar, Cell::blank(fg, bg));
+    let left = format!(
+        " Esc back  \u{00b7}  {}/{} ",
+        (top + 1).min(total.max(1)),
+        total.max(1)
+    );
+    screen.put_str(0, bar, &left, fg, bg);
+    let right = "\u{2191}\u{2193} scroll   Page Up/Down ";
+    let x = cols.saturating_sub(right.chars().count() as u32 + 1);
+    if x > left.chars().count() as u32 + 1 {
+        screen.put_str(x, bar, right, theme.status_dim, bg);
+    }
+}
+
+/// A small box that confirms one thing: the sync switch, for example.
+pub fn draw_notice(screen: &mut Screen, theme: &Theme, message: &str) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    let text = message.chars().count() as u32;
+    let width = (text + 8).clamp(20, cols.saturating_sub(4));
+    let height = 5;
+    let x0 = (cols - width) / 2;
+    let y0 = (rows - height) / 2;
+    frame_filled(screen, theme, x0, y0, width, height);
+    let x = x0 + (width.saturating_sub(text)) / 2;
+    screen.put_str(x, y0 + 2, message, theme.fg, theme.bg);
+    let hint = "Enter ok";
+    let hx = x0 + width - hint.chars().count() as u32 - 2;
+    screen.put_str(hx, y0 + height - 1, hint, theme.dim, theme.bg);
+}
 pub struct ReaderView<'a> {
     /// The bar clock, already formatted for the chosen convention.
     pub clock: &'a str,
@@ -873,6 +1006,39 @@ pub struct ReaderView<'a> {
 }
 
 /// The document with the markup taken out: what the thing actually says.
+/// Paint rendered Markdown rows into the text area.
+fn draw_rendered_rows(
+    screen: &mut Screen,
+    theme: &Theme,
+    rows: &[markdown::Rendered],
+    top: usize,
+    first_row: u32,
+    height: usize,
+    margin: u32,
+) {
+    let last = screen.rows().saturating_sub(2);
+    for (i, row) in rows.iter().skip(top).take(height).enumerate() {
+        let y = first_row + i as u32;
+        if y >= last {
+            break;
+        }
+        let mut span_idx = 0;
+        for (offset, ch) in row.text.chars().enumerate() {
+            while span_idx + 1 < row.spans.len() && row.spans[span_idx].end <= offset {
+                span_idx += 1;
+            }
+            let kind = row
+                .spans
+                .get(span_idx)
+                .filter(|s| offset >= s.start && offset < s.end)
+                .map(|s| s.kind)
+                .unwrap_or(Kind::Normal);
+            let (fg, bg) = style_for(kind, theme);
+            screen.put(margin + offset as u32, y, Cell::new(ch, fg, bg));
+        }
+    }
+}
+
 pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
     let cols = screen.cols();
     let rows = screen.rows();
@@ -895,26 +1061,19 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
     let margin = margin as u32;
     let top = view.top.min(view.rows.len().saturating_sub(1));
 
-    for (i, row) in view.rows.iter().skip(top).take(height).enumerate() {
-        let y = first_row + i as u32;
-        if y >= rows.saturating_sub(2) {
-            break;
-        }
-        let mut span_idx = 0;
-        for (offset, ch) in row.text.chars().enumerate() {
-            while span_idx + 1 < row.spans.len() && row.spans[span_idx].end <= offset {
-                span_idx += 1;
-            }
-            let kind = row
-                .spans
-                .get(span_idx)
-                .filter(|s| offset >= s.start && offset < s.end)
-                .map(|s| s.kind)
-                .unwrap_or(Kind::Normal);
-            let (fg, bg) = style_for(kind, theme);
-            screen.put(margin + offset as u32, y, Cell::new(ch, fg, bg));
-        }
-    }
+    draw_rendered_rows(screen, theme, view.rows, top, first_row, height, margin);
+    draw_scrollbar(
+        screen,
+        theme,
+        cols.saturating_sub(1),
+        2,
+        rows.saturating_sub(3),
+        Scroll {
+            first: top,
+            visible: height,
+            total: view.rows.len(),
+        },
+    );
 
     // Status line: where you are, and how to get out.
     let bar = rows.saturating_sub(1);
@@ -1488,6 +1647,7 @@ mod tests {
     ) -> DocumentView<'a> {
         DocumentView {
             clock: "14:07",
+            scroll: (0, 1),
             title: "note.md",
             state: "modified",
             location: "~/Dokumente/CRead",
@@ -1647,6 +1807,40 @@ mod tests {
         assert!(all.contains("alpha.md"));
         assert!(all.contains("Enter open"));
         assert!(all.contains('\u{2554}'), "corner missing");
+    }
+
+    #[test]
+    fn the_scrollbar_thumb_follows_the_view() {
+        let mut screen = Screen::new(20, 6);
+        let theme = &Theme::BLACK;
+
+        let scroll = |first, total| Scroll {
+            first,
+            visible: 3,
+            total,
+        };
+        draw_scrollbar(&mut screen, theme, 19, 0, 5, scroll(0, 30));
+        assert_eq!(
+            screen.get(19, 0).unwrap().ch,
+            '\u{2588}',
+            "thumb at the top"
+        );
+        assert_ne!(screen.get(19, 5).unwrap().ch, '\u{2588}');
+
+        draw_scrollbar(&mut screen, theme, 19, 0, 5, scroll(27, 30));
+        assert_eq!(
+            screen.get(19, 5).unwrap().ch,
+            '\u{2588}',
+            "thumb at the bottom"
+        );
+
+        let mut screen = Screen::new(20, 6);
+        draw_scrollbar(&mut screen, theme, 19, 0, 5, scroll(0, 3));
+        assert_eq!(
+            screen.get(19, 0).unwrap().ch,
+            ' ',
+            "nothing when it all fits"
+        );
     }
 
     #[test]

@@ -43,6 +43,7 @@ impl App {
             Command::Software => self.cmd_software(),
             Command::Settings => self.cmd_settings(),
             Command::Update => self.cmd_update(),
+            Command::Manual => self.cmd_manual(),
             Command::Screensaver(action) => self.cmd_screensaver(action),
             Command::Help(argument) => self.cmd_help(argument),
             Command::About => self.cmd_about(),

@@ -38,7 +38,7 @@ impl App {
     fn dialog_open(&self) -> bool {
         matches!(
             self.mode,
-            Mode::Browser | Mode::Webdav | Mode::Quit | Mode::UpdatePrompt
+            Mode::Browser | Mode::Webdav | Mode::Quit | Mode::UpdatePrompt | Mode::Notice
         )
     }
 
@@ -55,6 +55,23 @@ impl App {
                 self.screensaver_raster = Raster::new(width, height);
             }
             crate::screensaver::draw_now(&mut self.screensaver_raster);
+            return true;
+        }
+        if self.mode == Mode::Manual {
+            let (width, _) = ui::layout(screen.cols());
+            if self.manual_width != width {
+                let lines: Vec<String> = MANUAL.lines().map(str::to_string).collect();
+                self.manual_rows = cread_core::markdown::render(&lines, width);
+                self.manual_width = width;
+            }
+            let now_local = chrono::Local::now();
+            let clock = crate::clock::stamp(&now_local, self.clock_24h, self.date_day_first, false);
+            let view = ui::ManualView {
+                clock: &clock,
+                rows: &self.manual_rows,
+                top: self.manual_top,
+            };
+            ui::draw_manual(screen, &self.theme, &view);
             return true;
         }
         if self.mode == Mode::Software {
@@ -390,6 +407,22 @@ impl App {
                     let prompt = Some((self.command.as_str(), hint, error));
                     ui::draw_program_line(screen, &self.theme, "", "", None, prompt);
                 }
+                // The tool keys sit right under the colour strip. The smallest
+                // grid has no row left for them, so they are skipped there.
+                let legend = self
+                    .program
+                    .as_ref()
+                    .map(|program| program.key_legend())
+                    .unwrap_or("");
+                if !legend.is_empty() {
+                    let (stage_x, stage_y) = self.program_stage(cols, rows);
+                    let y = stage_y + 24;
+                    let width = legend.chars().count() as u32;
+                    let x = stage_x + 80u32.saturating_sub(width) / 2;
+                    if y < rows && x < cols {
+                        screen.put_str(x, y, legend, self.theme.dim, self.theme.bg);
+                    }
+                }
             } else {
                 let title = self
                     .program
@@ -647,6 +680,7 @@ impl App {
 
             let title = self.doc.title();
             let now = self.now_playing();
+            let scroll = self.doc.editor.scroll_metrics(text_width);
             let view = ui::DocumentView {
                 clock: &clock,
                 title: &title,
@@ -665,6 +699,7 @@ impl App {
                 in_fence,
                 cursor_on: self.blink,
                 now: now.as_deref(),
+                scroll,
             };
             ui::draw_document(screen, &self.theme, &view);
         }
@@ -723,6 +758,9 @@ impl App {
                     "Changes in this session have not been sent yet.",
                     yes,
                 );
+            }
+            Mode::Notice => {
+                ui::draw_notice(screen, &self.theme, &self.notice_text);
             }
             Mode::UpdatePrompt => {
                 let version = self
