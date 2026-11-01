@@ -36,6 +36,9 @@ use winit::keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::cli::Options;
+
+/// The top bar is one text row; Softhand's canvas starts below it.
+const TOP_BAR_PIXELS: i32 = cread_core::FONT_H as i32;
 use crate::screensaver::next_idle_minutes;
 use crate::ui;
 use cread_sync::{Config as SyncConfig, Report as SyncReport, Worker};
@@ -285,6 +288,22 @@ fn program_home(index: usize) -> Home {
     }
 }
 
+/// What Enter does on a SETTINGS row. Rules have no action and are skipped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SetupAction {
+    Webdav,
+    Theme,
+    Font,
+    Screen,
+    Screensaver,
+    Idle,
+    Time,
+    Date,
+    Info,
+    Update,
+    Software,
+}
+
 /// What the last check found, remembered for the settings row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum UpdateStatus {
@@ -370,6 +389,9 @@ struct App {
     screensaver_on: bool,
     /// Minutes of silence before it starts.
     screensaver_minutes: u32,
+    /// The bars show 24-hour time and German dates out of the box.
+    clock_24h: bool,
+    date_day_first: bool,
     /// Last keyboard or pointer activity; the screensaver counts from here.
     last_input: Instant,
     /// Where a key should return to after the screensaver.
@@ -480,6 +502,8 @@ impl App {
         let sync_cfg = SyncConfig::load();
         let screensaver_on = prefs.screensaver;
         let screensaver_minutes = prefs.screensaver_minutes.max(1);
+        let clock_24h = prefs.clock_24h;
+        let date_day_first = prefs.date_day_first;
         // The browser needs its root before the first frame, not when it opens.
         let vault = opts.vault.clone().unwrap_or_else(storage::vault_dir);
         Self {
@@ -542,6 +566,8 @@ impl App {
             riff_at: None,
             screensaver_on,
             screensaver_minutes,
+            clock_24h,
+            date_day_first,
             last_input: Instant::now(),
             screensaver_back: Mode::Action,
             persist: true,
@@ -764,8 +790,13 @@ impl App {
                 // runs over the result like over any other picture.
                 self.fb.draw_canvas(&self.screensaver_raster, [0, 0, 0]);
             } else if self.program.is_some() {
+                let top = if self.program_id == Some("softhand") {
+                    TOP_BAR_PIXELS
+                } else {
+                    0
+                };
                 self.fb
-                    .draw_program(&self.screen, &self.raster, &self.theme, &self.font);
+                    .draw_program_at(&self.screen, &self.raster, &self.theme, &self.font, top);
             } else {
                 self.fb.draw_screen(&self.screen, &self.theme, &self.font);
             }
@@ -1672,15 +1703,22 @@ impl App {
 
     /// Pointer position in emulated raster pixels.
     fn raster_point(&self) -> (i32, i32) {
+        // Softhand's canvas sits one bar row further down than the window's
+        // pixel origin; without this a click lands 16 emulated pixels off.
+        let top = if self.program_id == Some("softhand") {
+            TOP_BAR_PIXELS
+        } else {
+            0
+        };
         match self.vp.as_ref() {
             Some(vp) => {
                 let scale = vp.scale.max(1) as f64;
                 (
                     ((self.pointer.0 - vp.offset_x as f64) / scale) as i32,
-                    ((self.pointer.1 - vp.offset_y as f64) / scale) as i32,
+                    ((self.pointer.1 - vp.offset_y as f64) / scale) as i32 - top,
                 )
             }
-            None => (self.pointer.0 as i32, self.pointer.1 as i32),
+            None => (self.pointer.0 as i32, self.pointer.1 as i32 - top),
         }
     }
 
@@ -1892,6 +1930,8 @@ impl App {
         self.prefs.roll = self.crt.roll > 0.0;
         self.prefs.screensaver = self.screensaver_on;
         self.prefs.screensaver_minutes = self.screensaver_minutes;
+        self.prefs.clock_24h = self.clock_24h;
+        self.prefs.date_day_first = self.date_day_first;
         if !self.persist {
             return;
         }
@@ -2279,6 +2319,9 @@ impl App {
             return Err("this program has no picture".into());
         };
         picture::save(&path, canvas)?;
+        if let Some(program) = self.program.as_mut() {
+            program.mark_saved();
+        }
         self.unsynced = true;
         self.picture_path = Some(path.clone());
         Ok(format!(
@@ -2641,29 +2684,30 @@ impl App {
 
     /// One row per module for the SOFTWARE screen.
     fn software_rows(&self) -> Vec<ui::MenuItem> {
-        let mut rows = vec![ui::MenuItem {
-            name: "INSPIRO".into(),
-            detail: "where your ideas have room to grow.".into(),
-            value: "system".into(),
-        }];
+        let mut rows = vec![ui::MenuItem::row(
+            "INSPIRO",
+            "where your ideas have room to grow.",
+            "system",
+        )];
         for program in PROGRAMS {
-            rows.push(ui::MenuItem {
-                name: program.entry.to_string(),
-                detail: program.tagline.to_string(),
-                value: if self.is_installed(program.id) {
-                    "installed".into()
+            rows.push(ui::MenuItem::row(
+                program.entry,
+                program.tagline,
+                if self.is_installed(program.id) {
+                    "installed"
                 } else {
-                    "install".into()
+                    "install"
                 },
-            });
+            ));
         }
         rows
     }
 
-    /// The system settings: the things that belong to the machine, not to a
-    /// document. WebDAV lived in the editor, which was the wrong place for a
-    /// switch that decides where the whole vault goes.
-    fn setup_rows(&self) -> Vec<ui::MenuItem> {
+    /// The system settings, in the order they belong in: sync first, then the
+    /// look, then the clock, then the machine's own business. Rules split the
+    /// groups; they are never selectable.
+    fn setup_entries(&self) -> Vec<(ui::MenuItem, Option<SetupAction>)> {
+        use SetupAction as Action;
         let sync = if !self.sync_cfg.enabled {
             "off"
         } else if self.sync_cfg.url.is_empty() {
@@ -2676,57 +2720,112 @@ impl App {
             .as_ref()
             .map(|window| window.fullscreen().is_some())
             .unwrap_or(false);
+        let update = match &self.update_status {
+            UpdateStatus::Unknown => ui::VERSION.to_string(),
+            UpdateStatus::UpToDate => "up to date".to_string(),
+            UpdateStatus::Available(version) => format!("{version} available"),
+        };
         vec![
-            ui::MenuItem {
-                name: "WEBDAV".into(),
-                detail: "sync the whole vault".into(),
-                value: sync.into(),
-            },
-            ui::MenuItem {
-                name: "THEME".into(),
-                detail: "colour scheme".into(),
-                value: self.theme.name.into(),
-            },
-            ui::MenuItem {
-                name: "FONT".into(),
-                detail: "bitmap face".into(),
-                value: self.font.face().name().into(),
-            },
-            ui::MenuItem {
-                name: "SCREEN".into(),
-                detail: "window or whole screen".into(),
-                value: if fullscreen { "fullscreen" } else { "window" }.into(),
-            },
-            ui::MenuItem {
-                name: "SCREENSAVER".into(),
-                detail: "clock when idle".into(),
-                value: if self.screensaver_on { "on" } else { "off" }.into(),
-            },
-            ui::MenuItem {
-                name: "IDLE".into(),
-                detail: "until it starts".into(),
-                value: format!("{} min", self.screensaver_minutes),
-            },
-            ui::MenuItem {
-                name: "INFO".into(),
-                detail: "version and credits".into(),
-                value: ui::VERSION.into(),
-            },
-            ui::MenuItem {
-                name: "UPDATE".into(),
-                detail: "check github for a new version".into(),
-                value: match &self.update_status {
-                    UpdateStatus::Unknown => ui::VERSION.into(),
-                    UpdateStatus::UpToDate => "up to date".into(),
-                    UpdateStatus::Available(version) => format!("{version} available"),
-                },
-            },
-            ui::MenuItem {
-                name: "SOFTWARE".into(),
-                detail: "install and remove modules".into(),
-                value: String::new(),
-            },
+            (
+                ui::MenuItem::row("WEBDAV", "sync the whole vault", sync),
+                Some(Action::Webdav),
+            ),
+            (ui::MenuItem::rule(), None),
+            (
+                ui::MenuItem::row("THEME", "colour scheme", self.theme.name),
+                Some(Action::Theme),
+            ),
+            (
+                ui::MenuItem::row("FONT", "bitmap face", self.font.face().name()),
+                Some(Action::Font),
+            ),
+            (
+                ui::MenuItem::row(
+                    "SCREEN",
+                    "window or whole screen",
+                    if fullscreen { "fullscreen" } else { "window" },
+                ),
+                Some(Action::Screen),
+            ),
+            (
+                ui::MenuItem::row(
+                    "SCREENSAVER",
+                    "clock when idle",
+                    if self.screensaver_on { "on" } else { "off" },
+                ),
+                Some(Action::Screensaver),
+            ),
+            (
+                ui::MenuItem::row(
+                    "IDLE",
+                    "until it starts",
+                    format!("{} min", self.screensaver_minutes),
+                ),
+                Some(Action::Idle),
+            ),
+            (ui::MenuItem::rule(), None),
+            (
+                ui::MenuItem::row(
+                    "TIME",
+                    "clock format",
+                    if self.clock_24h {
+                        "24 hours"
+                    } else {
+                        "12 hours"
+                    },
+                ),
+                Some(Action::Time),
+            ),
+            (
+                ui::MenuItem::row(
+                    "DATE",
+                    "date format",
+                    if self.date_day_first {
+                        "DD.MM.YY"
+                    } else {
+                        "MM/DD/YY"
+                    },
+                ),
+                Some(Action::Date),
+            ),
+            (ui::MenuItem::rule(), None),
+            (
+                ui::MenuItem::row("INFO", "version and credits", ui::VERSION),
+                Some(Action::Info),
+            ),
+            (
+                ui::MenuItem::row("UPDATE", "check github for a new version", update),
+                Some(Action::Update),
+            ),
+            (
+                ui::MenuItem::row("SOFTWARE", "install and remove modules", ""),
+                Some(Action::Software),
+            ),
         ]
+    }
+
+    fn setup_rows(&self) -> Vec<ui::MenuItem> {
+        self.setup_entries()
+            .into_iter()
+            .map(|(row, _)| row)
+            .collect()
+    }
+
+    /// Move the highlight, skipping the rules.
+    fn setup_step(&mut self, delta: isize) {
+        let entries = self.setup_entries();
+        let mut index = self.setup_selected as isize;
+        loop {
+            index += delta;
+            if index < 0 || index >= entries.len() as isize {
+                return;
+            }
+            if entries[index as usize].1.is_some() {
+                self.setup_selected = index as usize;
+                self.poke();
+                return;
+            }
+        }
     }
 
     fn open_software(&mut self) {
@@ -2739,7 +2838,13 @@ impl App {
 
     fn open_setup(&mut self) {
         self.mode = Mode::Setup;
-        self.setup_selected = self.setup_selected.min(8);
+        let entries = self.setup_entries();
+        if self.setup_selected >= entries.len() || entries[self.setup_selected].1.is_none() {
+            self.setup_selected = entries
+                .iter()
+                .position(|(_, action)| action.is_some())
+                .unwrap_or(0);
+        }
         self.command.clear();
         self.program_prompt = false;
         self.dirty = true;
@@ -2747,15 +2852,22 @@ impl App {
 
     /// What Enter does on the SETTINGS screen.
     fn setup_activate(&mut self) {
-        match self.setup_selected {
-            0 => {
+        let Some(action) = self
+            .setup_entries()
+            .get(self.setup_selected)
+            .and_then(|(_, action)| *action)
+        else {
+            return;
+        };
+        match action {
+            SetupAction::Webdav => {
                 // WebDAV is a form, not a value in a row.
                 self.open_webdav();
             }
-            1 => {
+            SetupAction::Theme => {
                 let _ = self.cycle_theme(1);
             }
-            2 => {
+            SetupAction::Font => {
                 let next = match self.font.face() {
                     Face::Classic => Face::Thin,
                     Face::Thin => Face::Classic,
@@ -2766,7 +2878,7 @@ impl App {
                 self.dirty = true;
                 self.set_status(format!("font: {}", next.name()));
             }
-            3 => {
+            SetupAction::Screen => {
                 if let Some(window) = self.window.as_ref() {
                     let going_fullscreen = window.fullscreen().is_none();
                     window.set_fullscreen(going_fullscreen.then_some(Fullscreen::Borderless(None)));
@@ -2777,13 +2889,13 @@ impl App {
                     });
                 }
             }
-            4 => {
+            SetupAction::Screensaver => {
                 self.screensaver_on = !self.screensaver_on;
                 self.save_prefs();
                 self.set_status(format!("screensaver: {}", on_off(self.screensaver_on)));
                 self.dirty = true;
             }
-            5 => {
+            SetupAction::Idle => {
                 self.screensaver_minutes = next_idle_minutes(self.screensaver_minutes);
                 self.save_prefs();
                 self.set_status(format!(
@@ -2792,13 +2904,33 @@ impl App {
                 ));
                 self.dirty = true;
             }
-            6 => {
+            SetupAction::Time => {
+                self.clock_24h = !self.clock_24h;
+                self.save_prefs();
+                self.set_status(if self.clock_24h {
+                    "clock: 24 hours"
+                } else {
+                    "clock: 12 hours"
+                });
+                self.dirty = true;
+            }
+            SetupAction::Date => {
+                self.date_day_first = !self.date_day_first;
+                self.save_prefs();
+                self.set_status(if self.date_day_first {
+                    "date: DD.MM.YY"
+                } else {
+                    "date: MM/DD/YY"
+                });
+                self.dirty = true;
+            }
+            SetupAction::Info => {
                 self.help_about = true;
                 self.mode = Mode::Help;
                 self.dirty = true;
             }
-            7 => self.start_update_check(),
-            _ => self.open_software(),
+            SetupAction::Update => self.start_update_check(),
+            SetupAction::Software => self.open_software(),
         }
     }
 
@@ -2806,14 +2938,8 @@ impl App {
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => self.to_write(),
             Key::Named(NamedKey::Enter) => self.setup_activate(),
-            Key::Named(NamedKey::ArrowUp) => {
-                self.setup_selected = self.setup_selected.saturating_sub(1);
-                self.poke();
-            }
-            Key::Named(NamedKey::ArrowDown) => {
-                self.setup_selected = (self.setup_selected + 1).min(8);
-                self.poke();
-            }
+            Key::Named(NamedKey::ArrowUp) => self.setup_step(-1),
+            Key::Named(NamedKey::ArrowDown) => self.setup_step(1),
             _ => {}
         }
     }
@@ -3086,12 +3212,7 @@ impl App {
             .and_then(|p| p.parent())
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| self.vault());
-        let home = storage::home_dir();
-        match dir.strip_prefix(&home) {
-            Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-            Ok(rest) => format!("~/{}", rest.display()),
-            Err(_) => dir.display().to_string(),
-        }
+        abbreviate_home(&dir)
     }
 
     fn cycle_theme(&mut self, delta: isize) -> Result<String, String> {
@@ -3409,6 +3530,16 @@ impl ApplicationHandler for App {
             let _ = self.save();
         }
         self.discard_scratch();
+    }
+}
+
+/// `/home/you/Music` -> `~/Music`, so a bar does not waste half its width.
+fn abbreviate_home(path: &Path) -> String {
+    let home = storage::home_dir();
+    match path.strip_prefix(&home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
     }
 }
 
@@ -3972,7 +4103,9 @@ mod tests {
         let scale = vp.scale as f64;
         app.vp = Some(vp);
         // A pointer position in real pixels lands on the raster pixel under it.
-        app.pointer = (320.0 * scale, 200.0 * scale);
+        // Softhand's canvas starts one bar row down, so the window pixel at
+        // 200 is raster pixel 200 - 16.
+        app.pointer = (320.0 * scale, (200.0 + TOP_BAR_PIXELS as f64) * scale);
         assert_eq!(app.raster_point(), (320, 200));
         assert!(app.program_pointer(PointerKind::Down(cread_core::program::BUTTON_LEFT)));
         let canvas = app.program.as_ref().unwrap().picture().unwrap();
@@ -4033,12 +4166,15 @@ mod tests {
         let dir = vault("update-row");
         let app = app_in(&dir);
         let rows = app.setup_rows();
-
-        assert_eq!(rows.len(), 9);
-        assert_eq!(rows[6].name, "INFO");
-        assert_eq!(rows[7].name, "UPDATE");
-        assert_eq!(rows[7].value, ui::VERSION);
-        assert_eq!(rows[8].name, "SOFTWARE");
+        let row = |name: &str| {
+            rows.iter()
+                .position(|row| row.name == name)
+                .unwrap_or_else(|| panic!("no {name} row"))
+        };
+        assert!(rows.iter().any(|row| row.rule), "groups are separated");
+        assert_eq!(rows[row("UPDATE")].value, ui::VERSION);
+        assert!(row("INFO") < row("UPDATE"));
+        assert!(row("UPDATE") < row("SOFTWARE"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4047,21 +4183,103 @@ mod tests {
     fn settings_has_the_screensaver_switches() {
         let dir = vault("screensaver-rows");
         let mut app = app_in(&dir);
-        let rows = app.setup_rows();
-        assert_eq!(rows[4].name, "SCREENSAVER");
-        assert_eq!(rows[4].value, "on");
-        assert_eq!(rows[5].name, "IDLE");
-        assert_eq!(rows[5].value, "5 min");
+        let index = |app: &App, name: &str| {
+            app.setup_rows()
+                .iter()
+                .position(|row| row.name == name)
+                .unwrap_or_else(|| panic!("no {name} row"))
+        };
+        assert_eq!(app.setup_rows()[index(&app, "SCREENSAVER")].value, "on");
+        assert_eq!(app.setup_rows()[index(&app, "IDLE")].value, "5 min");
 
-        app.setup_selected = 4;
+        app.setup_selected = index(&app, "SCREENSAVER");
         app.setup_activate();
         assert!(!app.screensaver_on);
-        assert_eq!(app.setup_rows()[4].value, "off");
+        assert_eq!(app.setup_rows()[index(&app, "SCREENSAVER")].value, "off");
 
-        app.setup_selected = 5;
+        app.setup_selected = index(&app, "IDLE");
         app.setup_activate();
         assert_eq!(app.screensaver_minutes, 10);
-        assert_eq!(app.setup_rows()[5].value, "10 min");
+        assert_eq!(app.setup_rows()[index(&app, "IDLE")].value, "10 min");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_settings_switch_the_clock_and_date_formats() {
+        let dir = vault("format-rows");
+        let mut app = app_in(&dir);
+        let index = |app: &App, name: &str| {
+            app.setup_rows()
+                .iter()
+                .position(|row| row.name == name)
+                .unwrap_or_else(|| panic!("no {name} row"))
+        };
+
+        assert_eq!(app.setup_rows()[index(&app, "TIME")].value, "24 hours");
+        assert_eq!(app.setup_rows()[index(&app, "DATE")].value, "DD.MM.YY");
+
+        app.setup_selected = index(&app, "TIME");
+        app.setup_activate();
+        assert!(!app.clock_24h);
+        assert_eq!(app.setup_rows()[index(&app, "TIME")].value, "12 hours");
+
+        app.setup_selected = index(&app, "DATE");
+        app.setup_activate();
+        assert!(!app.date_day_first);
+        assert_eq!(app.setup_rows()[index(&app, "DATE")].value, "MM/DD/YY");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_settings_arrows_skip_the_rules() {
+        let dir = vault("settings-rules");
+        let mut app = app_in(&dir);
+        app.open_setup();
+        assert_eq!(app.setup_rows()[app.setup_selected].name, "WEBDAV");
+
+        app.setup_step(1);
+        assert_eq!(app.setup_rows()[app.setup_selected].name, "THEME");
+        app.setup_step(-1);
+        assert_eq!(app.setup_rows()[app.setup_selected].name, "WEBDAV");
+
+        for _ in 0..40 {
+            app.setup_step(1);
+        }
+        assert_eq!(app.setup_rows()[app.setup_selected].name, "SOFTWARE");
+        assert!(
+            !app.setup_rows()[app.setup_selected].rule,
+            "never lands on a rule"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn softhand_wears_the_same_bar_as_the_editor() {
+        let dir = vault("softhand-bar");
+        let mut app = app_in(&dir);
+        app.new_picture();
+        app.vp = Some(Viewport::compute(1280, 800, ScaleMode::DEFAULT).unwrap());
+        app.compose();
+        let bar = rows_as_text(&app.screen)
+            .lines()
+            .next()
+            .unwrap()
+            .to_string();
+        assert!(bar.contains("untitled.png"), "{bar}");
+        assert!(bar.contains("modified"), "{bar}");
+        assert!(bar.contains("Pictures"), "{bar}");
+
+        app.save_picture(None).unwrap();
+        app.compose();
+        let bar = rows_as_text(&app.screen)
+            .lines()
+            .next()
+            .unwrap()
+            .to_string();
+        assert!(bar.contains("saved"), "the state follows the save: {bar}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4154,7 +4372,11 @@ mod tests {
         // Nothing listens there: the worker fails at once, no network needed.
         app.update_api = "http://127.0.0.1:1/releases".into();
         app.open_setup();
-        app.setup_selected = 7;
+        app.setup_selected = app
+            .setup_rows()
+            .iter()
+            .position(|row| row.name == "UPDATE")
+            .expect("the update row");
         app.setup_activate();
 
         assert_eq!(app.mode, Mode::Checking);
@@ -4189,7 +4411,11 @@ mod tests {
 
         // The settings row remembers what the check found.
         let rows = app.setup_rows();
-        assert_eq!(rows[7].value, "0.99.0 available");
+        let update = rows
+            .iter()
+            .position(|row| row.name == "UPDATE")
+            .expect("the update row");
+        assert_eq!(rows[update].value, "0.99.0 available");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

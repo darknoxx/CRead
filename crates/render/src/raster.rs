@@ -85,10 +85,25 @@ impl Framebuffer {
     /// Cells marked transparent are skipped, which is what lets a program put a
     /// menu over its own picture without punching a hole in it.
     pub fn draw_program(&mut self, screen: &Screen, raster: &Raster, theme: &Theme, font: &Font) {
+        self.draw_program_at(screen, raster, theme, font, 0);
+    }
+
+    /// The same, with the pixel layer starting `top` pixels down.
+    ///
+    /// Softhand wears a top bar like the editor, so its canvas and palette strip
+    /// move down by exactly one text row.
+    pub fn draw_program_at(
+        &mut self,
+        screen: &Screen,
+        raster: &Raster,
+        theme: &Theme,
+        font: &Font,
+        top: i32,
+    ) {
         // The page first: a program paints only what it means to paint, and
         // pixels it left clear show this colour.
         self.clear(theme.background());
-        self.blit(raster);
+        self.blit_at(raster, top);
         self.draw_cells(screen, theme, font, 0, 0);
     }
 
@@ -106,12 +121,20 @@ impl Framebuffer {
     /// Row-wise conversion: 245k pixels, once per frame, so the per-pixel
     /// bounds check of `put` would show up in a pointer-driven program.
     fn blit(&mut self, raster: &Raster) {
+        self.blit_at(raster, 0);
+    }
+
+    fn blit_at(&mut self, raster: &Raster, oy: i32) {
         let rows = raster.height().min(self.height);
         let cols = raster.width().min(self.width);
         let pixels = raster.pixels();
         for y in 0..rows {
+            let dest_y = oy + y as i32;
+            if dest_y < 0 || dest_y >= self.height as i32 {
+                continue;
+            }
             let src = &pixels[(y * raster.width()) as usize..][..cols as usize];
-            let base = (y * self.width) as usize * 4;
+            let base = (dest_y as u32 * self.width) as usize * 4;
             let dst = &mut self.data[base..base + cols as usize * 4];
             for (index, chunk) in src.iter().zip(dst.as_chunks_mut::<4>().0) {
                 if *index == CLEAR {
@@ -293,6 +316,21 @@ mod tests {
             fb.draw_program(&screen, &raster, &theme, &font);
         }
         eprintln!("draw_program: {:?}/frame", start.elapsed() / 50);
+    }
+
+    #[test]
+    fn a_program_can_start_below_a_top_bar() {
+        let mut fb = Framebuffer::new(64, 64);
+        let mut raster = Raster::new(8, 8);
+        raster.fill(15);
+        // A program's cell layer is transparent; the top bar would be cells.
+        let mut screen = Screen::new(8, 4);
+        screen.fill(Cell::TRANSPARENT);
+
+        fb.draw_program_at(&screen, &raster, &Theme::BLACK, &Font::new(), 16);
+        assert_eq!(fb.pixel(0, 15), Theme::BLACK.background(), "the bar's row");
+        assert_eq!(fb.pixel(0, 16), VGA[15], "the canvas starts one row down");
+        assert_eq!(fb.pixel(0, 23), VGA[15], "and keeps its height");
     }
 
     #[test]

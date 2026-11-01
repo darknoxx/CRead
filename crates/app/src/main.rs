@@ -4,6 +4,7 @@ mod app;
 mod audio;
 mod beep;
 mod cli;
+mod clock;
 mod screensaver;
 mod ui;
 

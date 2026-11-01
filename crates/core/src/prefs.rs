@@ -38,6 +38,10 @@ pub struct Prefs {
     pub screensaver: bool,
     /// Minutes of silence before the screensaver starts.
     pub screensaver_minutes: u32,
+    /// 24-hour clock in the bars; off means 12 hours with AM/PM.
+    pub clock_24h: bool,
+    /// German date order (`07.11.26`); off means `11/07/26`.
+    pub date_day_first: bool,
 }
 
 impl Default for Prefs {
@@ -58,6 +62,8 @@ impl Default for Prefs {
             installed: Vec::new(),
             screensaver: true,
             screensaver_minutes: 5,
+            clock_24h: true,
+            date_day_first: true,
         }
     }
 }
@@ -154,6 +160,8 @@ mod tests {
             installed: vec!["riff".into()],
             screensaver: false,
             screensaver_minutes: 15,
+            clock_24h: false,
+            date_day_first: false,
         };
         saved.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), saved);

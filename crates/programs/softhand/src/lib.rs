@@ -61,6 +61,8 @@ pub struct Softhand {
     pressed: bool,
     undo: Vec<Raster>,
     redo: Vec<Raster>,
+    /// Drawing marks the picture; the shell's save clears it.
+    modified: bool,
 }
 
 /// How many undo steps to keep: each is a full canvas copy.
@@ -86,6 +88,7 @@ impl Softhand {
             pressed: false,
             undo: Vec::new(),
             redo: Vec::new(),
+            modified: true,
         }
     }
 
@@ -94,6 +97,7 @@ impl Softhand {
         let mut app = Self::new();
         app.canvas.fill(PAPER);
         app.canvas.copy_from(picture, 0, 0);
+        app.modified = false;
         app
     }
 
@@ -125,6 +129,7 @@ impl Softhand {
     }
 
     fn push_undo(&mut self, before: Raster) {
+        self.modified = true;
         if self.undo.len() == UNDO_STEPS {
             self.undo.remove(0);
         }
@@ -311,6 +316,14 @@ impl Program for Softhand {
 
     fn status(&self) -> String {
         Softhand::status(self)
+    }
+
+    fn modified(&self) -> bool {
+        self.modified
+    }
+
+    fn mark_saved(&mut self) {
+        self.modified = false;
     }
 
     fn command(&mut self, command: &Command) -> Result<String, String> {

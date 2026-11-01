@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.24.0
+
+- **A top bar on the boot screen, with date and time**: `01.11.26 - 19:25` in
+  the middle, in the same bar the editor already wore. The logo moves down a
+  row so nothing sits under it.
+- **The editor's bar has a clock too**, and Softhand wears the same bar:
+  `bildname.png  modified  19:25  ~/Dokumente/CRead/Pictures`. It needed the
+  program to know whether it has unsaved work: Softhand now marks itself
+  `modified` while drawing and `saved` after the shell writes the file.
+- **Softhand's canvas and palette strip move down by exactly one bar row**, so
+  the canvas keeps its height; the pointer mapping subtracts the same offset,
+  or a click would land 16 pixels off.
+- **`SETTINGS` chooses the clock and date format**: `TIME` (24 hours or 12 with
+  AM/PM) and `DATE` (`DD.MM.YY` or `MM/DD/YY`), remembered in the preferences.
+- **`SETTINGS` is sorted by what belongs together**, with rules between sync,
+  the look, the clock and the machine's own rows. Arrow keys skip the rules.
+
 ## 0.23.2
 
 - **The INFO screen says what CReadOS is and who made it.** It now carries the

@@ -145,6 +145,15 @@ pub trait Program {
         false
     }
 
+    /// Does the program have unsaved changes? The shell shows it in the top
+    /// bar the way the editor shows `modified`.
+    fn modified(&self) -> bool {
+        false
+    }
+
+    /// The shell has just written the program's file.
+    fn mark_saved(&mut self) {}
+
     /// Did this program write files of its own since it was opened?
     ///
     /// The shell asks on the way out, so a cartridge's battery save is not

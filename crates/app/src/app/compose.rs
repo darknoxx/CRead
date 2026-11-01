@@ -315,6 +315,9 @@ impl App {
     fn main_screen(&mut self, screen: &mut Screen, hint: &str, error: &str) {
         let cols = screen.cols();
         let rows = screen.rows();
+        let now_local = chrono::Local::now();
+        let clock = crate::clock::stamp(&now_local, self.clock_24h, self.date_day_first, false);
+        let stamp = crate::clock::stamp(&now_local, self.clock_24h, self.date_day_first, true);
 
         if self.program.is_some() {
             let mut raster = std::mem::replace(&mut self.raster, Raster::new(1, 1));
@@ -328,26 +331,63 @@ impl App {
             }
             self.raster = raster;
 
-            let title = self
-                .program
-                .as_ref()
-                .map(|p| p.title().to_string())
-                .unwrap_or_default();
-            let state = self
-                .program
-                .as_ref()
-                .map(|p| p.status())
-                .unwrap_or_default();
-            let status = if state.is_empty() {
-                "Esc commands".to_string()
+            if self.program_id == Some("softhand") {
+                // The same bar as the editor: picture name and state on the
+                // left, the clock in the middle, the folder on the right. The
+                // palette strip has moved down with the canvas, so the bottom
+                // row is free for the prompt only.
+                let name = self
+                    .picture_path
+                    .as_ref()
+                    .and_then(|path| path.file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "untitled.png".to_string());
+                let state = if self
+                    .program
+                    .as_ref()
+                    .is_some_and(|program| program.modified())
+                {
+                    "modified"
+                } else {
+                    "saved"
+                };
+                let location = abbreviate_home(&picture::dir(&self.vault()));
+                ui::draw_top_bar(
+                    screen,
+                    &self.theme,
+                    &ui::TopBar {
+                        title: &name,
+                        state,
+                        clock: &clock,
+                        location: &location,
+                    },
+                );
+                if self.program_prompt {
+                    let prompt = Some((self.command.as_str(), hint, error));
+                    ui::draw_program_line(screen, &self.theme, "", "", None, prompt);
+                }
             } else {
-                format!("{state}    Esc commands")
-            };
-            let prompt = self
-                .program_prompt
-                .then_some((self.command.as_str(), hint, error));
-            let now = self.now_playing();
-            ui::draw_program_line(screen, &self.theme, &title, &status, now.as_deref(), prompt);
+                let title = self
+                    .program
+                    .as_ref()
+                    .map(|p| p.title().to_string())
+                    .unwrap_or_default();
+                let state = self
+                    .program
+                    .as_ref()
+                    .map(|p| p.status())
+                    .unwrap_or_default();
+                let status = if state.is_empty() {
+                    "Esc commands".to_string()
+                } else {
+                    format!("{state}    Esc commands")
+                };
+                let prompt = self
+                    .program_prompt
+                    .then_some((self.command.as_str(), hint, error));
+                let now = self.now_playing();
+                ui::draw_program_line(screen, &self.theme, &title, &status, now.as_deref(), prompt);
+            }
         } else if self.mode == Mode::View {
             let (width, _) = ui::layout(cols);
             if width != self.view_width {
@@ -365,6 +405,7 @@ impl App {
             let title = self.doc.title();
             let location = self.location();
             let view = ui::ReaderView {
+                clock: &clock,
                 title: &title,
                 state,
                 location: &location,
@@ -481,6 +522,7 @@ impl App {
                 });
 
                 let view = ui::WelcomeView {
+                    clock: &stamp,
                     show_prompt,
                     title_row,
                     items: &items,
@@ -582,6 +624,7 @@ impl App {
             let title = self.doc.title();
             let now = self.now_playing();
             let view = ui::DocumentView {
+                clock: &clock,
                 title: &title,
                 state,
                 location: &location,

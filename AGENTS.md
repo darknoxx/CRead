@@ -97,6 +97,14 @@ the choice lives in the preferences. Installing shows the loading bar on purpose
 — the moment is part of the fiction — and Inspiro is the system, never removable.
 There is no plugin directory and no file to copy.
 
+**One top bar, one clock.** `ui::draw_top_bar` is the only row zero: title on
+the left, a centred clock, the location on the right. The boot screen shows
+date and time, the editor and Softhand only the time; the formats come from
+`clock_24h` / `date_day_first` in the preferences (`crate::clock` is the only
+place that formats them). Softhand's pixel layer is drawn one bar row down
+(`draw_program_at`), so `raster_point` subtracts the same offset — otherwise
+the brush lands 16 pixels above the cursor.
+
 **The screensaver is the machine resting.** It is a shell mode
 (`Mode::Screensaver`), not a module on the `SOFTWARE` shelf, and it is
 theme-agnostic: black page, fixed VGA colours, drawn into a full-screen raster

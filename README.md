@@ -174,13 +174,18 @@ that belong to the device and not to a document.
 SETTINGS                                     the machine, not the document
   ┌──────────────────────────────────────────────────────────┐
   │ ► WEBDAV    sync the whole vault                    off    │
+  │ ───────────────────────────────────────────────────────── │
   │   THEME     colour scheme                          paper   │
   │   FONT      bitmap face                            classic │
   │   SCREEN    window or whole screen                 window  │
   │   SCREENSAVER clock when idle                      on      │
   │   IDLE      until it starts                        5 min   │
-  │   INFO      version and credits                   0.22.0  │
-  │   UPDATE    check github for a new version        0.22.0  │
+  │ ───────────────────────────────────────────────────────── │
+  │   TIME      clock format                           24 hours│
+  │   DATE      date format                            DD.MM.YY│
+  │ ───────────────────────────────────────────────────────── │
+  │   INFO      version and credits                   0.24.0  │
+  │   UPDATE    check github for a new version        0.24.0  │
   │   SOFTWARE  install and remove modules                     │
   └──────────────────────────────────────────────────────────┘
 ```
@@ -482,6 +487,27 @@ public half, and you can check a download yourself:
 minisign -V -p minisign.pub -m cread-linux-x86_64.tar.gz
 # or: rsign verify -p minisign.pub cread-linux-x86_64.tar.gz
 ```
+
+## The bars
+
+Screens with work to show wear the same bar in row zero: a name on the left, a
+clock in the middle, a place on the right. The editor shows the file, its
+`modified`/`saved` state, the time and the folder; Softhand does the same with
+the picture name, its state and `~/Dokumente/CRead/Pictures`; the boot screen
+only has the date and the time:
+
+```
+01.11.26 - 19:25                 (boot screen)
+welcome.md  modified   19:25   ~/Dokumente/CRead      (editor)
+bildname.png  modified  19:25  ~/Dokumente/CRead/Pictures   (Softhand)
+```
+
+Softhand's canvas and palette strip sit one bar row further down, so the canvas
+keeps its full height and the clicks still land where the crosshair is.
+
+`SETTINGS` chooses the clock (`TIME`: 24 or 12 hours, with AM/PM) and the date
+(`DATE`: `DD.MM.YY` or `MM/DD/YY`). Both are remembered. The clock redraws with
+the cursor blink, so it never costs an extra frame clock.
 
 ## Screensaver
 

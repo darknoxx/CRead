@@ -42,6 +42,8 @@ pub enum Bottom<'a> {
 }
 
 pub struct DocumentView<'a> {
+    /// The bar clock, already formatted for the chosen convention.
+    pub clock: &'a str,
     pub title: &'a str,
     /// "saved", "modified", or empty when there is no file yet.
     pub state: &'a str,
@@ -74,7 +76,16 @@ pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>
     let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
 
-    draw_top_bar(screen, theme, view.title, view.state, view.location);
+    draw_top_bar(
+        screen,
+        theme,
+        &TopBar {
+            title: view.title,
+            state: view.state,
+            clock: view.clock,
+            location: view.location,
+        },
+    );
     draw_text(screen, theme, view);
     match &view.bottom {
         Bottom::Status { message } => draw_status_bar(screen, theme, view, message),
@@ -89,27 +100,58 @@ pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>
     debug_assert!(cols > 0 && rows > 0);
 }
 
-fn draw_top_bar(screen: &mut Screen, theme: &Theme, title: &str, state: &str, location: &str) {
+/// What sits in row zero: the name on the left, a clock in the middle, the
+/// place on the right. One struct for every screen that wears a top bar, so
+/// they cannot drift apart.
+pub struct TopBar<'a> {
+    pub title: &'a str,
+    /// `modified`, `saved`, a tool name: whatever the caller has.
+    pub state: &'a str,
+    /// Already formatted (date and/or time); empty means no clock.
+    pub clock: &'a str,
+    pub location: &'a str,
+}
+
+pub fn draw_top_bar(screen: &mut Screen, theme: &Theme, bar: &TopBar<'_>) {
     let cols = screen.cols();
     let (fg, bg) = (theme.status_fg, theme.status_bg);
     screen.fill_row(0, Cell::blank(fg, bg));
 
-    // The location is right-aligned, so reserve its space first; otherwise a
-    // long path would eat into the file name.
-    let location = format!("{location} ");
-    let location_width = location.chars().count() as u32;
-    let name_width = cols.saturating_sub(location_width + 1);
-
-    let left = if state.is_empty() {
-        format!(" {title}")
+    let location = if bar.location.is_empty() {
+        String::new()
     } else {
-        format!(" {title}  {state}")
+        format!("{} ", bar.location)
     };
-    screen.put_str_ellipsis(0, 0, &left, name_width, fg, bg);
+    let location_width = location.chars().count() as u32;
+    let right_start = cols.saturating_sub(location_width);
 
-    if location_width < cols / 2 {
-        let x = cols.saturating_sub(location_width);
-        screen.put_str(x, 0, &location, theme.status_dim, bg);
+    let left = match (bar.title.is_empty(), bar.state.is_empty()) {
+        (true, _) => String::new(),
+        (false, true) => format!(" {}", bar.title),
+        (false, false) => format!(" {}  {}", bar.title, bar.state),
+    };
+    let left_width = left.chars().count() as u32;
+
+    // The clock is centred and dropped rather than squeezed: two labels with
+    // no room between them look worse than no clock.
+    let clock_width = bar.clock.chars().count() as u32;
+    let clock_x = cols.saturating_sub(clock_width) / 2;
+    let clock_fits = !bar.clock.is_empty()
+        && clock_x > left_width + 1
+        && clock_x + clock_width + 1 < right_start;
+
+    let left_room = if clock_fits {
+        clock_x.saturating_sub(2)
+    } else {
+        right_start.saturating_sub(1)
+    };
+    screen.put_str_ellipsis(0, 0, &left, left_room, fg, bg);
+
+    if clock_fits {
+        screen.put_str(clock_x, 0, bar.clock, fg, bg);
+    }
+    if location_width > 0 && location_width < cols / 2 {
+        screen.put_str(right_start, 0, &location, theme.status_dim, bg);
     }
 }
 
@@ -393,6 +435,33 @@ pub struct MenuItem {
     pub name: String,
     pub detail: String,
     pub value: String,
+    /// A separator instead of a row: never selectable, keeps the settings
+    /// readable without inventing headings.
+    pub rule: bool,
+}
+
+impl MenuItem {
+    pub fn row(
+        name: impl Into<String>,
+        detail: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            detail: detail.into(),
+            value: value.into(),
+            rule: false,
+        }
+    }
+
+    pub fn rule() -> Self {
+        Self {
+            name: String::new(),
+            detail: String::new(),
+            value: String::new(),
+            rule: true,
+        }
+    }
 }
 
 /// A boxed list with a value on the right: SOFTWARE and SETTINGS are the same
@@ -482,6 +551,12 @@ pub fn draw_menu(
 
     for (index, item) in items.iter().enumerate() {
         let y = first + index as u32;
+        if item.rule {
+            let start = x0 + 2;
+            let width = inner.saturating_sub(4) as usize;
+            screen.put_str(start, y, &"\u{2500}".repeat(width), theme.dim, bg);
+            continue;
+        }
         let selected = index == selected;
         let (fg, row_bg) = if selected {
             (theme.bg, theme.fg)
@@ -784,6 +859,8 @@ pub fn draw_loading(
 // ── reader (view mode) ──────────────────────────────────────────────────────
 
 pub struct ReaderView<'a> {
+    /// The bar clock, already formatted for the chosen convention.
+    pub clock: &'a str,
     pub title: &'a str,
     pub state: &'a str,
     pub location: &'a str,
@@ -801,7 +878,16 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
     let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
 
-    draw_top_bar(screen, theme, view.title, view.state, view.location);
+    draw_top_bar(
+        screen,
+        theme,
+        &TopBar {
+            title: view.title,
+            state: view.state,
+            clock: view.clock,
+            location: view.location,
+        },
+    );
 
     let (_, margin) = layout(cols);
     let height = text_height(rows);
@@ -883,6 +969,8 @@ impl BootItem {
 }
 
 pub struct WelcomeView<'a> {
+    /// The bar clock: date and time on the boot screen.
+    pub clock: &'a str,
     pub show_prompt: bool,
     /// Row of the greeting; the drive list follows two rows below.
     pub title_row: u32,
@@ -901,6 +989,16 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
     let cols = screen.cols();
     let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
+    draw_top_bar(
+        screen,
+        theme,
+        &TopBar {
+            title: "",
+            state: "",
+            clock: view.clock,
+            location: "",
+        },
+    );
 
     put_centered(
         screen,
@@ -1389,6 +1487,7 @@ mod tests {
         input: (&'a str, &'a str),
     ) -> DocumentView<'a> {
         DocumentView {
+            clock: "14:07",
             title: "note.md",
             state: "modified",
             location: "~/Dokumente/CRead",
@@ -1605,6 +1704,7 @@ mod tests {
             &mut screen,
             &Theme::BLACK,
             &WelcomeView {
+                clock: "07.11.26 - 14:07",
                 show_prompt: true,
                 title_row: 4,
                 items: &items,
@@ -1616,6 +1716,10 @@ mod tests {
             },
         );
         let text = rows_as_text(&screen);
+        assert!(
+            text.contains("07.11.26 - 14:07"),
+            "the boot bar carries the date and the clock"
+        );
         assert!(text.contains("Welcome to CRead"));
         assert!(text.contains("A: INSPIRO"));
         assert!(text.contains("SOFTWARE"));
