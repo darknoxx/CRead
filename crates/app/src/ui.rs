@@ -915,7 +915,7 @@ pub fn draw_loading(
     put_centered(screen, y0 + height + 1, hint, theme.status_dim, theme.bg);
 }
 
-// ── reader (view mode) ──────────────────────────────────────────────────────
+// ── manual ──────────────────────────────────────────────────────────────────
 
 pub struct ManualView<'a> {
     pub clock: &'a str,
@@ -975,22 +975,8 @@ pub fn draw_manual(screen: &mut Screen, theme: &Theme, view: &ManualView<'_>) {
     }
 }
 
-/// A small box that confirms one thing: the sync switch, for example.
-pub fn draw_notice(screen: &mut Screen, theme: &Theme, message: &str) {
-    let cols = screen.cols();
-    let rows = screen.rows();
-    let text = message.chars().count() as u32;
-    let width = (text + 8).clamp(20, cols.saturating_sub(4));
-    let height = 5;
-    let x0 = (cols - width) / 2;
-    let y0 = (rows - height) / 2;
-    frame_filled(screen, theme, x0, y0, width, height);
-    let x = x0 + (width.saturating_sub(text)) / 2;
-    screen.put_str(x, y0 + 2, message, theme.fg, theme.bg);
-    let hint = "Enter ok";
-    let hx = x0 + width - hint.chars().count() as u32 - 2;
-    screen.put_str(hx, y0 + height - 1, hint, theme.dim, theme.bg);
-}
+// ── reader (view mode) ──────────────────────────────────────────────────────
+
 pub struct ReaderView<'a> {
     /// The bar clock, already formatted for the chosen convention.
     pub clock: &'a str,
@@ -1005,7 +991,6 @@ pub struct ReaderView<'a> {
     pub hint: &'a str,
 }
 
-/// The document with the markup taken out: what the thing actually says.
 /// Paint rendered Markdown rows into the text area.
 fn draw_rendered_rows(
     screen: &mut Screen,
@@ -1039,6 +1024,7 @@ fn draw_rendered_rows(
     }
 }
 
+/// The document with the markup taken out: what the thing actually says.
 pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
     let cols = screen.cols();
     let rows = screen.rows();
@@ -1092,6 +1078,33 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
     if x > left.chars().count() as u32 + 1 {
         screen.put_str(x, bar, right, theme.status_dim, bg);
     }
+}
+
+// ── notices ────────────────────────────────────────────────────────────────
+
+/// A small box that confirms one thing: the sync switch, for example.
+pub fn draw_notice(screen: &mut Screen, theme: &Theme, message: &str) {
+    let cols = screen.cols();
+    let rows = screen.rows();
+    if cols == 0 || rows == 0 {
+        return;
+    }
+    let text = message.chars().count() as u32;
+    let room = cols.saturating_sub(4);
+    let width = if room >= 20 {
+        (text + 8).clamp(20, room)
+    } else {
+        room.max(1)
+    };
+    let height = 5.min(rows);
+    let x0 = cols.saturating_sub(width) / 2;
+    let y0 = rows.saturating_sub(height) / 2;
+    frame_filled(screen, theme, x0, y0, width, height);
+    let x = x0 + width.saturating_sub(text) / 2;
+    screen.put_str(x, y0 + 2, message, theme.fg, theme.bg);
+    let hint = "Enter ok";
+    let hx = (x0 + width).saturating_sub(hint.chars().count() as u32 + 2);
+    screen.put_str(hx, y0 + height - 1, hint, theme.dim, theme.bg);
 }
 
 // ── welcome ─────────────────────────────────────────────────────────────────
@@ -1486,10 +1499,18 @@ pub fn draw_form(screen: &mut Screen, theme: &Theme, view: &FormView<'_>) {
 pub fn draw_confirm(screen: &mut Screen, theme: &Theme, title: &str, message: &str, yes: bool) {
     let cols = screen.cols();
     let rows = screen.rows();
-    let width = cols.saturating_sub(12).clamp(30, 54);
+    if cols < 8 || rows < 4 {
+        return;
+    }
+    // At the smallest grid (40 columns) the old minimum of 30 was wider than
+    // `cols - 12`, which made `clamp` panic. The box shrinks with the screen.
+    let width = cols
+        .saturating_sub(12)
+        .clamp(20, 54)
+        .min(cols.saturating_sub(2));
     let height = 7;
-    let x0 = (cols - width) / 2;
-    let y0 = (rows - height) / 2;
+    let x0 = cols.saturating_sub(width) / 2;
+    let y0 = rows.saturating_sub(height) / 2;
 
     for y in y0..y0 + height {
         for x in x0..x0 + width {
@@ -1807,6 +1828,17 @@ mod tests {
         assert!(all.contains("alpha.md"));
         assert!(all.contains("Enter open"));
         assert!(all.contains('\u{2554}'), "corner missing");
+    }
+
+    #[test]
+    fn dialogs_fit_the_smallest_grid() {
+        let mut screen = Screen::new(40, 12);
+        draw_confirm(&mut screen, &Theme::BLACK, "QUIT", "Save and quit?", true);
+        draw_notice(&mut screen, &Theme::BLACK, "SYNC ON");
+
+        let mut tiny = Screen::new(10, 4);
+        draw_confirm(&mut tiny, &Theme::BLACK, "QUIT", "Save and quit?", true);
+        draw_notice(&mut tiny, &Theme::BLACK, "SYNC ON");
     }
 
     #[test]

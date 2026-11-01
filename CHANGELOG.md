@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.25.2
+
+- **The manual names itself and the sync box.** `USER MANUAL` is listed in the
+  settings chapter, `manual` in the command table, and the WebDAV chapter
+  mentions the `SYNC ON`/`SYNC OFF` confirmation. The editor chapter also
+  mentions the scrollbar.
+- **Softhand's legend finds its row.** On a 26-row grid it sits on the last
+  row, directly under the palette, and steps aside when the command prompt
+  needs that row. Its position now comes from the stage size, not a literal
+  `24`, and any program can ask for such a legend.
+- **The quit question fits the smallest window.** Its box had a minimum width
+  wider than a 40-column grid and would have panicked when drawn there; it now
+  shrinks with the screen. The sync notice is guarded the same way.
+- **Tidy-up:** the scrollbar docs sit on the right functions, the sync switch
+  no longer starts a worker just to turn itself off, and no production path
+  panics on an `expect` any more.
+
 ## 0.25.1
 
 - **The editor's bar says when autosave is on.** While the document is clean,

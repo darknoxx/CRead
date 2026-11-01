@@ -361,7 +361,8 @@ When autosave is on, a clean document says `autosave on` instead of `saved`.
 `modified` still appears while text is waiting to be written.
 
 Below it is the body of the text. Under that is a line with the word count
-and the cursor position.
+and the cursor position. On the right edge a thin bar shows how far you are
+in the text. It moves as you scroll.
 
 ### Typing and moving
 
@@ -616,6 +617,7 @@ time. The other screens show only the time.
 | INFO | Version and acknowledgements. |
 | UPDATE | Looks for a new version. |
 | SOFTWARE | The software shelf. |
+| USER MANUAL | Opens this manual. Nothing in it can be changed. |
 
 ### Using it
 
@@ -670,7 +672,8 @@ voluntary. Without settings, nothing happens.
 | sync | `on` |
 
 **Tab** moves to the next field. **Ctrl+S** saves the form. **Enter** in
-the `sync` field switches the backup on or off. **Esc** leaves the form.
+the `sync` field switches the backup on or off; a small box confirms
+`SYNC ON` or `SYNC OFF`. **Esc** leaves the form.
 
 ### What is backed up
 
@@ -771,6 +774,7 @@ The most important commands. Upper and lower case do not matter.
 | `font [classic\|thin]` | `weight` | Switches the typeface. |
 | `fullscreen` | `fs` | The whole screen. |
 | `help [all]` | `?`, `h` | Shows the commands. |
+| `manual` | `handbook` | Shows this manual. |
 | `mute` | `silence` | Silences the running program. |
 | `new` | `n` | New document. |
 | `open [name]` | `o`, `e` | Shows the vault or opens a name. |

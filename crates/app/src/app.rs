@@ -39,13 +39,19 @@ use crate::cli::Options;
 
 use crate::screensaver::next_idle_minutes;
 use crate::ui;
-
 use cread_sync::{Config as SyncConfig, Report as SyncReport, Worker};
 use cread_update::Event as UpdateEvent;
 
 const WELCOME: &str = include_str!("welcome.md");
 /// The user manual, embedded so it is always there — like a built-in book.
 const MANUAL: &str = include_str!("manual.md");
+
+/// Programs are written for the classic 80x25 stage.
+const STAGE_COLS: u32 = 80;
+const STAGE_ROWS: u32 = 25;
+/// Softhand paints a 23-row canvas and a one-row palette strip, so its stage is
+/// one row shorter and the legend can sit underneath.
+const SOFTHAND_ROWS: u32 = 24;
 
 /// How long the editor waits after the last keystroke before writing to disk.
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
@@ -1854,20 +1860,25 @@ impl App {
     /// stage centred instead of pinned to the top-left. Softhand is 24 rows tall
     /// and wears the top bar, so its stage is centred below that bar.
     fn program_stage(&self, cols: u32, rows: u32) -> (u32, u32) {
-        let stage_rows = if self.program_id == Some("softhand") {
-            24
-        } else {
-            25
-        };
+        let stage_rows = self.program_stage_height();
         let top = if self.program_id == Some("softhand") {
             1
         } else {
             0
         };
         (
-            cols.saturating_sub(80) / 2,
+            cols.saturating_sub(STAGE_COLS) / 2,
             top + rows.saturating_sub(top + stage_rows) / 2,
         )
+    }
+
+    /// Rows the current program's stage occupies, strip and legend included.
+    fn program_stage_height(&self) -> u32 {
+        if self.program_id == Some("softhand") {
+            SOFTHAND_ROWS
+        } else {
+            STAGE_ROWS
+        }
     }
 
     /// The binary to start after an update. Captured at startup on purpose:
@@ -1894,18 +1905,27 @@ impl App {
 
     /// Open the built-in manual, rendered for the current width.
     pub(super) fn open_manual(&mut self, back: Mode) {
-        self.show_manual(back);
-    }
-
-    fn show_manual(&mut self, back: Mode) {
         let (width, _) = ui::layout(self.screen.cols());
-        let lines: Vec<String> = MANUAL.lines().map(str::to_string).collect();
-        self.manual_rows = cread_core::markdown::render(&lines, width);
-        self.manual_width = width;
+        self.render_manual(width);
         self.manual_top = 0;
         self.manual_back = back;
         self.mode = Mode::Manual;
         self.dirty = true;
+    }
+
+    /// Render the embedded manual at `width`. The scroll position survives a
+    /// resize as far as the new layout still has that row.
+    fn render_manual(&mut self, width: usize) {
+        if self.manual_width != width || self.manual_rows.is_empty() {
+            let lines: Vec<String> = MANUAL.lines().map(str::to_string).collect();
+            self.manual_rows = cread_core::markdown::render(&lines, width);
+            self.manual_width = width;
+        }
+        let max = self
+            .manual_rows
+            .len()
+            .saturating_sub(ui::text_height(self.screen.rows()));
+        self.manual_top = self.manual_top.min(max);
     }
 
     fn leave_manual(&mut self) {
@@ -2152,7 +2172,9 @@ impl App {
             self.clipboard =
                 Some(arboard::Clipboard::new().map_err(|e| format!("clipboard: {e}"))?);
         }
-        Ok(self.clipboard.as_mut().expect("just created"))
+        self.clipboard
+            .as_mut()
+            .ok_or_else(|| "clipboard is not available".to_string())
     }
 
     fn copy_selection(&mut self) -> Result<String, String> {
@@ -2484,7 +2506,9 @@ impl App {
         if self.audio.is_none() {
             self.audio = Some(crate::audio::Audio::open(self.volume)?);
         }
-        Ok(self.audio.as_mut().expect("just opened"))
+        self.audio
+            .as_mut()
+            .ok_or_else(|| "audio output is not available".to_string())
     }
 
     /// Start whatever the playlist points at.
@@ -2942,7 +2966,7 @@ impl App {
                 Some(Action::Software),
             ),
             (
-                ui::MenuItem::row("USER MANUAL", "read the handbook", ""),
+                ui::MenuItem::row("USER MANUAL", "read the manual", ""),
                 Some(Action::Manual),
             ),
         ]
@@ -4596,6 +4620,13 @@ mod tests {
         let text = rows_as_text(&app.screen);
         assert!(text.contains("CRead OS"), "the manual is on screen");
         assert!(text.contains("USER MANUAL"), "the bar says where we are");
+        let column: String = (2..app.screen.rows() - 2)
+            .map(|y| app.screen.get(app.screen.cols() - 1, y).unwrap().ch)
+            .collect();
+        assert!(
+            column.contains('\u{2588}'),
+            "the manual scrolls: {column:?}"
+        );
 
         app.scroll_manual(40);
         assert!(app.manual_top > 0, "it scrolls");
@@ -4610,9 +4641,12 @@ mod tests {
     fn switching_sync_says_so_and_returns_to_the_form() {
         let dir = vault("sync-notice");
         let mut app = app_in(&dir);
+        app.sync_cfg = SyncConfig {
+            url: "https://example.com/dav".into(),
+            enabled: false,
+            ..SyncConfig::default()
+        };
         app.open_webdav();
-        app.form.url = "https://example.com/dav".into();
-        app.form.enabled = false;
 
         app.toggle_sync();
         assert_eq!(app.mode, Mode::Notice);
@@ -4626,6 +4660,78 @@ mod tests {
         app.toggle_sync();
         assert_eq!(app.notice_text, "SYNC OFF");
         assert!(!app.sync_cfg.enabled);
+
+        // A switch without a server stays off and says why.
+        app.sync_cfg.url.clear();
+        app.sync_cfg.enabled = false;
+        app.open_webdav();
+        app.toggle_sync();
+        assert_eq!(app.mode, Mode::Webdav, "the form stays open");
+        assert!(!app.sync_cfg.enabled);
+        assert!(app.form.note.contains("URL"), "{}", app.form.note);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_narrowest_grid_still_draws_the_screens() {
+        let dir = vault("narrow-grid");
+        let mut app = app_in(&dir);
+        app.screen = Screen::new(40, 12);
+
+        app.mode = Mode::Write;
+        app.compose();
+
+        app.open_manual(Mode::Write);
+        app.compose();
+        assert!(!app.manual_rows.is_empty());
+
+        app.open_notice("SYNC ON", Mode::Write);
+        app.compose();
+
+        app.quit = Some(QuitPrompt {
+            yes: true,
+            from: Mode::Write,
+        });
+        app.mode = Mode::Quit;
+        app.compose();
+
+        app.open_setup();
+        app.compose();
+        app.help_all = true;
+        app.mode = Mode::Help;
+        app.compose();
+        app.open_software();
+        app.compose();
+        app.open_webdav();
+        app.compose();
+        app.open_browser();
+        app.compose();
+        app.mode = Mode::View;
+        app.compose();
+        app.mode = Mode::Search;
+        app.compose();
+        app.mode = Mode::Loading;
+        app.compose();
+        app.mode = Mode::Checking;
+        app.compose();
+        app.start_screensaver();
+        app.compose();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_manual_returns_to_where_it_was_opened() {
+        let dir = vault("manual-command");
+        let mut app = app_in(&dir);
+        app.mode = Mode::Write;
+        app.has_document = true;
+
+        app.open_manual(Mode::Write);
+        assert_eq!(app.mode, Mode::Manual);
+        app.leave_manual();
+        assert_eq!(app.mode, Mode::Write);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4641,6 +4747,27 @@ mod tests {
         assert!(text.contains("B pencil"), "the legend is there: {text}");
         assert!(text.contains("E eraser"));
         assert!(text.contains("I pick"));
+
+        app.screen = Screen::new(80, 25);
+        app.compose();
+        assert!(
+            !rows_as_text(&app.screen).contains("B pencil"),
+            "25 rows leave no space, and the palette is not covered"
+        );
+
+        app.screen = Screen::new(80, 26);
+        app.compose();
+        assert!(
+            rows_as_text(&app.screen).contains("B pencil"),
+            "one free row is enough for the legend"
+        );
+
+        app.program_prompt = true;
+        app.compose();
+        assert!(
+            !rows_as_text(&app.screen).contains("B pencil"),
+            "the prompt takes the last row when it needs it"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

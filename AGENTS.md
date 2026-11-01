@@ -14,7 +14,7 @@ Rust, edition 2024, no async in the UI thread, no web view.
 
 ```bash
 cargo build                     # debug build, optimised deps (see Cargo.toml)
-cargo test                      # 206 tests, under a second
+cargo test                      # the whole suite, under a second
 cargo fmt --all                 # CI enforces --check
 cargo clippy --all-targets      # CI enforces -D warnings
 cargo run -p cread -- --demo -w # run without taking over the screen
@@ -33,8 +33,9 @@ cread --demo --size 1280x800 --show action --command "sca" --screenshot /tmp/sho
 
 The last one prefills the prompt, which is the only way to screenshot a typed
 command state. Dev views beyond the everyday ones: `webdav` (the sync form),
-`manual`, `notice` (the sync confirmation), `quit` (the exit question), `software`, `pictures`, `riffplay`, `riffinsert`,
-`pocketboi[:<rom>]`, `picture[:<png>]`.
+`manual`, `notice` (the sync confirmation), `quit` (the exit question),
+`software`, `pictures`, `riffplay`, `riffinsert`, `pocketboi[:<rom>]`,
+`picture[:<png>]`.
 
 ## Layout
 

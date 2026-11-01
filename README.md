@@ -186,14 +186,14 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         version and credits                  0.25.1 │
-  │   UPDATE       check github for a new version       0.25.1 │
+  │   INFO         version and credits                  0.25.2 │
+  │   UPDATE       check github for a new version       0.25.2 │
   │   SOFTWARE     install and remove modules                  │
-  │   USER MANUAL  read the handbook                           │
+  │   USER MANUAL  read the manual                             │
   └────────────────────────────────────────────────────────────┘
 ```
 
-`USER MANUAL` opens the handbook that ships inside the binary: the same text
+`USER MANUAL` opens the manual that ships inside the binary: the same text
 as `crates/app/src/manual.md`, read-only, with a scrollbar on the right. It is
 not an Inspiro document; `Esc` takes you back to SETTINGS.
 

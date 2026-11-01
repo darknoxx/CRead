@@ -7,11 +7,11 @@ use super::*;
 
 /// Editable copy of the WebDAV settings, shown as a form.
 pub(super) struct FormState {
-    pub(super) url: String,
+    url: String,
     username: String,
     password: String,
     remote_dir: String,
-    pub(super) enabled: bool,
+    enabled: bool,
     pub(super) focus: usize,
     pub(super) note: String,
 }
@@ -122,7 +122,9 @@ impl App {
                 .map_err(|e| format!("cannot write config: {e}"))?;
         }
         self.sync_cfg = cfg.clone();
-        self.start_worker();
+        if cfg.enabled {
+            self.start_worker();
+        }
         if let Some(worker) = self.sync.as_ref() {
             worker.configure(cfg);
         }

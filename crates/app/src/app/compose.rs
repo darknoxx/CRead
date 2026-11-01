@@ -59,11 +59,7 @@ impl App {
         }
         if self.mode == Mode::Manual {
             let (width, _) = ui::layout(screen.cols());
-            if self.manual_width != width {
-                let lines: Vec<String> = MANUAL.lines().map(str::to_string).collect();
-                self.manual_rows = cread_core::markdown::render(&lines, width);
-                self.manual_width = width;
-            }
+            self.render_manual(width);
             let now_local = chrono::Local::now();
             let clock = crate::clock::stamp(&now_local, self.clock_24h, self.date_day_first, false);
             let view = ui::ManualView {
@@ -407,22 +403,6 @@ impl App {
                     let prompt = Some((self.command.as_str(), hint, error));
                     ui::draw_program_line(screen, &self.theme, "", "", None, prompt);
                 }
-                // The tool keys sit right under the colour strip. The smallest
-                // grid has no row left for them, so they are skipped there.
-                let legend = self
-                    .program
-                    .as_ref()
-                    .map(|program| program.key_legend())
-                    .unwrap_or("");
-                if !legend.is_empty() {
-                    let (stage_x, stage_y) = self.program_stage(cols, rows);
-                    let y = stage_y + 24;
-                    let width = legend.chars().count() as u32;
-                    let x = stage_x + 80u32.saturating_sub(width) / 2;
-                    if y < rows && x < cols {
-                        screen.put_str(x, y, legend, self.theme.dim, self.theme.bg);
-                    }
-                }
             } else {
                 let title = self
                     .program
@@ -445,6 +425,26 @@ impl App {
                 let now = self.now_playing();
                 ui::draw_program_line(screen, &self.theme, &title, &status, now.as_deref(), prompt);
             }
+
+            // A program may ask for its keys to be named under its surface.
+            // Softhand's 24-row stage leaves the next row free; on the smallest
+            // grid even that row is gone and the legend is skipped.
+            let legend = self
+                .program
+                .as_ref()
+                .map(|program| program.key_legend())
+                .unwrap_or("");
+            if !legend.is_empty() {
+                let y = stage_y + self.program_stage_height();
+                let width = legend.chars().count() as u32;
+                let x = stage_x + STAGE_COLS.saturating_sub(width) / 2;
+                // On a grid with exactly one spare row the legend sits on the
+                // prompt line; the prompt wins, but it stays when there is room.
+                let shares_prompt = self.program_prompt && y + 1 >= rows;
+                if y < rows && x < cols && !shares_prompt {
+                    screen.put_str(x, y, legend, self.theme.dim, self.theme.bg);
+                }
+            }
         } else if self.mode == Mode::View {
             let (width, _) = ui::layout(cols);
             if width != self.view_width {
@@ -452,6 +452,8 @@ impl App {
                 self.view_width = width;
             }
             let stats = self.doc.editor.stats();
+            // Reading mode cannot edit; the autosave label belongs to the
+            // editor, where it explains why the document stays clean.
             let state = if self.doc.editor.modified() {
                 "modified"
             } else if self.doc.path.is_some() {

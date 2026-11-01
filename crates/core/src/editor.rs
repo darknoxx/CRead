@@ -612,7 +612,7 @@ impl Editor {
             if self.cursor.line > 0 {
                 self.cursor.line -= 1;
                 let segs = wrap(&self.lines[self.cursor.line], width);
-                let (start, end) = *segs.last().unwrap();
+                let (start, end) = segs.last().copied().unwrap_or((0, 0));
                 self.cursor.col = start + x.min(end - start);
             } else {
                 self.cursor.col = 0;
@@ -666,20 +666,27 @@ impl Editor {
 
     // ── viewport ────────────────────────────────────────────────────────────
 
-    /// Visual rows starting at `top`, at most `limit` of them.
     /// Total visual rows at this width, and the index of the first visible
     /// one. The scrollbar needs both; `visible_rows` only knows the window.
     pub fn scroll_metrics(&self, width: usize) -> (usize, usize) {
         let width = width.max(1);
+        // Mirror `visible_rows`: a `top` left behind by a deletion still names
+        // the last line that exists.
+        let top_line = self.top.line.min(self.lines.len().saturating_sub(1));
+        let top_col = if top_line == self.top.line {
+            self.top.col
+        } else {
+            0
+        };
         let mut total = 0;
         let mut first = 0;
         for (index, line) in self.lines.iter().enumerate() {
             let rows = wrap(line, width);
-            if index == self.top.line {
+            if index == top_line {
                 first = total
                     + rows
                         .iter()
-                        .position(|(start, end)| *start <= self.top.col && self.top.col < *end)
+                        .position(|(start, end)| *start <= top_col && top_col < *end)
                         .unwrap_or(0);
             }
             total += rows.len();
@@ -687,6 +694,7 @@ impl Editor {
         (first, total)
     }
 
+    /// Visual rows starting at `top`, at most `limit` of them.
     pub fn visible_rows(&self, width: usize, limit: usize) -> Vec<VisualRow> {
         let width = width.max(1);
         let mut rows = Vec::new();
@@ -778,6 +786,8 @@ impl Editor {
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 /// Wrap a line into char ranges, breaking on spaces where possible.
+///
+/// Always returns at least one range, even for an empty line.
 pub fn wrap(line: &str, width: usize) -> Vec<(usize, usize)> {
     let width = width.max(1);
     let chars: Vec<char> = line.chars().collect();
@@ -929,6 +939,23 @@ mod tests {
 
         let editor = Editor::from_text("aaa\nbbb");
         assert_eq!(editor.scroll_metrics(10), (0, 2));
+
+        assert_eq!(
+            Editor::from_text("").scroll_metrics(10),
+            (0, 1),
+            "an empty document still has a row"
+        );
+
+        let mut editor = Editor::from_text("aaa\nbbb\nccc");
+        editor.top = Position { line: 2, col: 0 };
+        assert_eq!(editor.scroll_metrics(10), (2, 3));
+
+        editor.top = Position { line: 99, col: 4 };
+        assert_eq!(
+            editor.scroll_metrics(10),
+            (2, 3),
+            "a stale top points at the last row"
+        );
     }
 
     #[test]
