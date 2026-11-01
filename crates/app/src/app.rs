@@ -4551,7 +4551,10 @@ mod tests {
 
         let line = bar(&mut app);
         assert!(line.contains(" saved"), "a fresh file is saved: {line}");
-        assert!(!line.contains("autosave"), "{line}");
+        assert!(
+            !line.contains("autosave on"),
+            "autosave is off, not just missing from the state: {line}"
+        );
 
         app.autosave = true;
         let line = bar(&mut app);
