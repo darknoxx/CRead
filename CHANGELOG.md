@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.23.2
+
+- **The INFO screen says what CReadOS is and who made it.** It now carries the
+  mission line ("a minimal fake operating system, that helps you to stay focused
+  on what really counts"), the stack (Rust, winit, wgpu), the font credit with
+  its licence and link, and what Pocketboi runs on: mizu-core 1.3.0 (MIT), the
+  Game Boy emulator in Rust, vendored with five small patches, with its link.
+  Signed `- darknoxx 2026`.
+- The about text is word-wrapped now, so a narrow grid gets more lines instead
+  of sentences chopped at the edge.
+
 ## 0.23.1
 
 - **The restart after an update actually runs the new version.** `install`

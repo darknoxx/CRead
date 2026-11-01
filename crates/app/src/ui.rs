@@ -1004,6 +1004,44 @@ fn put_centered(screen: &mut Screen, y: u32, text: &str, fg: u8, bg: u8) {
 /// Version shown on the about screen and in the help title.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The about screen, one paragraph per entry. Wrapped at draw time, so a narrow
+/// grid gets more lines instead of chopped sentences.
+const ABOUT: &[&str] = &[
+    "CReadOS is a minimal fake operating system, that helps you to stay focused on what really counts.",
+    "Built in Rust, winit and wgpu.",
+    "Font: IBM VGA 8x16 from VileR's Ultimate Oldschool PC Font Pack, CC BY-SA 4.0 (https://int10h.org/oldschool-pc-fonts/).",
+    "Pocketboi runs on mizu-core 1.3.0 (MIT), a Game Boy and Game Boy Color emulator in Rust, vendored with five small patches: https://github.com/Amjad50/mizu",
+];
+
+/// The signature at the bottom of the about screen.
+const ABOUT_SIGNATURE: &str = "- darknoxx 2026";
+
+/// Greedy word wrap. A word longer than the line gets a line of its own and is
+/// clipped by the renderer, which is better than a mid-URL break.
+fn wrap_line(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let extra = if current.is_empty() {
+            word.len()
+        } else {
+            word.len() + 1
+        };
+        if !current.is_empty() && current.len() + extra > width {
+            lines.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
 /// Full-screen reference. Without hotkeys this is the only way to discover what
 /// the program can do, so it is a first-class screen rather than a popup.
 pub fn draw_help(
@@ -1031,25 +1069,24 @@ pub fn draw_help(
     let last = rows.saturating_sub(2);
 
     if about {
-        for line in [
-            "A writing terminal that pretends it is 1987.",
-            "",
-            "Built with Rust, winit and wgpu. The text is drawn into an",
-            "emulated raster and scaled by an integer factor, so scanlines",
-            "stay exactly one emulated pixel tall on any display.",
-            "",
-            "Font: IBM VGA 8x16 from VileR's Ultimate Oldschool PC Font",
-            "Pack, CC BY-SA 4.0 (https://int10h.org/oldschool-pc-fonts/).",
-            "Nine glyphs CP437 never had are hand-drawn in the source.",
-            "",
-            "Documents are plain Markdown in ~/Documents/CRead.",
-        ] {
-            if y >= last {
-                break;
+        let width = cols.saturating_sub(4) as usize;
+        for (paragraph, text) in ABOUT.iter().enumerate() {
+            if paragraph > 0 && y < last {
+                y += 1;
             }
-            screen.put_str_ellipsis(2, y, line, cols.saturating_sub(4), fg, bg);
-            y += 1;
+            for line in wrap_line(text, width) {
+                if y >= last {
+                    break;
+                }
+                screen.put_str_ellipsis(2, y, &line, cols.saturating_sub(4), fg, bg);
+                y += 1;
+            }
         }
+
+        // The signature sits on the last content row, right-aligned.
+        let signature = ABOUT_SIGNATURE;
+        let x = cols.saturating_sub(2 + signature.chars().count() as u32);
+        screen.put_str(x.max(2), last, signature, theme.accent, bg);
     } else {
         // Two columns, balanced: a help screen that silently drops its last
         // rows is worse than none.
@@ -1511,6 +1548,46 @@ mod tests {
         assert!(all.contains("alpha.md"));
         assert!(all.contains("Enter open"));
         assert!(all.contains('\u{2554}'), "corner missing");
+    }
+
+    #[test]
+    fn words_wrap_instead_of_being_cut() {
+        assert_eq!(wrap_line("one two three", 7), vec!["one two", "three"]);
+        assert_eq!(
+            wrap_line("a supercalifragilistic b", 5),
+            vec!["a", "supercalifragilistic", "b"],
+            "a word longer than the line keeps a line of its own"
+        );
+        assert!(wrap_line("", 10).is_empty());
+    }
+
+    #[test]
+    fn the_about_screen_credits_what_is_not_ours() {
+        let vp = vp(1280, 800);
+        let mut screen = Screen::new(vp.cols(), vp.rows());
+        draw_help(&mut screen, &Theme::BLACK, true, &[], 0);
+        let text = rows_as_text(&screen);
+
+        for needle in [
+            "CReadOS is a minimal fake operating system",
+            "Built in Rust, winit and wgpu",
+            "VileR",
+            "CC BY-SA",
+            "4.0",
+            "https://int10h.org/oldschool-pc-fonts/",
+            "mizu-core 1.3.0",
+            "https://github.com/Amjad50/mizu",
+        ] {
+            assert!(text.contains(needle), "{needle:?} missing from:\n{text}");
+        }
+
+        // The signature sits on the last content row, right-aligned.
+        let last = vp.rows().saturating_sub(2) as usize;
+        let line = text.lines().nth(last).unwrap_or("");
+        assert!(
+            line.trim_end().ends_with("- darknoxx 2026"),
+            "signature missing: {line:?}"
+        );
     }
 
     #[test]

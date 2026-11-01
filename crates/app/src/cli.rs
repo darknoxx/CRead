@@ -181,6 +181,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "vault",
                     "documents",
                     "screensaver",
+                    "about",
                     "updatecheck",
                     "updateprompt",
                     "quit",

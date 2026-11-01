@@ -3202,6 +3202,10 @@ impl ApplicationHandler for App {
             "webdav" => self.open_webdav(),
             "vault" => self.open_browser(),
             "screensaver" => self.start_screensaver(),
+            "about" => {
+                self.help_about = true;
+                self.mode = Mode::Help;
+            }
             "updatecheck" => {
                 self.update_started = Instant::now();
                 self.update_installing = false;
