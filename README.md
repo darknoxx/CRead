@@ -9,16 +9,16 @@ ultrawide.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ welcome.md                                saved · sync idle   │
+│ welcome.md                                saved · sync idle  │
 ├──────────────────────────────────────────────────────────────┤
-│ # Welcome to CRead                                            │
-│                                                               │
-│ A writing terminal that pretends it is 1987.                  │
-│                                                               │
-│ ## Getting started                                            │
-│                                                               │
-│ - `Ctrl+S` saves. Everything in ~/Documents/CRead is plain     │
-│   Markdown.                                                   │
+│ # Welcome to CRead                                           │
+│                                                              │
+│ A writing terminal that pretends it is 1987.                 │
+│                                                              │
+│ ## Getting started                                           │
+│                                                              │
+│ - `Esc`, then `save`. Everything in ~/Documents/CRead is     │
+│   Markdown.                                                  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
