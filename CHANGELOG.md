@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.23.1
+
+- **The restart after an update actually runs the new version.** `install`
+  renames the running binary to `cread.old` before putting the new one in its
+  place; on Linux `/proc/self/exe` follows the *inode*, so `current_exe()` then
+  names the old file. The restart used exactly that and started the previous
+  version — the update only took effect after starting CRead from a fresh
+  shell. The executable path is now captured at startup and the restart uses
+  that; a test keeps it from drifting back to `current_exe()`.
+- `--update-once` was never affected: it asks for the path before installing.
+
 ## 0.23.0
 
 - **A screensaver: an analog clock on black.** After five minutes without a key

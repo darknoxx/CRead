@@ -112,7 +112,11 @@ only trusts the keys it was built with). It refuses a release without a
 signature, a checksum or signature that does not match, a tarball without a
 `cread`, and a development build. The old binary is kept as `cread.old`; the
 replaced file is a sibling temp file renamed over it, never a copy across
-filesystems. `--update-once` is the non-interactive path for scripts and tests.
+filesystems. **The restart uses the executable path captured at startup
+(`self_exe`), never `current_exe()`**: renaming the running binary makes
+`/proc/self/exe` follow the inode, so after the update it names `cread.old` —
+asking again would start the old version. `--update-once` is the
+non-interactive path for scripts and tests.
 
 **Sound belongs to the shell.** The music deck (`crates/app/src/audio.rs`) lives
 in `App`, not in the Riff program, because playback has to outlive the screen and

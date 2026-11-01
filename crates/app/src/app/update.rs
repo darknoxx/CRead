@@ -11,7 +11,7 @@ impl App {
     /// SETTINGS -> UPDATE, and the `update` command: ask GitHub for the newest
     /// release. The window stays up until the worker answers.
     pub(super) fn start_update_check(&mut self) {
-        let Some(target) = self.update_target.clone() else {
+        let Some(target) = self.self_exe.clone() else {
             self.set_status("cannot tell which binary is running");
             return;
         };
@@ -146,7 +146,7 @@ impl App {
         }
         self.close_program();
 
-        let Some(exe) = std::env::current_exe().ok() else {
+        let Some(exe) = self.restart_target() else {
             self.set_status(format!("updated to {version}, but cannot find the binary"));
             self.mode = Mode::Setup;
             return;

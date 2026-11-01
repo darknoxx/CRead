@@ -432,8 +432,10 @@ struct App {
     updater: Option<cread_update::Worker>,
     /// Where the release list is read from; tests point it at a dead address.
     update_api: String,
-    /// The binary a release would replace.
-    update_target: Option<PathBuf>,
+    /// This executable, captured at startup. It must not be asked for again
+    /// after an update: renaming the running binary makes `/proc/self/exe`
+    /// follow the inode, so `current_exe()` would then name `cread.old`.
+    self_exe: Option<PathBuf>,
     update_started: Instant,
     /// The window is fetching and installing, not asking.
     update_installing: bool,
@@ -579,7 +581,7 @@ impl App {
             updater: None,
             update_api: std::env::var("CREAD_UPDATE_API")
                 .unwrap_or_else(|_| cread_update::LATEST.to_string()),
-            update_target: std::env::current_exe().ok(),
+            self_exe: std::env::current_exe().ok(),
             update_started: Instant::now(),
             update_installing: false,
             update_status: UpdateStatus::Unknown,
@@ -1763,6 +1765,16 @@ impl App {
             && !matches!(self.mode, Mode::Loading | Mode::Checking)
             && self.last_input.elapsed()
                 >= Duration::from_secs(u64::from(self.screensaver_minutes) * 60)
+    }
+
+    /// The binary to start after an update. Captured at startup on purpose:
+    /// `install` renames the running binary to `cread.old`, and from then on
+    /// `/proc/self/exe` follows the inode - `current_exe()` would return the
+    /// old file and the restart would run the previous version.
+    fn restart_target(&self) -> Option<PathBuf> {
+        self.self_exe
+            .clone()
+            .or_else(|| std::env::current_exe().ok())
     }
 
     /// A key woke the clock. True when it did, so the key is swallowed instead
@@ -4107,6 +4119,25 @@ mod tests {
             app.screensaver_raster.get(0, 0),
             Some(0),
             "and the page is black"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_restart_uses_the_path_captured_before_the_update() {
+        let dir = vault("restart-path");
+        let mut app = app_in(&dir);
+        // `install` renames the running binary to `cread.old`; from then on
+        // `/proc/self/exe` follows the inode and `current_exe()` names the old
+        // file. The restart must use what was captured at startup.
+        let captured = PathBuf::from("/tmp/cread-captured");
+        app.self_exe = Some(captured.clone());
+        assert_eq!(app.restart_target(), Some(captured));
+        assert_ne!(
+            app.restart_target(),
+            std::env::current_exe().ok(),
+            "not wherever the test binary happens to be"
         );
 
         let _ = std::fs::remove_dir_all(&dir);
