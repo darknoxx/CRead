@@ -171,7 +171,7 @@ The last row of the boot screen is the machine's own control panel: the things
 that belong to the device and not to a document.
 
 ```
-SETTINGS                                     the machine, not the document
+SETTINGS
   ┌──────────────────────────────────────────────────────────┐
   │ ► WEBDAV    sync the whole vault                    off    │
   │ ───────────────────────────────────────────────────────── │

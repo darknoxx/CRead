@@ -2245,16 +2245,26 @@ impl App {
                     }
                 }
             }
-            Pending::Picture(path) => match self.open_picture(path) {
-                Ok(()) => {}
-                Err(e) => {
-                    self.set_status(e);
-                    self.home = Home::SoftHand;
-                    self.mode = Mode::Action;
+            Pending::Picture(path) => {
+                // Whatever program was in front lets go first, so a cartridge
+                // writes its battery before the painting takes the screen.
+                self.close_program();
+                match self.open_picture(path) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        self.set_status(e);
+                        self.home = Home::SoftHand;
+                        self.mode = Mode::Action;
+                    }
                 }
-            },
+            }
             Pending::Document(path) => match self.open_document(path) {
-                Ok(()) => self.mode = Mode::Write,
+                Ok(()) => {
+                    // A document belongs to the editor, not to whatever program
+                    // happened to be in front when `open` was typed.
+                    self.close_program();
+                    self.mode = Mode::Write;
+                }
                 Err(e) => {
                     self.set_status(e);
                     self.mode = Mode::Action;
@@ -2266,6 +2276,7 @@ impl App {
             }
             Pending::NewDocument => match self.new_document() {
                 Ok(msg) => {
+                    self.close_program();
                     if !msg.is_empty() {
                         self.set_status(msg);
                     }
@@ -4285,6 +4296,67 @@ mod tests {
             vp.offset_y as f64 + (oy as f64 + 10.0) * scale,
         );
         assert_eq!(app.raster_point(), (10, 10));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_settings_bar_has_no_subtitle() {
+        let dir = vault("settings-bar");
+        let mut app = app_in(&dir);
+        app.open_setup();
+        app.compose();
+        let bar = rows_as_text(&app.screen)
+            .lines()
+            .next()
+            .unwrap()
+            .to_string();
+        assert!(bar.contains("SETTINGS"), "{bar:?}");
+        assert!(!bar.contains("machine"), "no subtitle: {bar:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_game_prompt_offers_only_what_a_game_can_do() {
+        let dir = vault("boi-prompt");
+        let mut app = app_in(&dir);
+        app.program = Some(Box::new(cread_pocketboi::Pocketboi::new(&dir)));
+        app.program_id = Some("pocketboi");
+        app.mode = Mode::Program;
+        app.program_prompt = true;
+        app.command.clear();
+        app.compose();
+
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("mute") && text.contains("exit"), "{text}");
+        assert!(
+            !text.contains("save   open"),
+            "a game has nothing to save: {text}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn opening_a_document_from_a_program_hands_the_screen_to_the_editor() {
+        let dir = vault("open-from-program");
+        std::fs::create_dir_all(dir.join("Documents")).unwrap();
+        std::fs::write(dir.join("Documents/notiz.md"), "hallo").unwrap();
+
+        let mut app = app_in(&dir);
+        app.program = Some(Box::new(cread_pocketboi::Pocketboi::new(&dir)));
+        app.program_id = Some("pocketboi");
+        app.mode = Mode::Program;
+
+        app.start_loading(Pending::Document(dir.join("Documents/notiz.md")));
+        app.finish_loading();
+
+        assert!(app.program.is_none(), "the game is not in front any more");
+        assert!(app.program_id.is_none());
+        assert_eq!(app.mode, Mode::Write);
+        assert!(app.has_document);
+        assert_eq!(app.doc.editor.text(), "hallo");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

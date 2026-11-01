@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.24.2
+
+- **`SETTINGS` has no subtitle.** The bar shows the title and nothing else;
+  "the machine, not the document" was a sentence nobody needed twice.
+- **A game's prompt offers what a game can do**: `mute` and `exit`, instead of
+  the editor's `save open undo exit`.
+- **`open` and `new` from a program now actually leave it.** The loader ran, the
+  bar disappeared — and the game was still in front, because nothing closed it.
+  Both hand the screen to the editor now (a cartridge writes its battery on the
+  way out, as before).
+
 ## 0.24.1
 
 - **Programs are centred, not pinned to the corner.** Pocketboi and Softhand

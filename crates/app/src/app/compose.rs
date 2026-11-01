@@ -75,7 +75,7 @@ impl App {
                 screen,
                 &self.theme,
                 "SETTINGS",
-                "the machine, not the document",
+                "",
                 &rows,
                 self.setup_selected,
             );
@@ -283,7 +283,13 @@ impl App {
             String::new()
         } else if self.command.is_empty() {
             if self.program.is_some() {
-                "save   open   undo   exit".to_string()
+                // The prompt is the shell's, but the vocabulary belongs to the
+                // module: a game has no actions to save.
+                if self.program_id == Some("pocketboi") {
+                    "mute   exit".to_string()
+                } else {
+                    "save   open   undo   exit".to_string()
+                }
             } else if self.mode == Mode::Riff {
                 "riff play   riff stop   riff next   riff volume".to_string()
             } else if self.has_document {
