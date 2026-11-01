@@ -26,6 +26,7 @@ OPTIONS:
         --boot              Replay the CRT warm-up (use with --screenshot)
         --music             Start the remembered music at launch
         --sync-once         Run one WebDAV sync round, print the result, exit
+        --update-once      Check github, install a newer release, print the result, exit
         --show VIEW         Start in a view: editor | welcome | action | search |
                             view | inspiro | softhand | riff | picture |
                             software | palette | settings | help
@@ -52,6 +53,7 @@ pub struct Options {
     pub vault: Option<PathBuf>,
     pub demo: bool,
     pub sync_once: bool,
+    pub update_once: bool,
     pub show: String,
     pub screenshot_delay: u64,
     /// Replay the CRT warm-up, even when screenshotting.
@@ -76,6 +78,7 @@ impl Default for Options {
             vault: None,
             demo: false,
             sync_once: false,
+            update_once: false,
             show: String::from("editor"),
             screenshot_delay: 0,
             boot: false,
@@ -145,6 +148,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             "--boot" => opts.boot = true,
             "--music" => opts.music = true,
             "--sync-once" => opts.sync_once = true,
+            "--update-once" => opts.update_once = true,
             "--screenshot-delay" => {
                 let v = args.next().ok_or("--screenshot-delay needs a value")?;
                 opts.screenshot_delay = v.parse().map_err(|_| format!("bad delay: {v}"))?;
@@ -176,6 +180,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "webdav",
                     "vault",
                     "documents",
+                    "updatecheck",
+                    "updateprompt",
                     "quit",
                     "help",
                 ];

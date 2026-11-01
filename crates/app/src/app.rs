@@ -9,6 +9,7 @@ mod browser;
 mod commands;
 mod compose;
 mod sync;
+mod update;
 mod webdav;
 
 use browser::{Browser, BrowserKind, BrowserMode};
@@ -37,6 +38,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 use crate::cli::Options;
 use crate::ui;
 use cread_sync::{Config as SyncConfig, Report as SyncReport, Worker};
+use cread_update::Event as UpdateEvent;
 
 const WELCOME: &str = include_str!("welcome.md");
 
@@ -235,8 +237,12 @@ enum Mode {
     RiffInsert,
     /// Install and remove modules.
     Software,
-    /// The system settings: WebDAV, theme, font, screen, info.
+    /// The system settings: WebDAV, theme, font, screen, info, update.
     Setup,
+    /// A progress window while GitHub is asked, or the new binary is fetched.
+    Checking,
+    /// "0.22.0 is available. Install and restart?"
+    UpdatePrompt,
     /// "Sync to server?" on the way out.
     Quit,
 }
@@ -274,6 +280,14 @@ fn program_home(index: usize) -> Home {
         Some("riff") => Home::Riff,
         _ => Home::Boot,
     }
+}
+
+/// What the last check found, remembered for the settings row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum UpdateStatus {
+    Unknown,
+    UpToDate,
+    Available(String),
 }
 
 struct App {
@@ -398,6 +412,20 @@ struct App {
 
     sync_cfg: SyncConfig,
     sync: Option<Worker>,
+    /// The update worker, started on the first check and kept for the session.
+    updater: Option<cread_update::Worker>,
+    /// Where the release list is read from; tests point it at a dead address.
+    update_api: String,
+    /// The binary a release would replace.
+    update_target: Option<PathBuf>,
+    update_started: Instant,
+    /// The window is fetching and installing, not asking.
+    update_installing: bool,
+    update_status: UpdateStatus,
+    update_offer: Option<cread_update::Offer>,
+    update_yes: bool,
+    /// The arguments this session was started with, for the restart.
+    argv: Vec<std::ffi::OsString>,
 }
 
 impl App {
@@ -524,6 +552,16 @@ impl App {
             autosave,
             sync_cfg,
             sync: None,
+            updater: None,
+            update_api: std::env::var("CREAD_UPDATE_API")
+                .unwrap_or_else(|_| cread_update::LATEST.to_string()),
+            update_target: std::env::current_exe().ok(),
+            update_started: Instant::now(),
+            update_installing: false,
+            update_status: UpdateStatus::Unknown,
+            update_offer: None,
+            update_yes: true,
+            argv: std::env::args_os().collect(),
         }
     }
 
@@ -616,6 +654,7 @@ impl App {
 
     fn frame(&mut self, el: &ActiveEventLoop) {
         self.pump_sync();
+        self.pump_update(el);
         // Status messages are transient: after a moment the line goes back to
         // telling you how to change modes.
         if self.mode == Mode::Loading
@@ -651,6 +690,11 @@ impl App {
             .as_ref()
             .is_some_and(|program| program.wants_frames())
         {
+            self.dirty = true;
+        }
+
+        if self.mode == Mode::Checking {
+            // The bar moves while the worker is busy; nothing else redraws it.
             self.dirty = true;
         }
 
@@ -765,7 +809,7 @@ impl App {
 
         // Nothing animates any more except the cursor, so we do not run a
         // frame clock at all: sleep until the blink is due and redraw then.
-        if self.boot_at.is_some() || self.mode == Mode::Loading {
+        if self.boot_at.is_some() || matches!(self.mode, Mode::Loading | Mode::Checking) {
             self.next_frame = frame_start + Duration::from_secs_f64(1.0 / ANIMATION_FPS as f64);
         } else if self
             .program
@@ -1172,6 +1216,8 @@ impl App {
             Mode::Software => self.on_key_software(event),
             Mode::Setup => self.on_key_setup(event),
             Mode::Quit => self.on_key_quit(el, event),
+            Mode::Checking => self.on_key_checking(event),
+            Mode::UpdatePrompt => self.on_key_update_prompt(event),
             Mode::Action => self.on_key_action(el, event),
             Mode::Browser => self.on_key_browser(event),
             Mode::Webdav => self.on_key_webdav(event),
@@ -2556,6 +2602,15 @@ impl App {
                 value: ui::VERSION.into(),
             },
             ui::MenuItem {
+                name: "UPDATE".into(),
+                detail: "check github for a new version".into(),
+                value: match &self.update_status {
+                    UpdateStatus::Unknown => ui::VERSION.into(),
+                    UpdateStatus::UpToDate => "up to date".into(),
+                    UpdateStatus::Available(version) => format!("{version} available"),
+                },
+            },
+            ui::MenuItem {
                 name: "SOFTWARE".into(),
                 detail: "install and remove modules".into(),
                 value: String::new(),
@@ -2573,7 +2628,7 @@ impl App {
 
     fn open_setup(&mut self) {
         self.mode = Mode::Setup;
-        self.setup_selected = self.setup_selected.min(5);
+        self.setup_selected = self.setup_selected.min(6);
         self.command.clear();
         self.program_prompt = false;
         self.dirty = true;
@@ -2616,6 +2671,7 @@ impl App {
                 self.mode = Mode::Help;
                 self.dirty = true;
             }
+            5 => self.start_update_check(),
             _ => self.open_software(),
         }
     }
@@ -2629,7 +2685,7 @@ impl App {
                 self.poke();
             }
             Key::Named(NamedKey::ArrowDown) => {
-                self.setup_selected = (self.setup_selected + 1).min(5);
+                self.setup_selected = (self.setup_selected + 1).min(6);
                 self.poke();
             }
             _ => {}
@@ -3019,6 +3075,21 @@ impl ApplicationHandler for App {
             "settings" => self.open_setup(),
             "webdav" => self.open_webdav(),
             "vault" => self.open_browser(),
+            "updatecheck" => {
+                self.update_started = Instant::now();
+                self.update_installing = false;
+                self.mode = Mode::Checking;
+            }
+            "updateprompt" => {
+                self.update_offer = Some(cread_update::Offer {
+                    version: "0.23.0".into(),
+                    tarball: "https://example.org/cread.tar.gz".into(),
+                    checksum: "https://example.org/cread.sha256".into(),
+                    signature: "https://example.org/cread.minisig".into(),
+                });
+                self.update_status = UpdateStatus::Available("0.23.0".into());
+                self.mode = Mode::UpdatePrompt;
+            }
             "documents" => self.open_documents(),
             "quit" => {
                 self.unsynced = true;
@@ -3809,6 +3880,68 @@ mod tests {
         app.open_pictures();
         assert_eq!(app.browser.entries.len(), 1);
         assert!(matches!(app.browser.entries[0].1, Action::OpenPicture(_)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_offers_an_update_check() {
+        let dir = vault("update-row");
+        let app = app_in(&dir);
+        let rows = app.setup_rows();
+
+        assert_eq!(rows.len(), 7, "the row sits between INFO and SOFTWARE");
+        assert_eq!(rows[4].name, "INFO");
+        assert_eq!(rows[5].name, "UPDATE");
+        assert_eq!(rows[5].value, ui::VERSION);
+        assert_eq!(rows[6].name, "SOFTWARE");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn asking_for_an_update_shows_the_progress_window() {
+        let dir = vault("update-window");
+        let mut app = app_in(&dir);
+        // Nothing listens there: the worker fails at once, no network needed.
+        app.update_api = "http://127.0.0.1:1/releases".into();
+        app.open_setup();
+        app.setup_selected = 5;
+        app.setup_activate();
+
+        assert_eq!(app.mode, Mode::Checking);
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("Checking github"), "{text}");
+
+        // Joins the worker before the test binary goes away.
+        app.updater = None;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_update_question_names_the_version() {
+        let dir = vault("update-prompt");
+        let mut app = app_in(&dir);
+        app.update_offer = Some(cread_update::Offer {
+            version: "0.99.0".into(),
+            tarball: "https://example.org/a.tar.gz".into(),
+            checksum: "https://example.org/a.sha256".into(),
+            signature: "https://example.org/a.minisig".into(),
+        });
+        app.update_status = UpdateStatus::Available("0.99.0".into());
+        app.update_yes = true;
+        app.mode = Mode::UpdatePrompt;
+
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("UPDATE AVAILABLE"), "{text}");
+        assert!(text.contains("0.99.0 is available"), "{text}");
+        assert!(text.contains("[ Yes ]"), "{text}");
+
+        // The settings row remembers what the check found.
+        let rows = app.setup_rows();
+        assert_eq!(rows[5].value, "0.99.0 available");
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

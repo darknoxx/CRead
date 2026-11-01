@@ -5,13 +5,14 @@ members = [
     "crates/render",
     "crates/sync",
     "crates/sound",
+    "crates/update",
     "crates/app",
     "crates/programs/softhand",
     "crates/programs/pocketboi",
 ]
 
 [workspace.package]
-version = "0.21.2"
+version = "0.22.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/darknoxx/CRead"
@@ -22,6 +23,7 @@ cread-core = { path = "crates/core" }
 cread-render = { path = "crates/render" }
 cread-sync = { path = "crates/sync" }
 cread-sound = { path = "crates/sound" }
+cread-update = { path = "crates/update" }
 cread-softhand = { path = "crates/programs/softhand" }
 cread-pocketboi = { path = "crates/programs/pocketboi" }
 

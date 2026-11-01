@@ -44,6 +44,7 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 | `crates/render` | bitmap font, CPU compositor, wgpu pipeline, CRT shader | owns everything that touches the GPU |
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never on the UI thread |
 | `crates/sound` | which output device the machine opens, for game and music alike | a policy both the shell and a program need, so it belongs to neither |
+| `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | unsigned or unverified bytes are never installed |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition; the screens in `app/{boot,browser,compose,sync,webdav}.rs`, commands in `app/commands/*` | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
 
@@ -95,6 +96,14 @@ runtime: the `SOFTWARE` screen only toggles which ones the boot screen shows, an
 the choice lives in the preferences. Installing shows the loading bar on purpose
 — the moment is part of the fiction — and Inspiro is the system, never removable.
 There is no plugin directory and no file to copy.
+
+**An update is signed or it is nothing.** The updater trusts two minisign keys
+baked into `crates/update`: the current one and a spare for rotation (a binary
+only trusts the keys it was built with). It refuses a release without a
+signature, a checksum or signature that does not match, a tarball without a
+`cread`, and a development build. The old binary is kept as `cread.old`; the
+replaced file is a sibling temp file renamed over it, never a copy across
+filesystems. `--update-once` is the non-interactive path for scripts and tests.
 
 **Sound belongs to the shell.** The music deck (`crates/app/src/audio.rs`) lives
 in `App`, not in the Riff program, because playback has to outlive the screen and
@@ -191,6 +200,13 @@ recreated on the server; only hidden entries (the sync index lives in
 1. Bump `version` in the workspace `Cargo.toml`.
 2. Move the *Unreleased* CHANGELOG entries under `## X.Y.Z`.
 3. `git tag -a vX.Y.Z -m "..."` and push both branch and tag.
+
+The release job signs `${DIST}.tar.gz` with the key in the `MINISIGN_KEY`
+secret (`rsign sign`, minisign format) and publishes the `.minisig` next to the
+archive; the job fails if the secret is missing, because the updater refuses
+unsigned releases. The secret key lives outside the repository; the public half
+is `minisign.pub`, and the spare's public key is in `crates/update/src/lib.rs`.
+Rotating keys: ship the next public key in a release *before* signing with it.
 
 The `release` workflow builds inside `ubuntu:22.04` (so the binary needs no
 glibc newer than 2.34), packages `cread-linux-x86_64.tar.gz` with a `VERSION.txt`

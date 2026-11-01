@@ -36,7 +36,10 @@ impl App {
 
     /// Windows that replace the screen instead of floating over it.
     fn dialog_open(&self) -> bool {
-        matches!(self.mode, Mode::Browser | Mode::Webdav | Mode::Quit)
+        matches!(
+            self.mode,
+            Mode::Browser | Mode::Webdav | Mode::Quit | Mode::UpdatePrompt
+        )
     }
 
     /// Screens that own the whole grid and return before the rest is drawn.
@@ -161,7 +164,14 @@ impl App {
         if let Some(started) = self.boot_at {
             let progress = boot_progress(started.elapsed().as_secs_f32());
             let blink = ((started.elapsed().as_secs_f32() * 2.5) as u32).is_multiple_of(2);
-            ui::draw_loading(screen, &self.theme, BOOT_LABEL, progress, blink);
+            ui::draw_loading(
+                screen,
+                &self.theme,
+                BOOT_LABEL,
+                progress,
+                blink,
+                "any key to skip",
+            );
             return true;
         }
         if self.mode == Mode::Loading {
@@ -198,7 +208,36 @@ impl App {
                 None => "Loading...".to_string(),
             };
             let blink = ((elapsed * 2.5) as u32).is_multiple_of(2);
-            ui::draw_loading(screen, &self.theme, &label, progress, blink);
+            let hint = if self.update_installing {
+                "installing, please wait"
+            } else {
+                "Esc cancel"
+            };
+            ui::draw_loading(screen, &self.theme, &label, progress, blink, hint);
+            return true;
+        }
+        if self.mode == Mode::Checking {
+            let elapsed = self.update_started.elapsed().as_secs_f32();
+            let label = if self.update_installing {
+                let version = self
+                    .update_offer
+                    .as_ref()
+                    .map(|offer| offer.version.clone())
+                    .unwrap_or_default();
+                format!("Installing {version}...")
+            } else {
+                "Checking github...".to_string()
+            };
+            // Ease towards the end and wait there: only the worker knows when
+            // the round is done, and a bar that keeps creeping would lie.
+            let progress = (elapsed / 6.0).powf(0.8).clamp(0.0, 1.0) * 0.9;
+            let blink = ((elapsed * 2.5) as u32).is_multiple_of(2);
+            let hint = if self.update_installing {
+                "installing, please wait"
+            } else {
+                "Esc cancel"
+            };
+            ui::draw_loading(screen, &self.theme, &label, progress, blink, hint);
             return true;
         }
         if self.mode == Mode::Help {
@@ -604,6 +643,20 @@ impl App {
                     "SYNC TO SERVER?",
                     "Changes in this session have not been sent yet.",
                     yes,
+                );
+            }
+            Mode::UpdatePrompt => {
+                let version = self
+                    .update_offer
+                    .as_ref()
+                    .map(|offer| offer.version.clone())
+                    .unwrap_or_default();
+                ui::draw_confirm(
+                    screen,
+                    &self.theme,
+                    "UPDATE AVAILABLE",
+                    &format!("{version} is available. Install and restart?"),
+                    self.update_yes,
                 );
             }
             _ => {}

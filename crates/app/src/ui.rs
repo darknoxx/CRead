@@ -722,7 +722,14 @@ pub fn draw_explorer(screen: &mut Screen, theme: &Theme, view: &ExplorerView<'_>
 // ── loading ─────────────────────────────────────────────────────────────────
 
 /// The fake loading bar: a boxed meter, because an OS loads things.
-pub fn draw_loading(screen: &mut Screen, theme: &Theme, label: &str, progress: f32, blink: bool) {
+pub fn draw_loading(
+    screen: &mut Screen,
+    theme: &Theme,
+    label: &str,
+    progress: f32,
+    blink: bool,
+    hint: &str,
+) {
     let cols = screen.cols();
     let rows = screen.rows();
     screen.fill(Cell::blank(theme.fg, theme.bg));
@@ -771,13 +778,7 @@ pub fn draw_loading(screen: &mut Screen, theme: &Theme, label: &str, progress: f
         Cell::new(if blink { '\u{2588}' } else { ' ' }, theme.accent, theme.bg),
     );
 
-    put_centered(
-        screen,
-        y0 + height + 1,
-        "any key to skip",
-        theme.status_dim,
-        theme.bg,
-    );
+    put_centered(screen, y0 + height + 1, hint, theme.status_dim, theme.bg);
 }
 
 // ── reader (view mode) ──────────────────────────────────────────────────────

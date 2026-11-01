@@ -42,6 +42,7 @@ impl App {
             Command::Sync => self.cmd_sync(),
             Command::Software => self.cmd_software(),
             Command::Settings => self.cmd_settings(),
+            Command::Update => self.cmd_update(),
             Command::Help(argument) => self.cmd_help(argument),
             Command::About => self.cmd_about(),
             Command::Exit => self.cmd_exit(el),

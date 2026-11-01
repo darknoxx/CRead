@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.22.0
+
+- **CRead updates itself, from GitHub, with a signature check.** `SETTINGS` has
+  an `UPDATE` row (and `update` is a command like everything else): it asks for
+  the latest release behind a progress window, and when there is a newer one it
+  offers `0.22.0 is available. Install and restart?`. Yes downloads the tarball,
+  checks SHA-256 **and** a minisign signature, replaces the binary (keeping the
+  old one as `cread.old`), saves the document and starts the new binary with the
+  arguments the old one had.
+- **It refuses rather than guesses**: unsigned releases, a checksum or
+  signature that does not match, a missing `cread` in the archive, development
+  builds and directories it cannot write to all stop the install.
+- **Two public keys are embedded**, the current one and a spare. A binary only
+  trusts the keys it was built with, so shipping the spare now means a key
+  rotation later does not strand installations.
+- Releases are signed in CI (`MINISIGN_KEY` secret) and publish
+  `cread-linux-x86_64.tar.gz.minisig`; `minisign.pub` is in the repo so anyone
+  can verify a download by hand.
+- `cread --update-once` does the same without the UI, for scripts and for
+  testing the pipeline.
+
 ## 0.21.2
 
 - **The release now carries its paperwork.** The tarball held `cread`,

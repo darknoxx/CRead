@@ -17,6 +17,7 @@ cread-softhand.workspace = true
 cread-pocketboi.workspace = true
 cread-sync.workspace = true
 cread-sound.workspace = true
+cread-update.workspace = true
 pollster = "1.0.1"
 rodio = "0.21"
 wgpu = "30.0.1"

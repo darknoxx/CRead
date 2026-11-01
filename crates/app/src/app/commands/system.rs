@@ -21,6 +21,11 @@ impl App {
         Ok(String::new())
     }
 
+    pub(super) fn cmd_update(&mut self) -> Result<String, String> {
+        self.start_update_check();
+        Ok(String::new())
+    }
+
     pub(super) fn cmd_help(&mut self, argument: Option<String>) -> Result<String, String> {
         self.help_about = false;
         self.help_all = argument

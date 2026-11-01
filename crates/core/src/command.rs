@@ -57,6 +57,8 @@ pub enum Command {
     Riff(RiffAction),
     /// `Some("all")` shows the whole vocabulary instead of this screen's.
     Help(Option<String>),
+    /// Ask GitHub whether a newer release exists.
+    Update,
     About,
 }
 
@@ -328,6 +330,13 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
+        name: "update",
+        aliases: &["up"],
+        argument: "",
+        summary: "check github for a new version",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
+    Spec {
         name: "help",
         aliases: &["?", "h"],
         argument: "[all]",
@@ -456,6 +465,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         }
         "exit!" => Command::ExitForce,
         "settings" => Command::Settings,
+        "update" => Command::Update,
         "help" => Command::Help(optional(rest)),
         "tool" => Command::Tool(optional(rest)),
         "size" => Command::Size(match optional(rest) {
@@ -666,6 +676,18 @@ mod tests {
         assert_eq!(parse("tool fill"), Ok(Command::Tool(Some("fill".into()))));
         assert_eq!(parse("brush"), Ok(Command::Size(None)));
         assert_eq!(parse("help all"), Ok(Command::Help(Some("all".into()))));
+    }
+
+    #[test]
+    fn update_is_a_command_like_everything_else() {
+        assert_eq!(parse("update"), Ok(Command::Update));
+        assert_eq!(parse("UP"), Ok(Command::Update));
+        assert!(
+            specs_for(Scope::Editor)
+                .iter()
+                .any(|spec| spec.name == "update"),
+            "and it shows up in the help"
+        );
     }
 
     #[test]

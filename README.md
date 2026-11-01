@@ -177,7 +177,8 @@ SETTINGS                                     the machine, not the document
   │   THEME     colour scheme                          paper   │
   │   FONT      bitmap face                            classic │
   │   SCREEN    window or whole screen                 window  │
-  │   INFO      version and credits                   0.16.0  │
+  │   INFO      version and credits                   0.22.0  │
+  │   UPDATE    check github for a new version        0.22.0  │
   │   SOFTWARE  install and remove modules                     │
   └──────────────────────────────────────────────────────────┘
 ```
@@ -438,6 +439,47 @@ unnamed draft: `untitled-N.md` is marked in the sync index when the editor makes
 it, and when you name it with `saveas` its server copy goes with the local
 placeholder instead of coming back on the next round. `cread --sync-once` runs a
 single round and prints the result, which is handy for cron or for debugging.
+
+## Updates
+
+`UPDATE` is the last switch in `SETTINGS`, and `update` works from any prompt.
+It asks GitHub for the newest release and shows a progress window while it
+waits; three things can come back:
+
+- **you are current** — the status line says `0.22.0 is the newest`, nothing
+  else happens;
+- **a newer release exists** — `0.22.0 is available. Install and restart?`
+  with Yes and No; `Esc`/No keeps it for later and the settings row shows
+  `0.22.0 available`;
+- **something went wrong** — the reason in the status line, and nothing on disk
+  is touched.
+
+`Esc` while it is checking cancels; an install is not cancellable, because the
+binary may already be half replaced.
+
+Yes downloads the tarball, checks it against the release's SHA-256 and its
+**minisign signature**, and only then replaces the running binary. The previous
+one is kept as `cread.old` next to it, so a bad release is one `mv` away from
+being undone. The document is saved first, and the new binary is started with
+the same arguments (`--vault`, `--file`, everything), which is the "restart" in
+the question.
+
+A few things it refuses on purpose: a release without a signature, a checksum
+or signature that does not match, a tarball without a `cread` inside, a
+development build (`target/debug/cread`), and a directory it cannot write to.
+Only stable releases are considered — no pre-releases — and only the asset for
+this architecture.
+
+For scripts, `cread --update-once` does the same without the UI: it prints
+`0.22.0 is the newest`, or installs and prints where the old binary went.
+
+Releases are signed with a minisign key; [`minisign.pub`](minisign.pub) is the
+public half, and you can check a download yourself:
+
+```bash
+minisign -V -p minisign.pub -m cread-linux-x86_64.tar.gz
+# or: rsign verify -p minisign.pub cread-linux-x86_64.tar.gz
+```
 
 ## Leaving with unsynced work
 
