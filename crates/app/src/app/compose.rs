@@ -20,11 +20,23 @@ impl App {
         self.riff_at = None;
 
         if !self.standalone_screen(&mut screen) {
-            let (hint, error) = self.prompt_hint();
-            self.main_screen(&mut screen, &hint, &error);
+            if self.dialog_open() {
+                // A dialog stands on its own page: whatever was behind it is
+                // not drawn at all, so no boot row or line of text peeks out
+                // around the frame.
+                screen.fill(cread_core::Cell::blank(self.theme.fg, self.theme.bg));
+            } else {
+                let (hint, error) = self.prompt_hint();
+                self.main_screen(&mut screen, &hint, &error);
+            }
             self.overlay(&mut screen);
         }
         self.screen = screen;
+    }
+
+    /// Windows that replace the screen instead of floating over it.
+    fn dialog_open(&self) -> bool {
+        matches!(self.mode, Mode::Browser | Mode::Webdav | Mode::Quit)
     }
 
     /// Screens that own the whole grid and return before the rest is drawn.

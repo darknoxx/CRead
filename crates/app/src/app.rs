@@ -3801,6 +3801,38 @@ mod tests {
     }
 
     #[test]
+    fn a_dialog_stands_on_its_own_page() {
+        let dir = vault("dialog-page");
+        let mut app = app_in(&dir);
+
+        // Over the boot screen: no drive row may peek out around the frame.
+        app.home = Home::Boot;
+        app.has_document = false;
+        app.open_browser();
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("THE VAULT"), "the window is there");
+        assert!(!text.contains("A: INSPIRO"), "no boot row behind it");
+        assert!(!text.contains("SOFTWARE"), "no shelf row behind it");
+
+        // Over a document: the text stays out of sight as well.
+        app.new_document().unwrap();
+        app.doc
+            .editor
+            .insert_text("dieser satz darf nicht durchscheinen");
+        app.open_browser();
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("THE VAULT"));
+        assert!(
+            !text.contains("durchscheinen"),
+            "the document is not drawn under a dialog"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_vault_browser_walks_folders_and_opens_the_right_program() {
         let dir = vault("vault-browser");
         let mut app = app_in(&dir);

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.1
+
+- **A window stands on its own page.** The vault browser, the music list's
+  dialog, the WebDAV form and the quit question used to float over whatever was
+  on screen, so boot rows or a line of the document peeked out around the
+  frame. A dialog now clears the page behind it: nothing under it is drawn at
+  all, and closing it brings the screen back.
+
 ## 0.20.0
 
 - **Every program opens in its own room.** `open` in Inspiro used to land in

@@ -80,8 +80,10 @@ is 32 bytes and has a `const` assertion; the shader pads to the same size. A
 mismatch does not error — the wrong field is read and the screen can go black.
 
 **The logo blit happens after the cell grid.** `Framebuffer::draw_splash` runs
-after `draw_screen`, so anything drawn into the grid (palette, settings form)
-would be painted over. Overlays therefore hide the splash.
+after `draw_screen`, so anything drawn into the grid (browser, settings form)
+would be painted over. Overlays therefore hide the splash. They also clear the
+page behind them (`App::dialog_open`): a window stands alone, nothing from the
+screen underneath may peek out around its frame.
 
 **Bitmaps only.** The font is 1-bit; styles are synthesised (bold = right shift
 or, italic = row shear). No anti-aliasing, no sub-pixel positioning, no TTF
