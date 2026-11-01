@@ -397,6 +397,56 @@ pub struct MenuItem {
 
 /// A boxed list with a value on the right: SOFTWARE and SETTINGS are the same
 /// screen with different rows, and that is the point.
+/// A double-line box: the shape every dialog in CRead uses.
+///
+/// Border only. A menu lets the page show through; a dialog that covers a
+/// picture asks for [`frame_filled`] instead.
+pub fn frame(screen: &mut Screen, theme: &Theme, x0: u32, y0: u32, width: u32, height: u32) {
+    let (b, bg) = (theme.accent, theme.bg);
+    for x in x0 + 1..x0 + width.saturating_sub(1) {
+        screen.put(x, y0, Cell::new('\u{2550}', b, bg));
+        screen.put(
+            x,
+            y0 + height.saturating_sub(1),
+            Cell::new('\u{2550}', b, bg),
+        );
+    }
+    for y in y0 + 1..y0 + height.saturating_sub(1) {
+        screen.put(x0, y, Cell::new('\u{2551}', b, bg));
+        screen.put(
+            x0 + width.saturating_sub(1),
+            y,
+            Cell::new('\u{2551}', b, bg),
+        );
+    }
+    screen.put(x0, y0, Cell::new('\u{2554}', b, bg));
+    screen.put(
+        x0 + width.saturating_sub(1),
+        y0,
+        Cell::new('\u{2557}', b, bg),
+    );
+    screen.put(
+        x0,
+        y0 + height.saturating_sub(1),
+        Cell::new('\u{255a}', b, bg),
+    );
+    screen.put(
+        x0 + width.saturating_sub(1),
+        y0 + height.saturating_sub(1),
+        Cell::new('\u{255d}', b, bg),
+    );
+}
+
+/// The same box with the page filled first: it hides whatever is underneath.
+pub fn frame_filled(screen: &mut Screen, theme: &Theme, x0: u32, y0: u32, width: u32, height: u32) {
+    for y in y0..y0 + height {
+        for x in x0..x0 + width {
+            screen.put(x, y, Cell::blank(theme.fg, theme.bg));
+        }
+    }
+    frame(screen, theme, x0, y0, width, height);
+}
+
 pub fn draw_menu(
     screen: &mut Screen,
     theme: &Theme,
@@ -425,25 +475,10 @@ pub fn draw_menu(
 
     let inner = cols.saturating_sub(6).min(66);
     let x0 = (cols - inner) / 2;
-    let (b, bg) = (theme.accent, theme.bg);
+    let bg = theme.bg;
     let first = 3;
     let height = items.len() as u32 + 2;
-    for x in x0 + 1..x0 + inner - 1 {
-        screen.put(x, first - 1, Cell::new('\u{2550}', b, bg));
-        screen.put(x, first + height - 1, Cell::new('\u{2550}', b, bg));
-    }
-    for y in first..first + height - 1 {
-        screen.put(x0, y, Cell::new('\u{2551}', b, bg));
-        screen.put(x0 + inner - 1, y, Cell::new('\u{2551}', b, bg));
-    }
-    screen.put(x0, first - 1, Cell::new('\u{2554}', b, bg));
-    screen.put(x0 + inner - 1, first - 1, Cell::new('\u{2557}', b, bg));
-    screen.put(x0, first + height - 1, Cell::new('\u{255a}', b, bg));
-    screen.put(
-        x0 + inner - 1,
-        first + height - 1,
-        Cell::new('\u{255d}', b, bg),
-    );
+    frame(screen, theme, x0, first - 1, inner, height + 1);
 
     for (index, item) in items.iter().enumerate() {
         let y = first + index as u32;
@@ -519,20 +554,9 @@ pub fn draw_riff(screen: &mut Screen, theme: &Theme, view: &RiffView<'_>) {
 
     let inner = cols.saturating_sub(6).min(62);
     let x0 = (cols - inner) / 2;
-    let (b, bg) = (theme.accent, theme.bg);
+    let bg = theme.bg;
     // Double-line frame around the track.
-    for x in x0 + 1..x0 + inner - 1 {
-        screen.put(x, 3, Cell::new('\u{2550}', b, bg));
-        screen.put(x, 8, Cell::new('\u{2550}', b, bg));
-    }
-    for y in 4..8 {
-        screen.put(x0, y, Cell::new('\u{2551}', b, bg));
-        screen.put(x0 + inner - 1, y, Cell::new('\u{2551}', b, bg));
-    }
-    screen.put(x0, 3, Cell::new('\u{2554}', b, bg));
-    screen.put(x0 + inner - 1, 3, Cell::new('\u{2557}', b, bg));
-    screen.put(x0, 8, Cell::new('\u{255a}', b, bg));
-    screen.put(x0 + inner - 1, 8, Cell::new('\u{255d}', b, bg));
+    frame(screen, theme, x0, 3, inner, 6);
 
     if view.title.is_empty() {
         put_centered_at(screen, 5, view.note, theme.status_dim, theme.bg, x0, inner);
@@ -706,28 +730,8 @@ pub fn draw_loading(screen: &mut Screen, theme: &Theme, label: &str, progress: f
     let x0 = (cols - width) / 2;
     let y0 = (rows - height) / 2;
 
-    let (b, d) = (theme.accent, theme.dim);
-    for y in y0..y0 + height {
-        for x in x0..x0 + width {
-            screen.put(x, y, Cell::blank(theme.fg, theme.bg));
-        }
-    }
-    for x in x0 + 1..x0 + width - 1 {
-        screen.put(x, y0, Cell::new('\u{2550}', b, theme.bg));
-        screen.put(x, y0 + height - 1, Cell::new('\u{2550}', b, theme.bg));
-    }
-    for y in y0 + 1..y0 + height - 1 {
-        screen.put(x0, y, Cell::new('\u{2551}', b, theme.bg));
-        screen.put(x0 + width - 1, y, Cell::new('\u{2551}', b, theme.bg));
-    }
-    screen.put(x0, y0, Cell::new('\u{2554}', b, theme.bg));
-    screen.put(x0 + width - 1, y0, Cell::new('\u{2557}', b, theme.bg));
-    screen.put(x0, y0 + height - 1, Cell::new('\u{255a}', b, theme.bg));
-    screen.put(
-        x0 + width - 1,
-        y0 + height - 1,
-        Cell::new('\u{255d}', b, theme.bg),
-    );
+    let d = theme.dim;
+    frame_filled(screen, theme, x0, y0, width, height);
 
     screen.put_str_ellipsis(
         x0 + 2,
@@ -848,21 +852,27 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
 pub struct BootItem {
     pub label: String,
     pub detail: String,
-    /// Shown in the error colour.
-    pub broken: bool,
     /// A horizontal rule instead of a row: the shelf which separates the vault
     /// from the modules. Never selectable, never counted for the block width.
     pub rule: bool,
-    /// Drawn without a drive letter: the SOFTWARE row.
+    /// Drawn without a drive letter: SOFTWARE, THE VAULT and SETTINGS.
     pub bare: bool,
 }
 
 impl BootItem {
+    pub fn row(label: impl Into<String>, detail: impl Into<String>, bare: bool) -> Self {
+        Self {
+            label: label.into(),
+            detail: detail.into(),
+            rule: false,
+            bare,
+        }
+    }
+
     pub fn rule() -> Self {
         Self {
             label: String::new(),
             detail: String::new(),
-            broken: false,
             rule: true,
             bare: false,
         }
@@ -945,8 +955,6 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
         let bar_bg = if selected { theme.fg } else { theme.bg };
         let (label_fg, detail_fg) = if selected {
             (theme.bg, theme.bg)
-        } else if item.broken {
-            (theme.error, theme.error)
         } else {
             (theme.accent, theme.dim)
         };
@@ -1116,29 +1124,8 @@ pub fn draw_form(screen: &mut Screen, theme: &Theme, view: &FormView<'_>) {
     let x0 = (cols - width) / 2;
     let y0 = (rows - height) / 2;
 
-    for y in y0..y0 + height {
-        for x in x0..x0 + width {
-            screen.put(x, y, Cell::blank(theme.fg, theme.bg));
-        }
-    }
-
     let (b, d) = (theme.accent, theme.dim);
-    for x in x0 + 1..x0 + width - 1 {
-        screen.put(x, y0, Cell::new('\u{2550}', b, theme.bg));
-        screen.put(x, y0 + height - 1, Cell::new('\u{2550}', b, theme.bg));
-    }
-    for y in y0 + 1..y0 + height - 1 {
-        screen.put(x0, y, Cell::new('\u{2551}', b, theme.bg));
-        screen.put(x0 + width - 1, y, Cell::new('\u{2551}', b, theme.bg));
-    }
-    screen.put(x0, y0, Cell::new('\u{2554}', b, theme.bg));
-    screen.put(x0 + width - 1, y0, Cell::new('\u{2557}', b, theme.bg));
-    screen.put(x0, y0 + height - 1, Cell::new('\u{255a}', b, theme.bg));
-    screen.put(
-        x0 + width - 1,
-        y0 + height - 1,
-        Cell::new('\u{255d}', b, theme.bg),
-    );
+    frame_filled(screen, theme, x0, y0, width, height);
     screen.put_str(x0 + 2, y0, &format!(" {} ", view.title), b, theme.bg);
 
     for (i, field) in view.fields.iter().enumerate() {
@@ -1196,7 +1183,7 @@ pub fn draw_form(screen: &mut Screen, theme: &Theme, view: &FormView<'_>) {
     }
 }
 
-// ── command palette ─────────────────────────────────────────────────────────
+// ── vault browser ──────────────────────────────────────────────────────────
 
 /// A yes/no question in a box: the last word before the machine goes off.
 pub fn draw_confirm(screen: &mut Screen, theme: &Theme, title: &str, message: &str, yes: bool) {
@@ -1263,7 +1250,7 @@ pub fn draw_confirm(screen: &mut Screen, theme: &Theme, title: &str, message: &s
     screen.put_str(hx, y0 + height - 1, hint, d, theme.bg);
 }
 
-pub struct PaletteView<'a> {
+pub struct BrowserView<'a> {
     pub title: &'a str,
     /// Prompt sigil or label in front of the input.
     pub prompt: &'a str,
@@ -1273,7 +1260,7 @@ pub struct PaletteView<'a> {
     pub hint: &'a str,
 }
 
-pub fn draw_palette(screen: &mut Screen, theme: &Theme, view: &PaletteView<'_>) {
+pub fn draw_browser(screen: &mut Screen, theme: &Theme, view: &BrowserView<'_>) {
     let cols = screen.cols();
     let rows = screen.rows();
     let width = (cols.saturating_sub(6)).clamp(24, 62);
@@ -1281,31 +1268,9 @@ pub fn draw_palette(screen: &mut Screen, theme: &Theme, view: &PaletteView<'_>) 
     let x0 = (cols - width) / 2;
     let y0 = (rows - height) / 2;
 
-    // Body
-    for y in y0..y0 + height {
-        for x in x0..x0 + width {
-            screen.put(x, y, Cell::blank(theme.fg, theme.bg));
-        }
-    }
-
     // Border in box-drawing characters, like every DOS utility ever.
     let (b, d) = (theme.accent, theme.dim);
-    for x in x0 + 1..x0 + width - 1 {
-        screen.put(x, y0, Cell::new('\u{2550}', b, theme.bg));
-        screen.put(x, y0 + height - 1, Cell::new('\u{2550}', b, theme.bg));
-    }
-    for y in y0 + 1..y0 + height - 1 {
-        screen.put(x0, y, Cell::new('\u{2551}', b, theme.bg));
-        screen.put(x0 + width - 1, y, Cell::new('\u{2551}', b, theme.bg));
-    }
-    screen.put(x0, y0, Cell::new('\u{2554}', b, theme.bg));
-    screen.put(x0 + width - 1, y0, Cell::new('\u{2557}', b, theme.bg));
-    screen.put(x0, y0 + height - 1, Cell::new('\u{255a}', b, theme.bg));
-    screen.put(
-        x0 + width - 1,
-        y0 + height - 1,
-        Cell::new('\u{255d}', b, theme.bg),
-    );
+    frame_filled(screen, theme, x0, y0, width, height);
 
     // Title, overlaid on the top border.
     let title = format!(" {} ", view.title);
@@ -1522,14 +1487,14 @@ mod tests {
     }
 
     #[test]
-    fn palette_draws_a_bordered_box_with_a_selection() {
+    fn the_browser_draws_a_bordered_box_with_a_selection() {
         let vp = vp(1280, 800);
         let mut screen = Screen::new(vp.cols(), vp.rows());
         let items = vec!["alpha.md".to_string(), "beta.md".to_string()];
-        draw_palette(
+        draw_browser(
             &mut screen,
             &Theme::DOS_BLUE,
-            &PaletteView {
+            &BrowserView {
                 title: "OPEN",
                 prompt: ">",
                 input: "be",
@@ -1550,29 +1515,11 @@ mod tests {
         let vp = vp(1280, 800);
         let mut screen = Screen::new(vp.cols(), vp.rows());
         let items = vec![
-            BootItem {
-                label: "A: DOCUMENTS".into(),
-                detail: "open a file from the vault".into(),
-                broken: false,
-                rule: false,
-                bare: false,
-            },
+            BootItem::row("A: INSPIRO", "the writing terminal", false),
             BootItem::rule(),
-            BootItem {
-                label: "B: INSPIRO".into(),
-                detail: "the writing terminal".into(),
-                broken: false,
-                rule: false,
-                bare: false,
-            },
-            BootItem::rule(),
-            BootItem {
-                label: "SOFTWARE".into(),
-                detail: "install and remove modules".into(),
-                broken: false,
-                rule: false,
-                bare: true,
-            },
+            BootItem::row("SOFTWARE", "install and remove modules", true),
+            BootItem::row("THE VAULT", "documents, pictures, cartridges", true),
+            BootItem::row("SETTINGS", "webdav, theme, font, screen", true),
         ];
         draw_welcome(
             &mut screen,
@@ -1590,12 +1537,12 @@ mod tests {
         );
         let text = rows_as_text(&screen);
         assert!(text.contains("Welcome to CRead"));
-        assert!(text.contains("A: DOCUMENTS"));
-        assert!(text.contains("B: INSPIRO"));
+        assert!(text.contains("A: INSPIRO"));
         assert!(text.contains("SOFTWARE"));
+        assert!(text.contains("THE VAULT"));
         assert!(text.contains("> ne"));
 
-        // The rule sits between the vault and the modules, and is not a row.
+        // The rule sits between the modules and the shelf, and is not a row.
         let rule_row = 4 + 2 + 1;
         let grid = rows_as_text(&screen);
         let rule = grid.lines().nth(rule_row as usize).unwrap_or("");

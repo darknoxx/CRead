@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.17.0
+
+Nothing behaves differently in this one; it is the cleanup the review asked for.
+
+- `app.rs` came apart: the boot rows, the vault browser, the WebDAV form and the
+  sync worker each live in their own module under `crates/app/src/app/`. The
+  file still owns the mode machine and the commands, which is the part that
+  genuinely is one thing.
+- One box-drawing routine (`ui::frame`) replaces six hand-written copies; the
+  screens cannot drift apart at the corners any more.
+- The boot screen has one list, not two: `boot_rows` is built from `boot_items`,
+  so a new row is one variant. The `broken` flag (a leftover from the diskette
+  era, always false) is gone.
+- The old names are gone with the concept: the file dialog is the vault browser
+  (`Browser`, `Mode::Browser`) and the WebDAV screen is `Mode::Webdav`, not
+  "settings" next to a SETTINGS menu.
+
 ## 0.16.0
 
 - **`rename` cannot overwrite another document any more.** It used to call the

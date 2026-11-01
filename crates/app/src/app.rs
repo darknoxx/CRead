@@ -4,6 +4,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod boot;
+mod browser;
+mod sync;
+mod webdav;
+
+use browser::{Browser, BrowserMode};
+use webdav::FormState;
+
+use sync::QuitPrompt;
+
 use cread_core::{
     Editor, KeyPress, Position, Prefs, Raster, ScaleMode, Screen, Stats, Theme, Viewport,
     command::{self, Command, CommandError, RiffAction},
@@ -24,7 +34,7 @@ use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::cli::Options;
 use crate::ui;
-use cread_sync::{Config as SyncConfig, Event as SyncEvent, Report as SyncReport, Worker};
+use cread_sync::{Config as SyncConfig, Report as SyncReport, Worker};
 
 const WELCOME: &str = include_str!("welcome.md");
 
@@ -130,72 +140,6 @@ enum Action {
     SyncNow,
 }
 
-/// What the file palette is currently doing.
-#[derive(Clone, PartialEq, Eq)]
-enum PaletteMode {
-    Browse,
-    /// `delete x.md?` waiting for y/n.
-    ConfirmDelete(PathBuf),
-    /// Renaming `old` as it is typed.
-    Rename {
-        old: PathBuf,
-        new: String,
-    },
-}
-
-struct Palette {
-    input: String,
-    entries: Vec<(String, Action)>,
-    filtered: Vec<usize>,
-    selected: usize,
-    title: String,
-    mode: PaletteMode,
-    /// Pictures cannot be renamed or deleted from here, so the hint differs.
-    pictures: bool,
-    /// Folder below the vault root that is shown; empty means the root.
-    path: PathBuf,
-}
-
-impl Palette {
-    fn empty() -> Self {
-        Self {
-            input: String::new(),
-            entries: Vec::new(),
-            filtered: Vec::new(),
-            selected: 0,
-            title: "THE VAULT".into(),
-            mode: PaletteMode::Browse,
-            pictures: false,
-            path: PathBuf::new(),
-        }
-    }
-
-    fn refilter(&mut self) {
-        let needle = self.input.to_lowercase();
-        self.filtered = self
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(_, (name, _))| needle.is_empty() || name.to_lowercase().contains(&needle))
-            .map(|(i, _)| i)
-            .collect();
-        self.selected = self.selected.min(self.filtered.len().saturating_sub(1));
-    }
-
-    fn items(&self) -> Vec<String> {
-        self.filtered
-            .iter()
-            .map(|i| self.entries[*i].0.clone())
-            .collect()
-    }
-
-    fn current(&self) -> Option<&Action> {
-        self.filtered
-            .get(self.selected)
-            .map(|i| &self.entries[*i].1)
-    }
-}
-
 /// An active incremental search.
 struct Search {
     /// Where the cursor was when the search started, for Esc to restore.
@@ -268,37 +212,6 @@ enum Pending {
     NewDocument,
 }
 
-/// One row of the boot screen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BootItem {
-    /// The vault: the first row, always.
-    Vault,
-    /// The rule between the vault and the modules. Never selectable.
-    Rule,
-    /// The editor, the first module.
-    Inspiro,
-    /// Index into [`PROGRAMS`].
-    Program(usize),
-    /// The install screen.
-    Software,
-    /// The system settings.
-    Setup,
-}
-
-/// The exit dialog: which button is focused, and where to return if the user
-/// changes their mind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct QuitPrompt {
-    yes: bool,
-    from: Mode,
-}
-
-impl BootItem {
-    fn selectable(self) -> bool {
-        !matches!(self, BootItem::Rule)
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     /// Typing into the document.
@@ -311,10 +224,10 @@ enum Mode {
     Loading,
     /// A command line at the bottom, like a shell.
     Action,
-    /// File picker.
-    Palette,
-    /// WebDAV settings.
-    Settings,
+    /// The vault: folders, documents, pictures, cartridges.
+    Browser,
+    /// The WebDAV form.
+    Webdav,
     /// Full-screen help or about.
     Help,
     /// A program owns the screen.
@@ -364,24 +277,6 @@ fn program_home(index: usize) -> Home {
         Some("riff") => Home::Riff,
         _ => Home::Boot,
     }
-}
-
-/// Append one drive row with the next free letter.
-fn push_boot_row(
-    rows: &mut Vec<ui::BootItem>,
-    letter: &mut u8,
-    label: String,
-    detail: String,
-    broken: bool,
-) {
-    rows.push(ui::BootItem {
-        label: format!("{}: {label}", *letter as char),
-        detail,
-        broken,
-        rule: false,
-        bare: false,
-    });
-    *letter += 1;
 }
 
 struct App {
@@ -469,7 +364,7 @@ struct App {
     /// 3 does not redraw the world.
     program_point: (i32, i32),
     mode: Mode,
-    palette: Palette,
+    browser: Browser,
     form: FormState,
     status: String,
     /// When the current status message was set; it fades back to the hint.
@@ -502,89 +397,6 @@ struct App {
 
     sync_cfg: SyncConfig,
     sync: Option<Worker>,
-}
-
-/// Editable copy of the WebDAV settings, shown as a form.
-struct FormState {
-    url: String,
-    username: String,
-    password: String,
-    remote_dir: String,
-    enabled: bool,
-    focus: usize,
-    note: String,
-}
-
-impl FormState {
-    fn from_config(cfg: &SyncConfig) -> Self {
-        Self {
-            url: cfg.url.clone(),
-            username: cfg.username.clone(),
-            password: cfg.password.clone(),
-            remote_dir: cfg.remote_dir.clone(),
-            enabled: cfg.enabled,
-            focus: 0,
-            note: String::new(),
-        }
-    }
-
-    fn to_config(&self) -> SyncConfig {
-        SyncConfig {
-            url: self.url.trim().to_string(),
-            username: self.username.trim().to_string(),
-            password: self.password.clone(),
-            remote_dir: self.remote_dir.trim().trim_matches('/').to_string(),
-            enabled: self.enabled,
-        }
-    }
-
-    fn field_count() -> usize {
-        5
-    }
-
-    fn fields(&self) -> Vec<ui::FormField> {
-        vec![
-            ui::FormField {
-                label: "server".into(),
-                value: self.url.clone(),
-                secret: false,
-            },
-            ui::FormField {
-                label: "user".into(),
-                value: self.username.clone(),
-                secret: false,
-            },
-            ui::FormField {
-                label: "password".into(),
-                value: self.password.clone(),
-                secret: true,
-            },
-            ui::FormField {
-                label: "folder".into(),
-                value: self.remote_dir.clone(),
-                secret: false,
-            },
-            ui::FormField {
-                label: "sync".into(),
-                value: if self.enabled {
-                    "on".into()
-                } else {
-                    "off".into()
-                },
-                secret: false,
-            },
-        ]
-    }
-
-    fn text_field_mut(&mut self) -> Option<&mut String> {
-        match self.focus {
-            0 => Some(&mut self.url),
-            1 => Some(&mut self.username),
-            2 => Some(&mut self.password),
-            3 => Some(&mut self.remote_dir),
-            _ => None,
-        }
-    }
 }
 
 impl App {
@@ -687,7 +499,7 @@ impl App {
             } else {
                 Mode::Action
             },
-            palette: Palette::empty(),
+            browser: Browser::empty(),
             form: FormState::from_config(&sync_cfg),
             status: String::new(),
             status_at: Instant::now(),
@@ -977,7 +789,7 @@ impl App {
         let mut screen = std::mem::replace(&mut self.screen, Screen::new(1, 1));
         // Only the screen composed below may blit a logo. Clearing both here is
         // what keeps the Inspiro artwork from floating over the help, the
-        // palette or the boot screen.
+        // browser or the boot screen.
         self.splash_at = None;
         self.inspiro_at = None;
         self.softhand_at = None;
@@ -1279,12 +1091,12 @@ impl App {
             // raster genuinely cannot hold it.
             let max_w = cols * cread_core::FONT_W;
             let max_h = rows.saturating_sub(8) * cread_core::FONT_H;
-            // An overlay (palette, settings) covers the front door's logo the
+            // An overlay (browser, settings) covers the front door's logo the
             // same way it covers the boot screen's.
             let overlay_open = matches!(
                 self.mode,
-                Mode::Palette
-                    | Mode::Settings
+                Mode::Browser
+                    | Mode::Webdav
                     | Mode::Quit
                     | Mode::Software
                     | Mode::Setup
@@ -1508,37 +1320,37 @@ impl App {
         }
 
         match self.mode {
-            Mode::Palette => {
-                let items = self.palette.items();
+            Mode::Browser => {
+                let items = self.browser.items();
                 let question;
-                let (prompt, input, hint) = match &self.palette.mode {
-                    PaletteMode::Browse if self.palette.pictures => {
-                        (">", self.palette.input.as_str(), "Enter open   Esc back")
+                let (prompt, input, hint) = match &self.browser.mode {
+                    BrowserMode::Browse if self.browser.pictures => {
+                        (">", self.browser.input.as_str(), "Enter open   Esc back")
                     }
-                    PaletteMode::Browse => (
+                    BrowserMode::Browse => (
                         ">",
-                        self.palette.input.as_str(),
+                        self.browser.input.as_str(),
                         "Enter open   Ctrl+R rename   Ctrl+D delete",
                     ),
-                    PaletteMode::ConfirmDelete(path) => {
+                    BrowserMode::ConfirmDelete(path) => {
                         question = format!("delete {}? y/n", self.doc_title_of(path));
                         ("?", "", question.as_str())
                     }
-                    PaletteMode::Rename { new, .. } => {
+                    BrowserMode::Rename { new, .. } => {
                         ("name>", new.as_str(), "Enter rename   Esc cancel")
                     }
                 };
-                let view = ui::PaletteView {
-                    title: &self.palette.title,
+                let view = ui::BrowserView {
+                    title: &self.browser.title,
                     prompt,
                     input,
                     items: &items,
-                    selected: self.palette.selected,
+                    selected: self.browser.selected,
                     hint,
                 };
-                ui::draw_palette(&mut screen, &self.theme, &view);
+                ui::draw_browser(&mut screen, &self.theme, &view);
             }
-            Mode::Settings => {
+            Mode::Webdav => {
                 let fields = self.form.fields();
                 let view = ui::FormView {
                     title: "WEBDAV",
@@ -1586,110 +1398,6 @@ impl App {
         if let Err(e) = self.save_to(&path) {
             self.set_status(e);
         }
-    }
-
-    fn pump_sync(&mut self) {
-        let Some(worker) = self.sync.as_ref() else {
-            return;
-        };
-        let mut events = Vec::new();
-        while let Some(event) = worker.try_recv() {
-            events.push(event);
-        }
-        for event in events {
-            match event {
-                SyncEvent::Started => self.set_status("sync ..."),
-                SyncEvent::Done(report) => {
-                    self.unsynced = false;
-                    if report.conflicts > 0 {
-                        self.set_status(format!(
-                            "sync: {} - conflict copy kept",
-                            report_word(&report)
-                        ));
-                    } else {
-                        self.set_status(format!("sync: {}", report_word(&report)));
-                    }
-                    if report.downloaded > 0 {
-                        self.reload_after_sync();
-                    }
-                }
-                SyncEvent::Failed(e) => self.set_status(format!("sync failed: {e}")),
-            }
-            self.dirty = true;
-        }
-    }
-
-    /// A sync round may have replaced the file on disk. Pull it in, unless the
-    /// buffer holds edits that have not been written yet.
-    fn reload_after_sync(&mut self) {
-        let Some(path) = self.doc.path.clone() else {
-            return;
-        };
-        if self.doc.editor.modified() {
-            return;
-        }
-        let Ok(text) = storage::load(&path) else {
-            return;
-        };
-        if text == self.doc.editor.text() {
-            return;
-        }
-        let cursor = self.doc.editor.cursor();
-        self.doc.editor = Editor::from_text(&text);
-        self.doc.editor.set_cursor(cursor);
-        self.set_status("updated from server");
-        self.dirty = true;
-    }
-
-    fn start_worker(&mut self) {
-        if self.sync.is_some() {
-            return;
-        }
-        let vault = self.opts.vault.clone().unwrap_or_else(storage::vault_dir);
-        self.sync = Some(Worker::spawn(
-            vault,
-            self.sync_cfg.clone(),
-            Duration::from_secs(60),
-        ));
-    }
-
-    fn request_sync(&mut self) {
-        if let Some(worker) = self.sync.as_ref() {
-            worker.request_sync();
-        }
-    }
-
-    fn open_settings(&mut self) {
-        self.form = FormState::from_config(&self.sync_cfg);
-        self.form.note = format!("config: {}", SyncConfig::path().display());
-        self.mode = Mode::Settings;
-        self.dirty = true;
-    }
-
-    fn save_settings(&mut self) {
-        let cfg = self.form.to_config();
-        if cfg.enabled && !cfg.is_configured() {
-            self.form.note = "a server URL is required".into();
-            self.dirty = true;
-            return;
-        }
-        match cfg.save() {
-            Ok(()) => {
-                self.sync_cfg = cfg.clone();
-                self.start_worker();
-                if let Some(worker) = self.sync.as_ref() {
-                    worker.configure(cfg);
-                }
-                self.to_write();
-                self.set_status(if self.sync_cfg.enabled {
-                    "sync on"
-                } else {
-                    "sync off"
-                });
-            }
-            Err(e) => self.form.note = format!("cannot write config: {e}"),
-        }
-        self.dirty = true;
     }
 
     fn save_to(&mut self, path: &Path) -> Result<(), String> {
@@ -1961,177 +1669,12 @@ impl App {
         ))
     }
 
-    // ── palette ─────────────────────────────────────────────────────────────
-
-    fn open_palette(&mut self) {
-        self.prepare_vault();
-        self.palette = Palette::empty();
-        self.refresh_palette();
-        self.mode = Mode::Palette;
-        self.dirty = true;
-    }
-
-    /// Rebuild the rows for the folder the palette is looking at.
-    ///
-    /// Folders first, then the files a program here can open. Nothing else is
-    /// listed: this is a shelf, not a file manager.
-    fn refresh_palette(&mut self) {
-        let here = self.vault().join(&self.palette.path);
-        let at_root = self.palette.path.as_os_str().is_empty();
-        let mut entries: Vec<(String, Action)> = Vec::new();
-        if at_root {
-            entries.push(("+ new document".to_string(), Action::NewFile));
-            entries.push(("+ sync now".to_string(), Action::SyncNow));
-        } else {
-            entries.push(("..".to_string(), Action::Up));
-        }
-
-        let mut folders: Vec<(String, Action)> = Vec::new();
-        let mut files: Vec<(String, Action)> = Vec::new();
-        match std::fs::read_dir(&here) {
-            Ok(listing) => {
-                for entry in listing.flatten() {
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    if name.starts_with('.') {
-                        continue;
-                    }
-                    let path = entry.path();
-                    if path.is_dir() {
-                        let relative = self.palette.path.join(&name);
-                        folders.push((format!("{name}/"), Action::EnterDir(relative)));
-                    } else if let Some(action) = file_action(&path) {
-                        files.push((name, action));
-                    }
-                }
-            }
-            Err(e) => self.set_status(format!("cannot list {}: {e}", here.display())),
-        }
-        folders.sort_by_key(|(name, _)| name.to_lowercase());
-        files.sort_by_key(|(name, _)| name.to_lowercase());
-        entries.extend(folders);
-        entries.extend(files);
-
-        self.palette.title = if at_root {
-            "THE VAULT".into()
-        } else {
-            format!("THE VAULT /{}", self.palette.path.display())
-        };
-        self.palette.entries = entries;
-        self.palette.refilter();
-    }
-
-    /// Open a folder in the palette; the filter starts fresh.
-    fn palette_enter(&mut self, path: PathBuf) {
-        self.palette.path = path;
-        self.palette.input.clear();
-        self.palette.selected = 0;
-        self.refresh_palette();
-        self.poke();
-    }
-
-    /// One folder up. False at the root, where Esc leaves the vault instead.
-    fn palette_up(&mut self) -> bool {
-        if self.palette.path.as_os_str().is_empty() {
-            return false;
-        }
-        let parent = self
-            .palette
-            .path
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_default();
-        self.palette_enter(parent);
-        true
-    }
-
-    fn palette_target(&self) -> Option<PathBuf> {
-        match self.palette.current()? {
-            Action::Open(path) => Some(path.clone()),
-            _ => None,
-        }
-    }
+    // ── browser ─────────────────────────────────────────────────────────────
 
     fn doc_title_of(&self, path: &Path) -> String {
         path.file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default()
-    }
-
-    fn palette_delete(&mut self, path: PathBuf) {
-        let name = self.doc_title_of(&path);
-        if let Err(e) = std::fs::remove_file(&path) {
-            self.set_status(format!("delete failed: {e}"));
-            return;
-        }
-        if self.doc.path.as_deref() == Some(path.as_path()) {
-            self.doc = Document {
-                path: None,
-                title_hint: None,
-                editor: Editor::new(),
-                last_edit: Instant::now(),
-            };
-            self.has_document = false;
-        }
-        self.unsynced = true;
-        self.set_status(format!("deleted {name}"));
-        self.refresh_palette();
-    }
-
-    fn palette_rename(&mut self, old: PathBuf, new: &str) {
-        let target = match self.rename_target(&old, new.trim()) {
-            Ok(target) => target,
-            Err(e) => {
-                self.set_status(e);
-                return;
-            }
-        };
-        if target != old && target.exists() {
-            self.set_status(format!("{} already exists", self.doc_title_of(&target)));
-            return;
-        }
-        if let Err(e) = std::fs::rename(&old, &target) {
-            self.set_status(format!("rename failed: {e}"));
-            return;
-        }
-        if self.doc.path.as_deref() == Some(old.as_path()) {
-            self.doc.path = Some(target.clone());
-        }
-        self.unsynced = true;
-        self.set_status(format!("renamed to {}", self.doc_title_of(&target)));
-        self.refresh_palette();
-    }
-
-    fn palette_accept(&mut self) {
-        let Some(action) = self.palette.current().cloned() else {
-            return;
-        };
-        match action {
-            Action::Open(path) => self.start_loading(Pending::Document(path)),
-            Action::OpenPicture(path) => self.start_loading(Pending::Picture(path)),
-            Action::OpenRom(path) => self.start_loading(Pending::Rom(path)),
-            Action::EnterDir(path) => {
-                self.palette_enter(path);
-                return;
-            }
-            Action::Up => {
-                self.palette_up();
-                return;
-            }
-            Action::NewFile => self.start_loading(Pending::NewDocument),
-            Action::SyncNow => {
-                if self.sync_cfg.enabled && self.sync.is_some() {
-                    self.request_sync();
-                    self.set_status("sync requested");
-                } else {
-                    self.set_status("webdav is off - try 'settings'");
-                }
-            }
-        }
-        // Loading is its own destination; anything else drops back to the
-        // document or the home screen.
-        if self.mode != Mode::Loading {
-            self.to_write();
-        }
     }
 
     // ── input ───────────────────────────────────────────────────────────────
@@ -2169,8 +1712,8 @@ impl App {
             Mode::Setup => self.on_key_setup(event),
             Mode::Quit => self.on_key_quit(el, event),
             Mode::Action => self.on_key_action(el, event),
-            Mode::Palette => self.on_key_palette(event),
-            Mode::Settings => self.on_key_settings(event),
+            Mode::Browser => self.on_key_browser(event),
+            Mode::Webdav => self.on_key_webdav(event),
             Mode::Help => self.on_key_help(event),
         }
 
@@ -2691,7 +2234,7 @@ impl App {
                 if self.in_softhand() {
                     self.open_pictures();
                 } else {
-                    self.open_palette();
+                    self.open_browser();
                 }
                 Ok(String::new())
             }
@@ -3281,7 +2824,7 @@ impl App {
             Pending::Rom(path) => {
                 if !self.is_installed("pocketboi") {
                     self.set_status("pocketboi is not installed - see SOFTWARE");
-                    self.mode = Mode::Palette;
+                    self.mode = Mode::Browser;
                     return;
                 }
                 let mut boi = cread_pocketboi::Pocketboi::new(&self.vault());
@@ -3295,7 +2838,7 @@ impl App {
                     }
                     Err(e) => {
                         self.set_status(e);
-                        self.mode = Mode::Palette;
+                        self.mode = Mode::Browser;
                     }
                 }
             }
@@ -3423,11 +2966,11 @@ impl App {
         ))
     }
 
-    /// The picture picker: same list as the document palette, other files.
+    /// The picture picker: same list as the browser, other files.
     fn open_pictures(&mut self) {
-        self.palette = Palette::empty();
-        self.palette.title = "PICTURES".into();
-        self.palette.pictures = true;
+        self.browser = Browser::empty();
+        self.browser.title = "PICTURES".into();
+        self.browser.pictures = true;
         let base = picture::dir(&self.vault());
         match picture::list(&self.vault()) {
             Ok(files) => {
@@ -3437,19 +2980,19 @@ impl App {
                         .unwrap_or(&path)
                         .display()
                         .to_string();
-                    self.palette.entries.push((name, Action::OpenPicture(path)));
+                    self.browser.entries.push((name, Action::OpenPicture(path)));
                 }
             }
             Err(e) => self.set_status(format!("pictures: {e}")),
         }
-        if self.palette.entries.is_empty() {
+        if self.browser.entries.is_empty() {
             self.set_status(format!(
                 "no pictures in {}",
                 picture::dir(&self.vault()).display()
             ));
         }
-        self.palette.refilter();
-        self.mode = Mode::Palette;
+        self.browser.refilter();
+        self.mode = Mode::Browser;
         self.dirty = true;
     }
 
@@ -3890,7 +3433,7 @@ impl App {
         match self.setup_selected {
             0 => {
                 // WebDAV is a form, not a value in a row.
-                self.open_settings();
+                self.open_webdav();
             }
             1 => {
                 let _ = self.cycle_theme(1);
@@ -3924,99 +3467,6 @@ impl App {
             }
             _ => self.open_software(),
         }
-    }
-
-    /// Changes on disk the server has not seen: quitting should ask.
-    fn wants_sync_before_quitting(&self) -> bool {
-        self.unsynced
-            && self.sync_cfg.enabled
-            && self.sync_cfg.is_configured()
-            && self.sync.is_some()
-    }
-
-    /// Show the exit dialog if there is anything to sync. False means "quit
-    /// now, nothing to ask".
-    fn ask_quit(&mut self, from: Mode) -> bool {
-        if !self.wants_sync_before_quitting() {
-            return false;
-        }
-        self.quit = Some(QuitPrompt { yes: true, from });
-        self.mode = Mode::Quit;
-        self.dirty = true;
-        true
-    }
-
-    fn on_key_quit(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
-        let Some(prompt) = self.quit else {
-            self.mode = Mode::Action;
-            return;
-        };
-        match &event.logical_key {
-            Key::Named(NamedKey::Escape) => {
-                self.quit = None;
-                self.mode = prompt.from;
-                self.set_status("not synced");
-                self.poke();
-            }
-            Key::Named(NamedKey::Enter) => self.confirm_quit(el, prompt.yes),
-            Key::Named(NamedKey::ArrowLeft)
-            | Key::Named(NamedKey::ArrowRight)
-            | Key::Named(NamedKey::Tab) => {
-                self.quit = Some(QuitPrompt {
-                    yes: !prompt.yes,
-                    from: prompt.from,
-                });
-                self.poke();
-            }
-            Key::Character(c) if c.eq_ignore_ascii_case("y") => self.confirm_quit(el, true),
-            Key::Character(c) if c.eq_ignore_ascii_case("n") => self.confirm_quit(el, false),
-            _ => {}
-        }
-    }
-
-    fn confirm_quit(&mut self, el: &ActiveEventLoop, sync: bool) {
-        let Some(prompt) = self.quit.take() else {
-            return;
-        };
-        self.mode = prompt.from;
-        if !sync {
-            el.exit();
-            return;
-        }
-        // A cartridge writes its battery when the program is dropped; do that
-        // before the last round, or the file would appear after it.
-        self.close_program();
-        match self.sync_before_quit() {
-            Ok(()) => el.exit(),
-            Err(_) => self.dirty = true,
-        }
-    }
-
-    /// One last round on the way out. The process is about to end, so the
-    /// worker cannot do this one: stop it first (its Drop joins the thread and
-    /// waits for a round in flight), then run a single round here.
-    fn sync_before_quit(&mut self) -> Result<(), String> {
-        self.pause_sync();
-        let vault = self.vault();
-        self.set_status("sync ...");
-        match cread_sync::run_blocking(&vault, &self.sync_cfg) {
-            Ok(report) => {
-                self.unsynced = false;
-                self.set_status(format!("sync: {}", report.summary()));
-                Ok(())
-            }
-            Err(e) => {
-                self.set_status(format!("sync failed: {e}"));
-                self.start_worker();
-                Err(e)
-            }
-        }
-    }
-
-    fn pause_sync(&mut self) {
-        // Dropping the worker shuts the thread down and waits for a round in
-        // flight, so two syncs never run at once.
-        self.sync = None;
     }
 
     fn on_key_setup(&mut self, event: KeyEvent) {
@@ -4109,108 +3559,6 @@ impl App {
                 self.poke();
             }
             _ => {}
-        }
-    }
-
-    // ── the boot screen ─────────────────────────────────────────────────────
-
-    fn boot_items(&self) -> Vec<BootItem> {
-        // Modules carry drive letters, in the order they were installed; the
-        // vault and the shelf are not drives and sit below the rule.
-        let mut items = vec![BootItem::Inspiro];
-        for id in &self.prefs.installed {
-            if let Some(index) = PROGRAMS.iter().position(|program| program.id == id) {
-                items.push(BootItem::Program(index));
-            }
-        }
-        items.push(BootItem::Rule);
-        items.push(BootItem::Software);
-        items.push(BootItem::Vault);
-        items.push(BootItem::Setup);
-        items
-    }
-
-    /// The boot screen list as the UI wants it.
-    fn boot_rows(&self) -> Vec<ui::BootItem> {
-        let mut rows = Vec::new();
-        let mut letter = b'A';
-        push_boot_row(
-            &mut rows,
-            &mut letter,
-            "INSPIRO".into(),
-            "where your ideas have room to grow.".into(),
-            false,
-        );
-        for id in &self.prefs.installed {
-            let Some(program) = PROGRAMS.iter().find(|program| program.id == id) else {
-                continue;
-            };
-            push_boot_row(
-                &mut rows,
-                &mut letter,
-                program.entry.into(),
-                program.tagline.into(),
-                false,
-            );
-        }
-        rows.push(ui::BootItem::rule());
-        rows.push(ui::BootItem {
-            label: "SOFTWARE".into(),
-            detail: "install and remove modules".into(),
-            broken: false,
-            rule: false,
-            bare: true,
-        });
-        rows.push(ui::BootItem {
-            label: "THE VAULT".into(),
-            detail: "documents, pictures, cartridges".into(),
-            broken: false,
-            rule: false,
-            bare: true,
-        });
-        rows.push(ui::BootItem {
-            label: "SETTINGS".into(),
-            detail: "webdav, theme, font, screen".into(),
-            broken: false,
-            rule: false,
-            bare: true,
-        });
-        rows
-    }
-
-    fn boot_activate(&mut self) {
-        // Only the boot screen has a selectable list; on Inspiro's front door
-        // an empty Enter has nothing to run.
-        if self.home != Home::Boot {
-            return;
-        }
-        let Some(item) = self.boot_items().get(self.boot_selected).copied() else {
-            return;
-        };
-        match item {
-            BootItem::Vault => self.open_palette(),
-            BootItem::Rule => {}
-            BootItem::Inspiro => self.start_loading(Pending::Inspiro),
-            BootItem::Program(index) => self.start_loading(Pending::Program(index)),
-            BootItem::Software => self.open_software(),
-            BootItem::Setup => self.open_setup(),
-        }
-    }
-
-    /// Move the boot selection, stepping over rows that are not selectable
-    /// (the rule). Stops at both ends instead of wrapping.
-    fn boot_step(&mut self, delta: isize) {
-        let items = self.boot_items();
-        let mut index = self.boot_selected as isize;
-        loop {
-            index += delta;
-            if index < 0 || index >= items.len() as isize {
-                return;
-            }
-            if items[index as usize].selectable() {
-                self.boot_selected = index as usize;
-                return;
-            }
         }
     }
 
@@ -4375,167 +3723,6 @@ impl App {
         self.set_status(format!("{}/{} matches", index + 1, matches.len()));
     }
 
-    fn on_key_palette(&mut self, event: KeyEvent) {
-        // Modal sub-states first: they swallow everything.
-        match self.palette.mode.clone() {
-            PaletteMode::ConfirmDelete(path) => {
-                if matches!(&event.logical_key, Key::Character(c) if c.eq_ignore_ascii_case("y")) {
-                    self.palette.mode = PaletteMode::Browse;
-                    self.palette_delete(path);
-                } else {
-                    self.palette.mode = PaletteMode::Browse;
-                    self.set_status("cancelled");
-                }
-                self.poke();
-                return;
-            }
-            PaletteMode::Rename { old, mut new } => {
-                match &event.logical_key {
-                    Key::Named(NamedKey::Escape) => {
-                        self.palette.mode = PaletteMode::Browse;
-                        self.set_status("cancelled");
-                    }
-                    Key::Named(NamedKey::Enter) => {
-                        self.palette.mode = PaletteMode::Browse;
-                        self.palette_rename(old, &new);
-                    }
-                    Key::Named(NamedKey::Backspace) => {
-                        new.pop();
-                        self.palette.mode = PaletteMode::Rename { old, new };
-                    }
-                    Key::Named(NamedKey::Space) => {
-                        new.push(' ');
-                        self.palette.mode = PaletteMode::Rename { old, new };
-                    }
-                    Key::Character(text) => {
-                        for ch in text.chars().filter(|c| !c.is_control()) {
-                            new.push(ch);
-                        }
-                        self.palette.mode = PaletteMode::Rename { old, new };
-                    }
-                    _ => {}
-                }
-                self.poke();
-                return;
-            }
-            PaletteMode::Browse => {}
-        }
-
-        let ctrl = self.mods.control_key() || self.mods.super_key();
-        if ctrl && let PhysicalKey::Code(code) = event.physical_key {
-            {
-                match code {
-                    KeyCode::KeyD => {
-                        if let Some(path) = self.palette_target() {
-                            self.palette.mode = PaletteMode::ConfirmDelete(path);
-                            self.poke();
-                        }
-                        return;
-                    }
-                    KeyCode::KeyR => {
-                        if let Some(old) = self.palette_target() {
-                            let new = self.doc_title_of(&old).trim_end_matches(".md").to_string();
-                            self.palette.mode = PaletteMode::Rename { old, new };
-                            self.poke();
-                        }
-                        return;
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        match &event.logical_key {
-            Key::Named(NamedKey::Escape) => {
-                if self.palette.pictures || !self.palette_up() {
-                    self.to_write();
-                }
-            }
-            Key::Named(NamedKey::Enter) => self.palette_accept(),
-            Key::Named(NamedKey::ArrowLeft) if !self.palette.pictures => {
-                self.palette_up();
-            }
-            Key::Named(NamedKey::ArrowUp) => {
-                self.palette.selected = self.palette.selected.saturating_sub(1);
-                self.poke();
-            }
-            Key::Named(NamedKey::ArrowDown) => {
-                if self.palette.selected + 1 < self.palette.filtered.len() {
-                    self.palette.selected += 1;
-                }
-                self.poke();
-            }
-            Key::Named(NamedKey::Backspace) => {
-                self.palette.input.pop();
-                self.palette.refilter();
-                self.poke();
-            }
-            Key::Named(NamedKey::Space) => {
-                self.palette.input.push(' ');
-                self.palette.refilter();
-                self.poke();
-            }
-            Key::Character(text) => {
-                for ch in text.chars().filter(|c| !c.is_control()) {
-                    self.palette.input.push(ch);
-                }
-                self.palette.refilter();
-                self.poke();
-            }
-            _ => {}
-        }
-    }
-
-    fn on_key_settings(&mut self, event: KeyEvent) {
-        let ctrl = self.mods.control_key() || self.mods.super_key();
-        match &event.logical_key {
-            _ if ctrl
-                && matches!(&event.logical_key, Key::Character(c) if c.eq_ignore_ascii_case("s")) =>
-            {
-                self.save_settings()
-            }
-            Key::Named(NamedKey::Escape) => self.to_write(),
-            Key::Named(NamedKey::Enter) => {
-                if self.form.focus == 4 {
-                    self.form.enabled = !self.form.enabled;
-                    self.poke();
-                } else {
-                    self.save_settings();
-                }
-            }
-            Key::Named(NamedKey::Tab) | Key::Named(NamedKey::ArrowDown) => {
-                self.form.focus = (self.form.focus + 1) % FormState::field_count();
-                self.poke();
-            }
-            Key::Named(NamedKey::ArrowUp) => {
-                self.form.focus =
-                    (self.form.focus + FormState::field_count() - 1) % FormState::field_count();
-                self.poke();
-            }
-            Key::Named(NamedKey::Backspace) => {
-                if let Some(field) = self.form.text_field_mut() {
-                    field.pop();
-                }
-                self.poke();
-            }
-            Key::Named(NamedKey::Space) => {
-                if let Some(field) = self.form.text_field_mut() {
-                    field.push(' ');
-                }
-                self.poke();
-            }
-            Key::Character(text) => {
-                if let Some(field) = self.form.text_field_mut() {
-                    for ch in text.chars().filter(|c| !c.is_control()) {
-                        field.push(ch);
-                    }
-                }
-                self.poke();
-            }
-            _ => {}
-        }
-    }
-
     fn move_vertical(&mut self, delta: isize, extend: bool) {
         let (text_width, _) = ui::layout(self.screen.cols());
         for _ in 0..delta.unsigned_abs() {
@@ -4677,10 +3864,10 @@ impl ApplicationHandler for App {
         }
 
         match self.opts.show.as_str() {
-            "palette" => self.open_palette(),
+            "palette" => self.open_browser(),
             "settings" => self.open_setup(),
-            "webdav" => self.open_settings(),
-            "vault" => self.open_palette(),
+            "webdav" => self.open_webdav(),
+            "vault" => self.open_browser(),
             "quit" => {
                 self.unsynced = true;
                 self.quit = Some(QuitPrompt {
@@ -4857,17 +4044,6 @@ impl ApplicationHandler for App {
     }
 }
 
-/// Which program opens this file, if any. Folders are handled by the browser.
-fn file_action(path: &Path) -> Option<Action> {
-    let extension = path.extension()?.to_string_lossy().to_lowercase();
-    match extension.as_str() {
-        "md" | "txt" | "markdown" => Some(Action::Open(path.to_path_buf())),
-        "png" => Some(Action::OpenPicture(path.to_path_buf())),
-        "gb" | "gbc" => Some(Action::OpenRom(path.to_path_buf())),
-        _ => None,
-    }
-}
-
 /// Biggest whole divisor whose result fits, as (rows, divisor).
 fn fit_logo(logo: &Option<Splash>, max_w: u32, max_h: u32) -> Option<(u32, u32)> {
     let splash = logo.as_ref()?;
@@ -4939,6 +4115,7 @@ fn report_word(report: &SyncReport) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::boot::BootItem;
     use super::*;
 
     fn app() -> App {
@@ -5423,16 +4600,16 @@ mod tests {
         let mut app = app_in(&dir);
         app.home = Home::SoftHand;
         app.open_pictures();
-        assert_eq!(app.mode, Mode::Palette);
-        assert!(app.palette.entries.is_empty(), "nothing saved yet");
+        assert_eq!(app.mode, Mode::Browser);
+        assert!(app.browser.entries.is_empty(), "nothing saved yet");
 
         app.new_picture();
         app.save_picture(None).unwrap();
         app.leave_to_boot();
         app.home = Home::SoftHand;
         app.open_pictures();
-        assert_eq!(app.palette.entries.len(), 1);
-        assert!(matches!(app.palette.entries[0].1, Action::OpenPicture(_)));
+        assert_eq!(app.browser.entries.len(), 1);
+        assert!(matches!(app.browser.entries[0].1, Action::OpenPicture(_)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -5447,32 +4624,32 @@ mod tests {
         std::fs::create_dir_all(dir.join("Pictures")).unwrap();
         std::fs::write(dir.join("Pictures/a.png"), b"png").unwrap();
 
-        app.open_palette();
-        let names = app.palette.items();
+        app.open_browser();
+        let names = app.browser.items();
         assert!(names.contains(&"Documents/".to_string()), "{names:?}");
         assert!(names.contains(&"Pictures/".to_string()), "{names:?}");
         assert!(names.contains(&"Roms/".to_string()), "{names:?}");
-        assert_eq!(app.palette.title, "THE VAULT");
+        assert_eq!(app.browser.title, "THE VAULT");
 
-        app.palette_enter(PathBuf::from("Roms"));
-        assert_eq!(app.palette.items(), vec!["..", "game.gb"]);
-        assert_eq!(app.palette.title, "THE VAULT /Roms");
-        app.palette.selected = 1;
-        match app.palette.current() {
+        app.browser_enter(PathBuf::from("Roms"));
+        assert_eq!(app.browser.items(), vec!["..", "game.gb"]);
+        assert_eq!(app.browser.title, "THE VAULT /Roms");
+        app.browser.selected = 1;
+        match app.browser.current() {
             Some(Action::OpenRom(path)) => assert!(path.ends_with("Roms/game.gb")),
             _ => panic!("a cartridge should open Pocketboi"),
         }
 
-        app.palette_enter(PathBuf::from("Documents"));
-        assert_eq!(app.palette.items(), vec!["..", "kapitel/"]);
-        app.palette_enter(PathBuf::from("Documents/kapitel"));
-        assert_eq!(app.palette.items(), vec!["..", "eins.md"]);
+        app.browser_enter(PathBuf::from("Documents"));
+        assert_eq!(app.browser.items(), vec!["..", "kapitel/"]);
+        app.browser_enter(PathBuf::from("Documents/kapitel"));
+        assert_eq!(app.browser.items(), vec!["..", "eins.md"]);
 
-        assert!(app.palette_up(), "up from a folder");
-        assert_eq!(app.palette.path, PathBuf::from("Documents"));
-        assert!(app.palette_up());
-        assert_eq!(app.palette.path, PathBuf::new());
-        assert!(!app.palette_up(), "the root is the top");
+        assert!(app.browser_up(), "up from a folder");
+        assert_eq!(app.browser.path, PathBuf::from("Documents"));
+        assert!(app.browser_up());
+        assert_eq!(app.browser.path, PathBuf::new());
+        assert!(!app.browser_up(), "the root is the top");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -5650,7 +4827,7 @@ mod tests {
     }
 
     #[test]
-    fn open_on_the_front_door_shows_the_palette() {
+    fn open_on_the_front_door_shows_the_browser() {
         let dir = vault("front-door-open");
         let mut app = app_in(&dir);
         app.home = Home::Inspiro;
@@ -5659,12 +4836,12 @@ mod tests {
         assert!(!rows_as_text(&app.screen).contains("+ new document"));
 
         // 'open' is a command line away, and the front door composed its own
-        // screen; it used to return from compose before the palette was drawn.
+        // screen; it used to return from compose before the browser was drawn.
         app.command = "open".into();
-        app.open_palette();
+        app.open_browser();
         app.compose();
         let text = rows_as_text(&app.screen);
-        assert!(text.contains("+ new document"), "palette is on screen");
+        assert!(text.contains("+ new document"), "browser is on screen");
         assert!(text.contains("Enter open"), "with its hint");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -5678,7 +4855,7 @@ mod tests {
         assert!(app.inspiro_at.is_some(), "front door shows its logo");
         assert!(app.splash_at.is_none(), "and not the boot logo");
 
-        // Help, the palette and the boot screen all draw over the same grid, so
+        // Help, the browser and the boot screen all draw over the same grid, so
         // a stale blit position floats on top of them.
         app.mode = Mode::Help;
         app.compose();
@@ -5695,7 +4872,7 @@ mod tests {
         );
 
         // An overlay hides the boot logo while it is open.
-        app.mode = Mode::Palette;
+        app.mode = Mode::Browser;
         app.compose();
         assert!(app.splash_at.is_none());
     }
