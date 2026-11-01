@@ -4536,6 +4536,40 @@ mod tests {
     }
 
     #[test]
+    fn autosave_says_so_while_the_document_is_clean() {
+        let dir = vault("autosave-bar");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        let bar = |app: &mut App| {
+            app.compose();
+            rows_as_text(&app.screen)
+                .lines()
+                .next()
+                .unwrap()
+                .to_string()
+        };
+
+        let line = bar(&mut app);
+        assert!(line.contains(" saved"), "a fresh file is saved: {line}");
+        assert!(!line.contains("autosave"), "{line}");
+
+        app.autosave = true;
+        let line = bar(&mut app);
+        assert!(line.contains("autosave on"), "the mode is visible: {line}");
+        assert!(!line.contains("saved"), "{line}");
+
+        app.doc.editor.insert_text("x");
+        let line = bar(&mut app);
+        assert!(
+            line.contains(" modified"),
+            "unwritten text still warns, even with autosave on: {line}"
+        );
+        assert!(!line.contains("autosave on"), "{line}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_settings_open_the_manual_and_esc_brings_them_back() {
         let dir = vault("manual");
         let mut app = app_in(&dir);

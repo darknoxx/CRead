@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.1
+
+- **The editor's bar says when autosave is on.** While the document is clean,
+  `saved` becomes `autosave on`, so the mode is visible without running
+  `autosave`. `modified` still appears while text is waiting to be written —
+  including a failed write — instead of being hidden behind a setting.
+
 ## 0.25.0
 
 - **The user manual is part of the machine.** `USER MANUAL` is the last row in

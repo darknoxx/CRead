@@ -150,7 +150,8 @@ help screen the arrow keys walk it while the status line explains each row.
 
 Saving is yours to do: nothing is written until you run `save`. If you would
 rather not think about it, `autosave on` writes 1.5 seconds after you stop
-typing, and the setting is remembered. Quitting (`exit!`) and closing the window
+typing, and the setting is remembered. While the document is clean, the bar
+says `autosave on` instead of `saved`. Quitting (`exit!`) and closing the window
 still save a modified document, so you cannot lose the last paragraph that way.
 
 A new document starts as `untitled.md` (then `untitled-2.md`, …) so autosave has
@@ -185,8 +186,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         version and credits                  0.25.0 │
-  │   UPDATE       check github for a new version       0.25.0 │
+  │   INFO         version and credits                  0.25.1 │
+  │   UPDATE       check github for a new version       0.25.1 │
   │   SOFTWARE     install and remove modules                  │
   │   USER MANUAL  read the handbook                           │
   └────────────────────────────────────────────────────────────┘
@@ -502,7 +503,8 @@ minisign -V -p minisign.pub -m cread-linux-x86_64.tar.gz
 
 Screens with work to show wear the same bar in row zero: a name on the left, a
 clock in the middle, a place on the right. The editor shows the file, its
-`modified`/`saved` state, the time and the folder; Softhand does the same with
+`modified`/`saved` state (`autosave on` while autosave keeps it clean), the time
+and the folder; Softhand does the same with
 the picture name, its state and `~/Dokumente/CRead/Pictures`; the boot screen
 only has the date and the time:
 

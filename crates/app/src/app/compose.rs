@@ -624,7 +624,11 @@ impl App {
             let state = if self.doc.editor.modified() {
                 "modified"
             } else if self.doc.path.is_some() {
-                "saved"
+                if self.autosave {
+                    "autosave on"
+                } else {
+                    "saved"
+                }
             } else {
                 ""
             };

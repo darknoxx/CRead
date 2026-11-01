@@ -309,8 +309,9 @@ With `saveas letter` or `saveas invoice` you give it a real name. The
 placeholder file is removed so no pointless duplicates are left behind.
 
 > **Tip:** You can switch on automatic saving. Type `autosave on`. CRead
-> then writes 1.5 seconds after the last keystroke. By default autosave
-> is off, though.
+> then writes 1.5 seconds after the last keystroke. While the document is
+> clean, the top bar says `autosave on` instead of `saved`. By default
+> autosave is off, though.
 
 ### Renaming and deleting
 
@@ -352,9 +353,12 @@ letter.md  modified        14:32        ~/Dokumente/CRead
 
 | Part | Meaning |
 | --- | --- |
-| Left | The file name and its state (`modified` or `saved`). |
+| Left | The file name and its state (`modified`, `saved`, or `autosave on`). |
 | Middle | The time. |
 | Right | The folder on your Linux distribution where the file lives. |
+
+When autosave is on, a clean document says `autosave on` instead of `saved`.
+`modified` still appears while text is waiting to be written.
 
 Below it is the body of the text. Under that is a line with the word count
 and the cursor position.
@@ -861,7 +865,7 @@ The most important commands. Upper and lower case do not matter.
 CRead does not save by itself. Check:
 
 1. Did you type `save` or `saveas`?
-2. Does the top bar say `saved` or `modified`?
+2. Does the top bar say `saved`, `autosave on`, or `modified`?
 3. Type `open` and look.
 
 If the file is still open: press Esc and save at once.
