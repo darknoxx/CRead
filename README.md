@@ -401,6 +401,10 @@ On a 1280x800 panel that gives 640x400 at 2x — the real VGA text mode. On a
 height and follows the monitor's scale factor, so 4K at 200% gets 4x rather than
 2x. Override it with `--scale N`.
 
+Programs keep the classic 640x400 stage (80x25 cells, the game and its legend,
+the canvas and its palette). On a bigger emulated screen the shell centres that
+stage instead of leaving it in the corner, and the pointer mapping follows it.
+
 There is no frame clock: a frame is drawn when the text changes and otherwise
 only when the cursor is due to blink, so the app sits at a fraction of a percent
 of a core while you read. Typing redraws immediately.

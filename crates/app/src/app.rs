@@ -37,8 +37,6 @@ use winit::window::{Fullscreen, Window, WindowId};
 
 use crate::cli::Options;
 
-/// The top bar is one text row; Softhand's canvas starts below it.
-const TOP_BAR_PIXELS: i32 = cread_core::FONT_H as i32;
 use crate::screensaver::next_idle_minutes;
 use crate::ui;
 use cread_sync::{Config as SyncConfig, Report as SyncReport, Worker};
@@ -432,6 +430,8 @@ struct App {
     /// Pending yes/no question, e.g. before deleting a file.
     confirm: Option<String>,
     help_about: bool,
+    /// INFO was opened from SETTINGS, so Esc belongs back there.
+    help_from_setup: bool,
     /// Highlighted row on the help screen.
     help_selected: usize,
     /// `help all` shows the whole vocabulary instead of this screen's list.
@@ -594,6 +594,7 @@ impl App {
             history_pos: None,
             confirm: None,
             help_about: false,
+            help_from_setup: false,
             help_selected: 0,
             help_all: false,
             boot_at: None,
@@ -790,13 +791,9 @@ impl App {
                 // runs over the result like over any other picture.
                 self.fb.draw_canvas(&self.screensaver_raster, [0, 0, 0]);
             } else if self.program.is_some() {
-                let top = if self.program_id == Some("softhand") {
-                    TOP_BAR_PIXELS
-                } else {
-                    0
-                };
+                let (x, y) = self.program_origin();
                 self.fb
-                    .draw_program_at(&self.screen, &self.raster, &self.theme, &self.font, top);
+                    .draw_program_at(&self.screen, &self.raster, &self.theme, &self.font, x, y);
             } else {
                 self.fb.draw_screen(&self.screen, &self.theme, &self.font);
             }
@@ -1551,8 +1548,21 @@ impl App {
                 self.help_selected = (self.help_selected + 1).min(specs.saturating_sub(1));
                 self.poke();
             }
+            Key::Named(NamedKey::Escape) => self.leave_help(),
             _ => self.to_write(),
         }
+    }
+
+    /// Leave the help/about screen: back to SETTINGS when it was opened from
+    /// there, otherwise back to the work it covered.
+    fn leave_help(&mut self) {
+        if self.help_from_setup {
+            self.help_from_setup = false;
+            self.mode = Mode::Setup;
+        } else {
+            self.to_write();
+        }
+        self.dirty = true;
     }
 
     /// A program's own keys: Esc opens the command line, everything else is
@@ -1703,23 +1713,34 @@ impl App {
 
     /// Pointer position in emulated raster pixels.
     fn raster_point(&self) -> (i32, i32) {
-        // Softhand's canvas sits one bar row further down than the window's
-        // pixel origin; without this a click lands 16 emulated pixels off.
-        let top = if self.program_id == Some("softhand") {
-            TOP_BAR_PIXELS
-        } else {
-            0
-        };
+        let (ox, oy) = self.program_origin();
         match self.vp.as_ref() {
             Some(vp) => {
                 let scale = vp.scale.max(1) as f64;
                 (
-                    ((self.pointer.0 - vp.offset_x as f64) / scale) as i32,
-                    ((self.pointer.1 - vp.offset_y as f64) / scale) as i32 - top,
+                    ((self.pointer.0 - vp.offset_x as f64) / scale) as i32 - ox,
+                    ((self.pointer.1 - vp.offset_y as f64) / scale) as i32 - oy,
                 )
             }
-            None => (self.pointer.0 as i32, self.pointer.1 as i32 - top),
+            None => (self.pointer.0 as i32 - ox, self.pointer.1 as i32 - oy),
         }
+    }
+
+    /// The stage's pixel origin: the cell origin from `program_stage`, in the
+    /// framebuffer's pixels.
+    fn program_origin(&self) -> (i32, i32) {
+        let (cols, rows) = match self.vp.as_ref() {
+            Some(vp) => (
+                vp.virt_w / cread_core::FONT_W,
+                vp.virt_h / cread_core::FONT_H,
+            ),
+            None => (self.screen.cols(), self.screen.rows()),
+        };
+        let (x, y) = self.program_stage(cols, rows);
+        (
+            (x * cread_core::FONT_W) as i32,
+            (y * cread_core::FONT_H) as i32,
+        )
     }
 
     /// Hand a pointer event to the running program, if it should get one.
@@ -1803,6 +1824,28 @@ impl App {
             && !matches!(self.mode, Mode::Loading | Mode::Checking)
             && self.last_input.elapsed()
                 >= Duration::from_secs(u64::from(self.screensaver_minutes) * 60)
+    }
+
+    /// Where a program's classic 640x400 stage sits in the current grid.
+    ///
+    /// Programs are written for 80x25 cells; a bigger framebuffer gets the whole
+    /// stage centred instead of pinned to the top-left. Softhand is 24 rows tall
+    /// and wears the top bar, so its stage is centred below that bar.
+    fn program_stage(&self, cols: u32, rows: u32) -> (u32, u32) {
+        let stage_rows = if self.program_id == Some("softhand") {
+            24
+        } else {
+            25
+        };
+        let top = if self.program_id == Some("softhand") {
+            1
+        } else {
+            0
+        };
+        (
+            cols.saturating_sub(80) / 2,
+            top + rows.saturating_sub(top + stage_rows) / 2,
+        )
     }
 
     /// The binary to start after an update. Captured at startup on purpose:
@@ -2926,6 +2969,7 @@ impl App {
             }
             SetupAction::Info => {
                 self.help_about = true;
+                self.help_from_setup = true;
                 self.mode = Mode::Help;
                 self.dirty = true;
             }
@@ -4102,10 +4146,11 @@ mod tests {
         let vp = Viewport::compute(1280, 800, ScaleMode::DEFAULT).unwrap();
         let scale = vp.scale as f64;
         app.vp = Some(vp);
-        // A pointer position in real pixels lands on the raster pixel under it.
-        // Softhand's canvas starts one bar row down, so the window pixel at
-        // 200 is raster pixel 200 - 16.
-        app.pointer = (320.0 * scale, (200.0 + TOP_BAR_PIXELS as f64) * scale);
+        // A pointer position in real pixels lands on the raster pixel under it,
+        // wherever the stage sits: the window origin is the stage origin.
+        let (ox, oy) = app.program_origin();
+        assert_eq!(ox, 0, "a 640-wide stage needs no horizontal offset");
+        app.pointer = ((320.0 + ox as f64) * scale, (200.0 + oy as f64) * scale);
         assert_eq!(app.raster_point(), (320, 200));
         assert!(app.program_pointer(PointerKind::Down(cread_core::program::BUTTON_LEFT)));
         let canvas = app.program.as_ref().unwrap().picture().unwrap();
@@ -4206,6 +4251,72 @@ mod tests {
     }
 
     #[test]
+    fn programs_are_centred_on_a_larger_framebuffer() {
+        let dir = vault("stage");
+        let mut app = app_in(&dir);
+
+        // A 160x50 grid is what a 100%-scaled 3072x1920 panel ends up with.
+        assert_eq!(app.program_stage(160, 50), (40, 12), "a game is centred");
+        app.new_picture();
+        assert_eq!(
+            app.program_stage(160, 50),
+            (40, 13),
+            "Softhand sits below its bar"
+        );
+        assert_eq!(app.program_stage(80, 25), (0, 1), "the classic grid");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_pointer_follows_the_centred_stage() {
+        let dir = vault("stage-pointer");
+        let mut app = app_in(&dir);
+        app.new_picture();
+        let vp = Viewport::compute(3072, 1920, ScaleMode::DEFAULT).unwrap();
+        app.vp = Some(vp);
+        let (ox, oy) = app.program_origin();
+        assert!(ox > 0, "the stage is not in the corner: {ox}");
+        assert!(oy > 0);
+
+        let scale = vp.scale as f64;
+        app.pointer = (
+            vp.offset_x as f64 + (ox as f64 + 10.0) * scale,
+            vp.offset_y as f64 + (oy as f64 + 10.0) * scale,
+        );
+        assert_eq!(app.raster_point(), (10, 10));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn info_returns_to_settings() {
+        let dir = vault("info-back");
+        let mut app = app_in(&dir);
+        app.open_setup();
+        app.setup_selected = app
+            .setup_entries()
+            .iter()
+            .position(|(row, _)| row.name == "INFO")
+            .expect("the info row");
+        app.setup_activate();
+        assert_eq!(app.mode, Mode::Help);
+        assert!(app.help_about);
+
+        app.leave_help();
+        assert_eq!(app.mode, Mode::Setup, "back where INFO was opened");
+
+        // `about` from the prompt still returns to the work it covered.
+        app.help_from_setup = false;
+        app.mode = Mode::Write;
+        app.has_document = true;
+        app.leave_help();
+        assert_eq!(app.mode, Mode::Write);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_settings_switch_the_clock_and_date_formats() {
         let dir = vault("format-rows");
         let mut app = app_in(&dir);
@@ -4270,7 +4381,6 @@ mod tests {
             .to_string();
         assert!(bar.contains("untitled.png"), "{bar}");
         assert!(bar.contains("modified"), "{bar}");
-        assert!(bar.contains("Pictures"), "{bar}");
 
         app.save_picture(None).unwrap();
         app.compose();

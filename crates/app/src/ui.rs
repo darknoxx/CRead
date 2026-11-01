@@ -1650,6 +1650,41 @@ mod tests {
     }
 
     #[test]
+    fn the_top_bar_has_a_name_a_clock_and_a_place() {
+        let vp = vp(1280, 800);
+        let mut screen = Screen::new(vp.cols(), vp.rows());
+        draw_top_bar(
+            &mut screen,
+            &Theme::BLACK,
+            &TopBar {
+                title: "bildname.png",
+                state: "modified",
+                clock: "19:25",
+                location: "~/Dokumente/CRead/Pictures",
+            },
+        );
+        let bar = rows_as_text(&screen).lines().next().unwrap().to_string();
+        assert!(bar.starts_with(" bildname.png  modified"), "{bar:?}");
+        assert!(bar.contains("19:25"), "{bar:?}");
+        assert!(bar.trim_end().ends_with("Pictures"), "{bar:?}");
+
+        // The boot bar has no name and no place, only the stamped clock.
+        let mut screen = Screen::new(vp.cols(), vp.rows());
+        draw_top_bar(
+            &mut screen,
+            &Theme::BLACK,
+            &TopBar {
+                title: "",
+                state: "",
+                clock: "01.11.26 - 19:25",
+                location: "",
+            },
+        );
+        let bar = rows_as_text(&screen).lines().next().unwrap().to_string();
+        assert!(bar.trim() == "01.11.26 - 19:25", "{bar:?}");
+    }
+
+    #[test]
     fn words_wrap_instead_of_being_cut() {
         assert_eq!(wrap_line("one two three", 7), vec!["one two", "three"]);
         assert_eq!(

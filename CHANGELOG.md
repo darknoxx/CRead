@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.24.1
+
+- **Programs are centred, not pinned to the corner.** Pocketboi and Softhand
+  draw on the classic 80x25 stage; on a bigger emulated screen that stage sat in
+  the top-left, which is why a 3072x1920 laptop showed the game far left with
+  its key legend floating beside it (the legend is a cell row, centred on the
+  full grid). The stage is centred as one block now — game and legend together,
+  Softhand's canvas and palette strip together — and the pointer mapping goes
+  through the same origin, so the brush still lands under the cursor.
+- **Esc from INFO goes back to SETTINGS** when you came from there; `about`
+  from a prompt still returns to the work it covered.
+
 ## 0.24.0
 
 - **A top bar on the boot screen, with date and time**: `01.11.26 - 19:25` in

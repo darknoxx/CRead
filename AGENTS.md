@@ -101,9 +101,10 @@ There is no plugin directory and no file to copy.
 the left, a centred clock, the location on the right. The boot screen shows
 date and time, the editor and Softhand only the time; the formats come from
 `clock_24h` / `date_day_first` in the preferences (`crate::clock` is the only
-place that formats them). Softhand's pixel layer is drawn one bar row down
-(`draw_program_at`), so `raster_point` subtracts the same offset — otherwise
-the brush lands 16 pixels above the cursor.
+place that formats them). Programs draw on the classic 80x25 stage; the shell centres it in the current
+grid (Softhand's 24 rows sit below the bar) and blits the pixel layer at that
+same origin — `raster_point` subtracts it, otherwise the brush lands off the
+cursor.
 
 **The screensaver is the machine resting.** It is a shell mode
 (`Mode::Screensaver`), not a module on the `SOFTWARE` shelf, and it is

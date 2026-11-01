@@ -320,16 +320,34 @@ impl App {
         let stamp = crate::clock::stamp(&now_local, self.clock_24h, self.date_day_first, true);
 
         if self.program.is_some() {
+            // The program owns the grid: cells it does not paint must show the
+            // pixels underneath, not whatever was on the screen before.
+            screen.fill(cread_core::Cell::TRANSPARENT);
             let mut raster = std::mem::replace(&mut self.raster, Raster::new(1, 1));
             // Clear means "the page shows through": a program paints only what
             // it means to paint, and the rest is the shell's background.
             raster.fill_clear();
             let ink = Raster::nearest(self.theme.color(self.theme.fg));
+            // Programs are written for the classic 80x25 screen; a bigger grid
+            // gets that whole stage centred instead of pinned to the corner.
+            let mut stage = Screen::new(80, 25);
+            stage.fill(cread_core::Cell::TRANSPARENT);
             if let Some(program) = self.program.as_mut() {
                 program.palette(Raster::nearest(self.theme.background()), ink);
-                program.draw(screen, &mut raster);
+                program.draw(&mut stage, &mut raster);
             }
             self.raster = raster;
+
+            let (stage_x, stage_y) = self.program_stage(cols, rows);
+            for y in 0..stage.rows() {
+                for x in 0..stage.cols() {
+                    if let Some(cell) = stage.get(x, y)
+                        && !cell.is_transparent()
+                    {
+                        screen.put(stage_x + x, stage_y + y, *cell);
+                    }
+                }
+            }
 
             if self.program_id == Some("softhand") {
                 // The same bar as the editor: picture name and state on the

@@ -85,25 +85,27 @@ impl Framebuffer {
     /// Cells marked transparent are skipped, which is what lets a program put a
     /// menu over its own picture without punching a hole in it.
     pub fn draw_program(&mut self, screen: &Screen, raster: &Raster, theme: &Theme, font: &Font) {
-        self.draw_program_at(screen, raster, theme, font, 0);
+        self.draw_program_at(screen, raster, theme, font, 0, 0);
     }
 
-    /// The same, with the pixel layer starting `top` pixels down.
+    /// The same, with the pixel layer starting at `(x, y)`.
     ///
-    /// Softhand wears a top bar like the editor, so its canvas and palette strip
-    /// move down by exactly one text row.
+    /// Programs are written for the classic 640x400 screen; on a larger
+    /// framebuffer the shell centres that stage instead of leaving it in the
+    /// top-left corner.
     pub fn draw_program_at(
         &mut self,
         screen: &Screen,
         raster: &Raster,
         theme: &Theme,
         font: &Font,
-        top: i32,
+        x: i32,
+        y: i32,
     ) {
         // The page first: a program paints only what it means to paint, and
         // pixels it left clear show this colour.
         self.clear(theme.background());
-        self.blit_at(raster, top);
+        self.blit_at(raster, x, y);
         self.draw_cells(screen, theme, font, 0, 0);
     }
 
@@ -121,21 +123,28 @@ impl Framebuffer {
     /// Row-wise conversion: 245k pixels, once per frame, so the per-pixel
     /// bounds check of `put` would show up in a pointer-driven program.
     fn blit(&mut self, raster: &Raster) {
-        self.blit_at(raster, 0);
+        self.blit_at(raster, 0, 0);
     }
 
-    fn blit_at(&mut self, raster: &Raster, oy: i32) {
+    fn blit_at(&mut self, raster: &Raster, ox: i32, oy: i32) {
         let rows = raster.height().min(self.height);
-        let cols = raster.width().min(self.width);
         let pixels = raster.pixels();
+        // The visible part of the row: the raster may hang off either edge.
+        let start = ox.max(0) as u32;
+        let end = (ox + raster.width() as i32).min(self.width as i32);
+        if end <= start as i32 {
+            return;
+        }
+        let count = (end - start as i32) as usize;
         for y in 0..rows {
             let dest_y = oy + y as i32;
             if dest_y < 0 || dest_y >= self.height as i32 {
                 continue;
             }
-            let src = &pixels[(y * raster.width()) as usize..][..cols as usize];
-            let base = (dest_y as u32 * self.width) as usize * 4;
-            let dst = &mut self.data[base..base + cols as usize * 4];
+            let src_start = (start as i32 - ox) as usize;
+            let src = &pixels[(y * raster.width()) as usize + src_start..][..count];
+            let base = ((dest_y as u32 * self.width + start) as usize) * 4;
+            let dst = &mut self.data[base..base + count * 4];
             for (index, chunk) in src.iter().zip(dst.as_chunks_mut::<4>().0) {
                 if *index == CLEAR {
                     // Nobody painted this pixel: the background stays.
@@ -327,10 +336,12 @@ mod tests {
         let mut screen = Screen::new(8, 4);
         screen.fill(Cell::TRANSPARENT);
 
-        fb.draw_program_at(&screen, &raster, &Theme::BLACK, &Font::new(), 16);
-        assert_eq!(fb.pixel(0, 15), Theme::BLACK.background(), "the bar's row");
-        assert_eq!(fb.pixel(0, 16), VGA[15], "the canvas starts one row down");
-        assert_eq!(fb.pixel(0, 23), VGA[15], "and keeps its height");
+        fb.draw_program_at(&screen, &raster, &Theme::BLACK, &Font::new(), 4, 16);
+        assert_eq!(fb.pixel(0, 16), Theme::BLACK.background(), "left of it");
+        assert_eq!(fb.pixel(4, 15), Theme::BLACK.background(), "the bar's row");
+        assert_eq!(fb.pixel(4, 16), VGA[15], "the canvas starts one row down");
+        assert_eq!(fb.pixel(10, 23), VGA[15], "and keeps its height");
+        assert_eq!(fb.pixel(12, 23), Theme::BLACK.background(), "right of it");
     }
 
     #[test]
