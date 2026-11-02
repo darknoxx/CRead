@@ -1,18 +1,25 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Install CRead as the one program on a Raspberry Pi (or any small Debian box).
 #
-#   sudo ./install-kiosk.sh /path/to/cread
+#   sudo CREAD_USER=$USER ./install-kiosk.sh /path/to/cread
 #
 # The binary is user-owned so `SETTINGS -> UPDATE` can replace it without root;
 # systemd owns the session and restarts cage + CRead together.
-set -eu
+#
+# Without CREAD_USER the user who invoked sudo is used; a bare root shell falls
+# back to a dedicated `cread` account.
+set -Eeuo pipefail
+trap 'echo "install failed at line $LINENO" >&2' ERR
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "run this as root" >&2
     exit 1
 fi
 
-USER_NAME=${CREAD_USER:-cread}
+USER_NAME=${CREAD_USER:-${SUDO_USER:-cread}}
+if [ "$USER_NAME" = "root" ]; then
+    USER_NAME=cread
+fi
 VAULT=${CREAD_VAULT:-/home/$USER_NAME/Documents/CRead}
 XKB_LAYOUT=${XKB_LAYOUT:-$(sed -n 's/^XKBLAYOUT="\(.*\)"/\1/p' /etc/default/keyboard 2>/dev/null | head -n 1)}
 [ -n "$XKB_LAYOUT" ] || XKB_LAYOUT=us
@@ -63,19 +70,49 @@ Storage=volatile
 RuntimeMaxUse=32M
 EOF
 
-# Only disable the swap unit here. Stopping it runs swapoff, which can block
-# for a long time on a small card; it will be gone after the next boot.
-if systemctl list-unit-files dphys-swapfile.service >/dev/null 2>&1; then
-    systemctl disable dphys-swapfile.service >/dev/null 2>&1 || true
-fi
-systemctl disable --now getty@tty1.service >/dev/null 2>&1 || true
-# The compositor needs /run/user/<uid>; lingering creates it even before the
-# first login session.
-loginctl enable-linger "$USER_NAME" >/dev/null 2>&1 || true
-install -m 0755 "$HERE/cread-update.sh" /usr/local/sbin/cread-update
-systemctl restart systemd-journald
+# The essential step first: the unit must be enabled even if a later,
+# optional tweak fails.
 systemctl daemon-reload
 systemctl enable cread-kiosk.service
+
+# Optional steps. None of them may stop the installation or leave the kiosk
+# disabled.
+if systemctl list-unit-files dphys-swapfile.service >/dev/null 2>&1; then
+    # Only disable the swap unit. Stopping it runs swapoff, which can block on
+    # a small card; it will be gone after the next boot.
+    systemctl disable dphys-swapfile.service >/dev/null 2>&1 || true
+fi
+# Do not stop the getty with --now: the kiosk's Conflicts= stops it at start.
+systemctl disable getty@tty1.service >/dev/null 2>&1 || true
+# The compositor needs /run/user/<uid>; lingering creates it at boot.
+loginctl enable-linger "$USER_NAME" >/dev/null 2>&1 \
+    || echo "warning: could not enable linger for $USER_NAME" >&2
+if ! install -d -m 0755 /usr/local/sbin; then
+    echo "warning: cannot create /usr/local/sbin" >&2
+elif ! install -m 0755 "$HERE/cread-update.sh" /usr/local/sbin/cread-update; then
+    echo "warning: cannot install cread-update; in-app updates still work" >&2
+fi
+systemctl restart systemd-journald >/dev/null 2>&1 || true
+
+# Start and verify. A failure here must be visible to the caller.
+if ! systemctl restart cread-kiosk.service; then
+    echo "warning: cread-kiosk did not start cleanly" >&2
+fi
+for _ in $(seq 1 15); do
+    if systemctl is-active --quiet cread-kiosk.service; then
+        break
+    fi
+    sleep 1
+done
+if ! systemctl is-enabled --quiet cread-kiosk.service; then
+    echo "error: cread-kiosk is not enabled" >&2
+    exit 1
+fi
+if ! systemctl is-active --quiet cread-kiosk.service; then
+    echo "error: cread-kiosk is not running; check: journalctl -u cread-kiosk -b" >&2
+    systemctl status cread-kiosk.service --no-pager >&2 || true
+    exit 1
+fi
 
 cat <<EOF
 
@@ -83,7 +120,7 @@ CRead kiosk installed for $USER_NAME.
 
   binary:  /opt/cread/cread
   vault:   $VAULT
-  service: cread-kiosk.service (starting now)
+  service: cread-kiosk.service (running)
 
 Open the WebDAV form once inside CRead (SETTINGS -> WEBDAV) and switch sync on.
 The in-app updater replaces /opt/cread/cread and exits; systemd brings cage and
@@ -95,8 +132,3 @@ Still worth doing by hand for the SD card:
     /boot/firmware/config.txt
   - do NOT use an overlay/read-only root: the in-app updater writes /opt/cread
 EOF
-
-# Start (or restart) the kiosk so the screen does not stay on a bare console.
-if ! systemctl restart cread-kiosk.service; then
-    echo "cread-kiosk did not start; check: journalctl -u cread-kiosk -b" >&2
-fi

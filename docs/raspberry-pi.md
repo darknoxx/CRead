@@ -31,8 +31,10 @@ The script asks for confirmation, installs cage, xwayland, Mesa Vulkan and
 minisign, downloads the release, checks its SHA256 and minisign signature
 against the keys baked into the script, and runs the same kiosk installer
 described below. It uses the user that invoked `sudo`; pass `--user NAME` if
-that is not what you want, `--version 0.27.1` to pin a release, or `--yes` for
-an unattended run.
+that is not what you want, `--version 0.27.2` to pin a release, or `--yes` for
+an unattended run. The examples use `creaduser` and `creados`, but any username
+and hostname work; the installer reads the user from `sudo`, not from a fixed
+name.
 
 Reboot once afterwards, then open `SETTINGS → WEBDAV`. The numbered sections
 below are the same steps by hand, plus recovery and troubleshooting; you do not
@@ -323,7 +325,7 @@ HTML error page or the wrong file. Re-run the download with `curl -fLO` and the
 pinned release URL:
 
 ```sh
-base=https://github.com/darknoxx/CRead/releases/download/v0.27.1
+base=https://github.com/darknoxx/CRead/releases/download/v0.27.2
 curl -fLO "$base/cread-linux-aarch64.tar.gz.sha256"
 ```
 

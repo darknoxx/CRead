@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.27.2
+
+- **The installer cannot stop before the service is enabled.** The essential
+  steps (write the unit, `daemon-reload`, `enable`, start, verify) happen
+  first; the optional ones (swap, getty, linger, `cread-update`, journald
+  restart) cannot abort the installation any more. A failed start exits
+  non-zero with the journal command.
+- **The bootstrap verifies the result.** It fails with a clear error if
+  `cread-kiosk` is not enabled and running, instead of claiming success.
+- **The manual installer uses the user who invoked sudo** (`SUDO_USER`) unless
+  `CREAD_USER` is set. It no longer creates a second `cread` account behind
+  your back when you run it with sudo.
+- **The guide says any username works**; `creaduser`/`creados` are examples.
+
 ## 0.27.1
 
 - **One command for a fresh Pi.** `install.sh` (attached to every release)

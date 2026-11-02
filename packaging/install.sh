@@ -210,8 +210,21 @@ if [ ! -x "$TMP/dist/cread" ] || [ ! -x "$TMP/dist/packaging/install-kiosk.sh" ]
     exit 1
 fi
 
-echo "==> installing"
-CREAD_USER="$USER_NAME" "$TMP/dist/packaging/install-kiosk.sh" "$TMP/dist/cread"
+echo "==> installing for $USER_NAME"
+if ! CREAD_USER="$USER_NAME" "$TMP/dist/packaging/install-kiosk.sh" "$TMP/dist/cread"; then
+    echo "error: the kiosk installer failed; see the output above." >&2
+    exit 1
+fi
+
+if ! systemctl is-enabled --quiet cread-kiosk.service; then
+    echo "error: cread-kiosk was installed but is not enabled." >&2
+    exit 1
+fi
+if ! systemctl is-active --quiet cread-kiosk.service; then
+    echo "error: cread-kiosk was installed but is not running." >&2
+    echo "check: journalctl -u cread-kiosk -b" >&2
+    exit 1
+fi
 
 cat <<EOF
 
