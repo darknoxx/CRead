@@ -50,6 +50,8 @@ impl App {
             Command::Exit => self.cmd_exit(el),
             Command::ExitForce => self.cmd_exit_force(el),
             Command::Shutdown => self.cmd_shutdown(),
+            Command::Reboot => self.cmd_reboot(),
+            Command::BackToLinux => self.cmd_backtolinux(),
 
             Command::Riff(action) => self.cmd_riff(action),
             Command::Tool(_) | Command::Size(_) | Command::Colour(_) | Command::Mute => {

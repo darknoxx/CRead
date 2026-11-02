@@ -192,6 +192,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "updateprompt",
                     "quit",
                     "shutdown",
+                    "reboot",
+                    "backtolinux",
                     "help",
                     "manual",
                     "notice",

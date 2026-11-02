@@ -1,0 +1,7 @@
+[Unit]
+Description=Leave CRead for a Linux console
+After=cread-kiosk.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cread-backtolinux

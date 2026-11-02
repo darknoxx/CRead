@@ -34,8 +34,9 @@ cread --demo --size 1280x800 --show action --command "sca" --screenshot /tmp/sho
 The last one prefills the prompt, which is the only way to screenshot a typed
 command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 `manual`, `notice` (the sync confirmation), `quit` (the exit question),
-`shutdown` (the power-off question), `software`, `pictures`, `riffplay`,
-`riffinsert`, `pocketboi[:<rom>]`, `picture[:<png>]`.
+`shutdown`, `reboot`, `backtolinux` (the save-and-leave questions),
+`software`, `pictures`, `riffplay`, `riffinsert`, `pocketboi[:<rom>]`,
+`picture[:<png>]`.
 
 ## Layout
 

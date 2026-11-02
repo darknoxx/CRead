@@ -259,6 +259,13 @@ fn button_index(button: &JoypadButton) -> Option<usize> {
         .find(|index| std::mem::discriminant(&button_at(*index)) == std::mem::discriminant(button))
 }
 
+/// A keyboard that also presents a gamepad interface (common with multimedia
+/// keys) should not trigger the gamepad line.
+fn looks_like_keyboard(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.contains("keyboard") || name.contains("kbd")
+}
+
 /// A game pad, polled once per frame. No thread: the emulation loop is
 /// already running at 60 Hz, so asking gilrs "anything new?" costs nothing.
 struct Pad {
@@ -277,9 +284,12 @@ impl Pad {
         })
     }
 
-    /// Any pad plugged in right now.
+    /// Any pad plugged in right now. Some USB keyboards expose a HID gamepad
+    /// interface; those are not the pad the message is talking about.
     fn connected(&self) -> bool {
-        self.gilrs.gamepads().next().is_some()
+        self.gilrs
+            .gamepads()
+            .any(|(_, pad)| !looks_like_keyboard(pad.name()))
     }
 
     fn poll(&mut self, shared: &Shared) {
@@ -1057,6 +1067,14 @@ mod tests {
         assert!(boi.status().contains("muted"));
         assert_eq!(boi.command(&cread_core::Command::Mute).unwrap(), "sound on");
         assert!(!boi.status().contains("muted"));
+    }
+
+    #[test]
+    fn a_keyboard_is_not_a_gamepad() {
+        assert!(looks_like_keyboard("NOVATEK USB Keyboard"));
+        assert!(looks_like_keyboard("USB KBD"));
+        assert!(!looks_like_keyboard("Xbox Wireless Controller"));
+        assert!(!looks_like_keyboard("8BitDo Pro 2"));
     }
 
     #[test]

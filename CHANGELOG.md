@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.28.0
+
+- **`reboot` and `backtolinux` are commands.** `reboot` saves, asks once and
+  restarts the machine. `backtolinux` saves, stops the kiosk and opens a Linux
+  login on tty1, for `sudo apt update && sudo apt full-upgrade`; after the
+  update, `sudo reboot` brings CRead back. The installer adds the unit, helper
+  and polkit rule for it.
+- **The Pi guide and manual document the OS update.** The command is
+  `sudo apt update && sudo apt full-upgrade -y`, then `sudo reboot`.
+- **Pocketboi no longer mistakes a USB keyboard for a gamepad.** Keyboards that
+  expose a HID gamepad interface are filtered by name, so the "Gamepad
+  recognized" line only appears for a real pad.
+
 ## 0.27.2
 
 - **The installer cannot stop before the service is enabled.** The essential

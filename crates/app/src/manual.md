@@ -785,6 +785,8 @@ The most important commands. Upper and lower case do not matter.
 | `roll [on\|off]` | `drift` | The scanlines drift. |
 | `save` | `w`, `safe`, `write` | Saves. |
 | `shutdown` | `poweroff` | Saves and powers the machine off. |
+| `reboot` | `restart` | Saves and restarts the machine. |
+| `backtolinux` | `linux` | Leaves the kiosk and opens a Linux login. |
 | `saveas name` | `sa` | Saves under a new name. |
 | `scanlines [on\|off]` | `scan`, `sl` | The fine lines. |
 | `screensaver [on\|off\|minutes]` | `saver` | The screensaver. |
@@ -897,6 +899,22 @@ Check:
 
 Check the fields in **SETTINGS → WEBDAV**. Watch the exact address of the
 server. The bottom line shows a message. It starts with `sync failed:`.
+
+### Updating the Raspberry Pi OS
+
+If CRead runs as a kiosk on a Raspberry Pi, `backtolinux` saves and opens a
+normal Linux login on the screen. Log in there, then update the system:
+
+```
+sudo apt update
+sudo apt full-upgrade -y
+sudo reboot
+```
+
+The kiosk starts again after the reboot. `reboot` restarts the machine from
+CRead, `shutdown` powers it off, and `backtolinux` only leaves CRead for the
+Linux console. Do not use an overlay or read-only root: the updates and the
+in-app updater need to write to the card.
 
 ### The update is not installed
 

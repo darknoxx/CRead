@@ -149,6 +149,8 @@ help screen the arrow keys walk it while the status line explains each row.
 | `about` | | version and credits |
 | `exit!` | `quit`, `q`, `x` | save and exit from anywhere |
 | `shutdown` | `poweroff` | save and power off the machine |
+| `reboot` | `restart` | save and restart the machine |
+| `backtolinux` | `linux` | leave the kiosk for a Linux console |
 
 Saving is yours to do: nothing is written until you run `save`. If you would
 rather not think about it, `autosave on` writes 1.5 seconds after you stop
@@ -188,8 +190,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         version and credits                  0.27.2 │
-  │   UPDATE       check github for a new version       0.27.2 │
+  │   INFO         version and credits                  0.28.0 │
+  │   UPDATE       check github for a new version       0.28.0 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   USER MANUAL  read the manual                             │

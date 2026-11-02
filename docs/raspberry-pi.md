@@ -31,7 +31,7 @@ The script asks for confirmation, installs cage, xwayland, Mesa Vulkan and
 minisign, downloads the release, checks its SHA256 and minisign signature
 against the keys baked into the script, and runs the same kiosk installer
 described below. It uses the user that invoked `sudo`; pass `--user NAME` if
-that is not what you want, `--version 0.27.2` to pin a release, or `--yes` for
+that is not what you want, `--version 0.28.0` to pin a release, or `--yes` for
 an unattended run. The examples use `creaduser` and `creados`, but any username
 and hostname work; the installer reads the user from `sudo`, not from a fixed
 name.
@@ -256,7 +256,36 @@ sudo systemctl start cread-kiosk
 The unit and install script are not updated by the binary updater. Re-run the
 installation from a newer tarball if you want those changes too.
 
-## 8. Maintenance and recovery
+## 8. Updating Raspberry Pi OS
+
+CRead OS updates itself through `SETTINGS → UPDATE`. The operating system
+(cage, Mesa, the kernel) is updated from a Linux console:
+
+```
+backtolinux
+```
+
+CRead asks once, saves, stops the kiosk and opens a login on the screen. Log in
+as your kiosk user, then:
+
+```sh
+sudo apt update
+sudo apt full-upgrade -y
+sudo reboot
+```
+
+The kiosk service is enabled, so CRead starts again after the reboot. If you
+prefer not to reboot, return with:
+
+```sh
+sudo systemctl start cread-kiosk
+```
+
+`reboot` inside CRead restarts the machine; `shutdown` powers it off. Do not
+use an overlay or read-only root: the updater and the system updates need to
+write to the card.
+
+## 9. Maintenance and recovery
 
 SSH is the maintenance door. The kiosk user is the user from the imager.
 
@@ -300,7 +329,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart cread-kiosk
 ```
 
-## 9. The SD card
+## 10. The SD card
 
 A kiosk writes little, but a few settings are worth having:
 
@@ -318,14 +347,14 @@ A kiosk writes little, but a few settings are worth having:
   a read-only root later, move `/opt/cread` and the home directory to a
   persistent partition.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 **`sha256sum` says no properly formatted checksum line.** You downloaded an
 HTML error page or the wrong file. Re-run the download with `curl -fLO` and the
 pinned release URL:
 
 ```sh
-base=https://github.com/darknoxx/CRead/releases/download/v0.27.2
+base=https://github.com/darknoxx/CRead/releases/download/v0.28.0
 curl -fLO "$base/cread-linux-aarch64.tar.gz.sha256"
 ```
 

@@ -8,7 +8,7 @@ mod boot;
 mod browser;
 mod commands;
 mod compose;
-mod shutdown;
+mod power;
 mod sync;
 mod update;
 mod webdav;
@@ -16,7 +16,7 @@ mod webdav;
 use browser::{Browser, BrowserKind, BrowserMode};
 use webdav::FormState;
 
-use shutdown::ShutdownPrompt;
+use power::PowerPrompt;
 use sync::QuitPrompt;
 
 use cread_core::{
@@ -258,8 +258,8 @@ enum Mode {
     UpdatePrompt,
     /// "Sync to server?" on the way out.
     Quit,
-    /// "Save and power off?" before the machine goes down.
-    Shutdown,
+    /// "Save and power off / restart / leave for a console?"
+    Power,
     /// The user manual: read-only Markdown with a scrollbar.
     Manual,
     /// A small box confirming one thing, e.g. the sync switch.
@@ -365,8 +365,8 @@ struct App {
     unsynced: bool,
     /// The "sync before quitting?" dialog while it is open.
     quit: Option<QuitPrompt>,
-    /// The "save and power off?" dialog while it is open.
-    shutdown: Option<ShutdownPrompt>,
+    /// The save-and-leave dialog while it is open.
+    power: Option<PowerPrompt>,
 
     boot_selected: usize,
 
@@ -566,7 +566,7 @@ impl App {
             vault_ready: false,
             unsynced: false,
             quit: None,
-            shutdown: None,
+            power: None,
 
             boot_selected: 0,
 
@@ -1337,7 +1337,7 @@ impl App {
             Mode::Software => self.on_key_software(event),
             Mode::Setup => self.on_key_setup(event),
             Mode::Quit => self.on_key_quit(el, event),
-            Mode::Shutdown => self.on_key_shutdown(el, event),
+            Mode::Power => self.on_key_power(el, event),
             Mode::Checking => self.on_key_checking(event),
             Mode::UpdatePrompt => self.on_key_update_prompt(event),
             Mode::Manual => self.on_key_manual(event),
@@ -3577,6 +3577,12 @@ impl ApplicationHandler for App {
             "shutdown" => {
                 let _ = self.cmd_shutdown();
             }
+            "reboot" => {
+                let _ = self.cmd_reboot();
+            }
+            "backtolinux" => {
+                let _ = self.cmd_backtolinux();
+            }
             "quit" => {
                 self.unsynced = true;
                 self.quit = Some(QuitPrompt {
@@ -4847,15 +4853,25 @@ mod tests {
         app.mode = Mode::Action;
 
         app.cmd_shutdown().unwrap();
-        assert_eq!(app.mode, Mode::Shutdown);
-        assert_eq!(app.shutdown.map(|prompt| prompt.yes), Some(false));
+        assert_eq!(app.mode, Mode::Power);
+        assert_eq!(app.power.map(|prompt| prompt.yes), Some(false));
 
         app.compose();
         assert!(rows_as_text(&app.screen).contains("POWER OFF"));
 
-        app.cancel_shutdown();
+        app.cancel_power();
         assert_eq!(app.mode, Mode::Action);
-        assert!(app.shutdown.is_none());
+        assert!(app.power.is_none());
+
+        app.cmd_reboot().unwrap();
+        app.compose();
+        assert!(rows_as_text(&app.screen).contains("REBOOT"));
+        app.cancel_power();
+
+        app.cmd_backtolinux().unwrap();
+        app.compose();
+        assert!(rows_as_text(&app.screen).contains("LEAVE CREAD"));
+        app.cancel_power();
 
         let _ = std::fs::remove_dir_all(&dir);
     }

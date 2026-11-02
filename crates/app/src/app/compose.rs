@@ -41,7 +41,7 @@ impl App {
             Mode::Browser
                 | Mode::Webdav
                 | Mode::Quit
-                | Mode::Shutdown
+                | Mode::Power
                 | Mode::UpdatePrompt
                 | Mode::Notice
         )
@@ -770,15 +770,12 @@ impl App {
                     yes,
                 );
             }
-            Mode::Shutdown => {
-                let yes = self.shutdown.map(|prompt| prompt.yes).unwrap_or(false);
-                ui::draw_confirm(
-                    screen,
-                    &self.theme,
-                    "POWER OFF",
-                    "Save and shut down the machine?",
-                    yes,
-                );
+            Mode::Power => {
+                let (title, message, yes) = match self.power {
+                    Some(prompt) => (prompt.action.title(), prompt.action.question(), prompt.yes),
+                    None => ("POWER OFF", "Save and shut down the machine?", false),
+                };
+                ui::draw_confirm(screen, &self.theme, title, message, yes);
             }
             Mode::Notice => {
                 ui::draw_notice(screen, &self.theme, &self.notice_text);
