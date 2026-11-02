@@ -125,8 +125,13 @@ impl Renderer {
         let info = adapter.get_info();
         let adapter_info = format!("{} ({:?}, {:?})", info.name, info.backend, info.device_type);
 
+        // Ask for what the adapter can actually do. The WebGPU defaults assume
+        // eight colour attachments; GLES on the Raspberry Pi's V3D (and V3DV)
+        // allows four, and wgpu rejects a request above the adapter's limits
+        // instead of clamping it.
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("cread"),
+            required_limits: adapter.limits(),
             ..Default::default()
         }))
         .map_err(|e| format!("cannot create device: {e}"))?;

@@ -79,6 +79,12 @@ blink. Two consequences:
   wins**: the roll is checked before the music clock, or playing a track would
   drop the frame rate to 2 fps and freeze the raster.
 
+**The device limits come from the adapter.** `request_device` in
+`crates/render/src/gpu.rs` passes `adapter.limits()`, not the WebGPU defaults.
+The defaults assume eight colour attachments; the Raspberry Pi's V3D and V3DV
+allow four, and wgpu rejects a request above the adapter's ceiling instead of
+clamping it. Do not go back to `DeviceDescriptor::default()`.
+
 **The CRT uniform layout must match the WGSL struct byte for byte.** `CrtUniforms`
 is 32 bytes and has a `const` assertion; the shader pads to the same size. A
 mismatch does not error — the wrong field is read and the screen can go black.

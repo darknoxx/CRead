@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.26.1
+
+- **The renderer asks the GPU what it can do.** The device was created with
+  WebGPU's default limits, which assume eight colour attachments. The
+  Raspberry Pi's V3D (and V3DV) allows four, so wgpu refused the device with
+  `limit 'max_color_attachments' value 8 is better than allowed 4` and CRead
+  never reached its first frame. The limits now come from the adapter, so GL
+  and Vulkan both work on the Pi and other low-end GLES devices.
+
 ## 0.26.0
 
 - **`shutdown` saves and powers the machine off.** It asks once, writes the
