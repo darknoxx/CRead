@@ -1,4 +1,4 @@
-//! American Poker: a five-card-draw machine with a bankroll and a risk ladder.
+//! US Poker: a five-card-draw machine with a bankroll and a risk ladder.
 //!
 //! The shell owns the screen and the prompt; this crate owns the cabinet, the
 //! cards, the money and the little speaker. The bankroll is machine state, not
@@ -53,6 +53,7 @@ pub(crate) enum Phase {
 pub struct Poker {
     pub(crate) balance: u64,
     pub(crate) best: u64,
+    pub(crate) bankrupts: u64,
     pub(crate) bet: u64,
     pub(crate) hand: Option<[Card; 5]>,
     pub(crate) held: [bool; 5],
@@ -88,6 +89,7 @@ impl Poker {
         Self {
             balance,
             best,
+            bankrupts: wallet.bankrupts,
             bet: MIN_BET,
             hand: None,
             held: [false; 5],
@@ -140,6 +142,16 @@ impl Poker {
         poker
     }
 
+    /// A bankrupt table for `--show pokerover`; the real wallet is untouched.
+    pub fn demo_bust() -> Self {
+        let mut poker = Self::demo_hand();
+        poker.balance = 0;
+        poker.win = 0;
+        poker.phase = Phase::GameOver;
+        poker.bankrupts = 3;
+        poker
+    }
+
     /// Raise the bet to the next affordable step, wrapping back to the minimum.
     pub(crate) fn cycle_bet(&mut self) {
         if !matches!(self.phase, Phase::Ready | Phase::Result) {
@@ -168,12 +180,16 @@ impl Poker {
     }
 
     fn start_hand(&mut self) {
-        if !matches!(self.phase, Phase::Ready | Phase::GameOver) {
+        if self.phase != Phase::Ready {
             return;
         }
         self.clamp_bet();
         if self.balance < self.bet {
+            if self.balance < MIN_BET {
+                self.bankrupts += 1;
+            }
             self.phase = Phase::GameOver;
+            self.save();
             return;
         }
         self.balance -= self.bet;
@@ -231,9 +247,13 @@ impl Poker {
             self.win = 0;
             self.play(Effect::Coin);
         }
+        let busted = self.balance < MIN_BET;
+        if busted {
+            self.bankrupts += 1;
+        }
         self.result = None;
         self.clamp_bet();
-        self.phase = if self.balance < MIN_BET {
+        self.phase = if busted {
             Phase::GameOver
         } else {
             Phase::Ready
@@ -309,7 +329,7 @@ impl Poker {
             Phase::Dealt => self.draw_cards(),
             Phase::Result => self.take(),
             Phase::Risk => self.press_risk(),
-            Phase::GameOver => self.new_game(),
+            Phase::GameOver => {}
         }
     }
 
@@ -333,6 +353,9 @@ impl Poker {
             self.balance += self.win;
             self.win = 0;
         }
+        if self.balance < MIN_BET && self.phase != Phase::GameOver {
+            self.bankrupts += 1;
+        }
         self.update_best();
         self.save();
     }
@@ -345,6 +368,7 @@ impl Poker {
         let wallet = Wallet {
             balance: self.balance,
             best: self.best,
+            bankrupts: self.bankrupts,
         };
         let _ = save::save_to(&self.save_path, &wallet);
     }
@@ -358,13 +382,17 @@ impl Poker {
 
 impl Program for Poker {
     fn title(&self) -> &str {
-        "AMERICAN POKER"
+        "US POKER"
     }
 
     fn key(&mut self, key: KeyPress) -> Outcome {
         match key {
             KeyPress::Char('c') | KeyPress::Char('C') => {
                 self.cash_out();
+                if self.balance < MIN_BET && self.phase != Phase::GameOver {
+                    self.phase = Phase::GameOver;
+                    return Outcome::Continue;
+                }
                 return Outcome::Exit;
             }
             KeyPress::Char('m') | KeyPress::Char('M') => self.toggle_mute(),
@@ -380,8 +408,12 @@ impl Program for Poker {
             {
                 self.take()
             }
-            KeyPress::Char('n') | KeyPress::Char('N') if self.phase == Phase::GameOver => {
+            KeyPress::Char('y') | KeyPress::Char('Y') if self.phase == Phase::GameOver => {
                 self.new_game()
+            }
+            KeyPress::Char('n') | KeyPress::Char('N') if self.phase == Phase::GameOver => {
+                self.cash_out();
+                return Outcome::Exit;
             }
             KeyPress::Char(ch @ '1'..='5') => self.toggle_hold(ch as usize - '1' as usize),
             KeyPress::Enter | KeyPress::Char(' ') => self.advance(),
@@ -420,7 +452,7 @@ impl Program for Poker {
                 }
             }
             Phase::Risk => format!("risk · win {}", money(self.win)),
-            Phase::GameOver => "game over · N new game".into(),
+            Phase::GameOver => "bankrupt · Y retry · N cash out".into(),
         }
     }
 
@@ -474,6 +506,7 @@ mod tests {
             Wallet {
                 balance,
                 best: balance,
+                bankrupts: 0,
             },
             temp_path(tag),
             1234,
@@ -542,10 +575,12 @@ mod tests {
     fn a_new_game_restores_ten_dollars_but_keeps_the_best() {
         let mut poker = game("new", 0);
         poker.best = 9_000;
+        poker.bankrupts = 4;
         poker.phase = Phase::GameOver;
         poker.new_game();
         assert_eq!(poker.balance, START_BALANCE);
         assert_eq!(poker.best, 9_000);
+        assert_eq!(poker.bankrupts, 4, "a retry never erases the count");
         assert_eq!(poker.phase, Phase::Ready);
         let _ = std::fs::remove_dir_all(poker.save_path.parent().unwrap());
     }
@@ -561,6 +596,64 @@ mod tests {
         assert_eq!(poker.phase, Phase::Result);
         assert!(poker.result.is_some());
         let _ = std::fs::remove_dir_all(poker.save_path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_bust_counts_once_and_retry_keeps_it() {
+        let mut poker = game("bust", 100);
+        poker.phase = Phase::Result;
+        poker.win = 0;
+        poker.balance = 0;
+        poker.take();
+        assert_eq!(poker.phase, Phase::GameOver);
+        assert_eq!(poker.bankrupts, 1);
+        assert_eq!(
+            save::load_from(&poker.save_path).bankrupts,
+            1,
+            "written when it happens"
+        );
+
+        poker.key(KeyPress::Char('y'));
+        assert_eq!(poker.phase, Phase::Ready);
+        assert_eq!(poker.balance, START_BALANCE);
+        assert_eq!(poker.bankrupts, 1);
+
+        poker.phase = Phase::GameOver;
+        assert_eq!(poker.key(KeyPress::Char('n')), Outcome::Exit);
+        assert_eq!(
+            poker.bankrupts, 1,
+            "leaving the lose screen is not a new bust"
+        );
+        let _ = std::fs::remove_dir_all(poker.save_path.parent().unwrap());
+    }
+
+    #[test]
+    fn cashing_out_broke_counts_a_bankruptcy() {
+        let mut poker = game("bust-cash", 100);
+        poker.phase = Phase::Dealt;
+        poker.balance = 0;
+        poker.cash_out();
+        assert_eq!(poker.bankrupts, 1);
+        assert_eq!(save::load_from(&poker.save_path).bankrupts, 1);
+        let _ = std::fs::remove_dir_all(poker.save_path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_saved_bust_is_not_counted_again_on_launch() {
+        let path = temp_path("saved-bust");
+        save::save_to(
+            &path,
+            &Wallet {
+                balance: 0,
+                best: 1_000,
+                bankrupts: 5,
+            },
+        )
+        .unwrap();
+        let poker = Poker::for_test(save::load_from(&path), path.clone(), 1);
+        assert_eq!(poker.phase, Phase::GameOver);
+        assert_eq!(poker.bankrupts, 5);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]

@@ -72,8 +72,8 @@ const ROLL_SPEED: f32 = 40.0;
 const ANIMATION_FPS: u32 = 60;
 /// One program frame, in wall time: 59.7275 Hz. Pocketboi is clocked by this
 /// instead of 60 Hz because its audio is tied to wall time and 0.45% more
-/// samples per second is a queue that grows into a delay; American Poker uses
-/// the same budget for the risk light.
+/// samples per second is a queue that grows into a delay; US Poker uses the
+/// same budget for the risk light.
 const PROGRAM_FRAME: Duration = Duration::from_micros(16_734);
 /// How long a status message stays on the line before the mode hint returns.
 const STATUS_TTL: Duration = Duration::from_secs(4);
@@ -299,7 +299,7 @@ pub const PROGRAMS: &[ProgramInfo] = &[
     },
     ProgramInfo {
         id: "poker",
-        entry: "AMERICAN POKER",
+        entry: "US POKER",
         tagline: "ten dollars and a dream.",
     },
 ];
@@ -3700,6 +3700,7 @@ impl ApplicationHandler for App {
             "pokerplay" => self.start_poker(),
             "pokerhand" => self.show_poker(cread_poker::Poker::demo_hand()),
             "pokerrisk" => self.show_poker(cread_poker::Poker::demo_risk()),
+            "pokerover" => self.show_poker(cread_poker::Poker::demo_bust()),
             "riffplay" => {
                 if let Err(e) = self
                     .riff_ensure_loaded()

@@ -36,8 +36,8 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 `manual`, `notice` (the sync confirmation), `quit` (the exit question),
 `shutdown`, `reboot`, `backtolinux` (the save-and-leave questions),
 `software`, `pictures`, `riffplay`, `riffinsert`, `pocketboi[:<rom>]`,
-`poker` (front door), `pokerplay` (the machine), `pokerhand` (a dealt hand)
-and `pokerrisk` (the ladder), `picture[:<png>]`.
+`poker` (front door), `pokerplay` (the machine), `pokerhand` (a dealt hand),
+`pokerrisk` (the ladder) and `pokerover` (the lose screen), `picture[:<png>]`.
 
 ## Layout
 
@@ -79,7 +79,7 @@ blink. Two consequences:
   (`boot_at`), and the music clock (`riff_tick`: twice a second while a track
   plays, which is what starts the next track). A program may ask for frames of
   its own through `Program::wants_frames` — Pocketboi while a cartridge runs,
-  American Poker only while the risk ladder is live. That is a program clock,
+  US Poker only while the risk ladder is live. That is a program clock,
   not a fifth shell effect, and it uses `PROGRAM_FRAME` only while it is true.
   The shell clocks are ordered in `frame()` and the **fastest one wins**: the
   roll is checked before the music clock, or playing a track would drop the

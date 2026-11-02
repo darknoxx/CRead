@@ -576,9 +576,10 @@ impl App {
                 };
                 let wallet = cread_poker::wallet();
                 let tagline = format!(
-                    "BALANCE {}  ·  HIGHSCORE {}",
+                    "BALANCE {}  ·  HIGHSCORE {}  ·  BANKRUPTS {}",
                     cread_poker::money(wallet.balance),
-                    cread_poker::money(wallet.best)
+                    cread_poker::money(wallet.best),
+                    wallet.bankrupts
                 );
                 ui::draw_front_door(
                     screen,

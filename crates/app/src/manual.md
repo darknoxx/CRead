@@ -41,7 +41,7 @@ For beginners. No prior knowledge needed.
 5. Softhand — painting pictures
 6. Riff — listening to music
 7. Pocketboi — games
-8. American Poker — the machine
+8. US Poker — the machine
 9. The settings
 10. The screensaver
 11. Backing up with WebDAV
@@ -189,7 +189,7 @@ A: INSPIRO       where your ideas have room to grow.
 B: SOFTHAND      16 colors, endless possibilities.
 C: RIFF          a Soundtrack for your life.
 D: POCKETBOI     get gaming, my friend!
-E: AMERICAN POKER ten dollars and a dream.
+E: US POKER ten dollars and a dream.
 ─────────────────────────────────────────────────
 SOFTWARE         install and remove modules
 THE VAULT        documents, pictures, cartridges
@@ -576,9 +576,9 @@ In a game, press Esc and type `mute` to silence Pocketboi.
 
 ---
 
-## Chapter 8: American Poker — the machine
+## Chapter 8: US Poker — the machine
 
-American Poker is a five-card-draw machine. Install it through
+US Poker is a five-card-draw machine. Install it through
 **SOFTWARE**, like the other modules. Choose its drive on the start screen:
 the machine opens on its logo with the bankroll from the last visit and the
 highscore. Press **Enter** to sit down.
@@ -595,7 +595,8 @@ above the bankroll. The paytable is 9/6 Jacks or Better, paid against the bet.
 | R | Risk the current win on the ladder. |
 | T | Take the current win. |
 | C | Cash out and leave; the bankroll is saved. |
-| N | New game with $10.00 after the bankroll is gone. |
+| Y | Retry with $10.00 on the lose screen. |
+| N | Cash out from the lose screen and return to the front door. |
 | M | Mute or unmute the machine. |
 | Esc | The command line (`mute`, `exit`). |
 
@@ -619,8 +620,10 @@ door. The next visit starts with exactly that amount and the saved highscore.
 The file is `~/.config/cread/poker.save`; it is not in the vault and not synced.
 The front door and the `BEST` line show the highest bankroll ever reached.
 
-If the bankroll cannot pay the minimum, the machine shows **GAME OVER**; `N`
-starts a fresh game with `$10.00`. The highscore is kept.
+If the bankroll cannot pay the minimum, the machine shows the lose screen:
+**BANKRUPT**, with `RETRY? Y / N`. `Y` starts a fresh game with `$10.00` and
+keeps the bankruptcy count; `N` cashes out the empty wallet and returns to the
+front door. The highscore and the count are kept.
 
 The short sounds are generated: the win makes three rising clings, a loss
 buzzes, and the deal, hold and cash-out click. `M` or `mute` silences them.
@@ -919,7 +922,7 @@ The most important commands. Upper and lower case do not matter.
 | I | Load music. |
 | R | Random. |
 
-## In American Poker
+## In US Poker
 
 | Key | Effect |
 | --- | --- |
@@ -950,7 +953,7 @@ If the file is still open: press Esc and save at once.
 
 That is the screensaver. Press any key.
 
-### No sound in Riff, Pocketboi or American Poker
+### No sound in Riff, Pocketboi or US Poker
 
 CRead uses the system's output device. Check the system settings to see
 whether speakers or headphones are selected. Then start CRead again.

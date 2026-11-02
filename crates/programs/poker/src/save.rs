@@ -19,6 +19,8 @@ pub struct Wallet {
     pub balance: u64,
     /// Highest bankroll ever reached, in cents.
     pub best: u64,
+    /// How often the machine went broke. Permanent, like a highscore.
+    pub bankrupts: u64,
 }
 
 impl Default for Wallet {
@@ -26,6 +28,7 @@ impl Default for Wallet {
         Self {
             balance: START_BALANCE,
             best: START_BALANCE,
+            bankrupts: 0,
         }
     }
 }
@@ -47,6 +50,7 @@ pub fn load_from(path: &Path) -> Wallet {
     let mut wallet = Wallet {
         balance: START_BALANCE,
         best: START_BALANCE,
+        bankrupts: 0,
     };
     let mut saw_balance = false;
     let mut saw_best = false;
@@ -68,6 +72,11 @@ pub fn load_from(path: &Path) -> Wallet {
                     saw_best = true;
                 }
             }
+            "bankrupts" => {
+                if let Some(value) = value {
+                    wallet.bankrupts = value;
+                }
+            }
             _ => {}
         }
     }
@@ -85,7 +94,10 @@ pub fn save_to(path: &Path, wallet: &Wallet) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let text = format!("balance={}\nbest={}\n", wallet.balance, wallet.best);
+    let text = format!(
+        "balance={}\nbest={}\nbankrupts={}\n",
+        wallet.balance, wallet.best, wallet.bankrupts
+    );
     storage::save_atomic(path, &text)
 }
 
@@ -119,6 +131,7 @@ mod tests {
         let wallet = Wallet {
             balance: 2_345,
             best: 9_999,
+            bankrupts: 7,
         };
         save_to(&path, &wallet).unwrap();
         assert_eq!(load_from(&path), wallet);
@@ -140,6 +153,17 @@ mod tests {
         let wallet = load_from(&path);
         assert_eq!(wallet.balance, 4_200);
         assert_eq!(wallet.best, 4_200);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn an_old_wallet_gets_zero_bankrupts() {
+        let path = temp("old-wallet");
+        std::fs::write(&path, "balance=1500\nbest=2500\n").unwrap();
+        let wallet = load_from(&path);
+        assert_eq!(wallet.balance, 1_500);
+        assert_eq!(wallet.best, 2_500);
+        assert_eq!(wallet.bankrupts, 0);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

@@ -75,7 +75,7 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        B: SOFTHAND    16 colors, endless possibilities.
                        C: RIFF        a Soundtrack for your life.
                        D: POCKETBOI   get gaming, my friend!
-                       E: AMERICAN POKER ten dollars and a dream.
+                       E: US POKER ten dollars and a dream.
                        ─────────────────────────────────────────
                        SOFTWARE       install and remove modules
                        THE VAULT      documents, pictures, cartridges
@@ -86,7 +86,7 @@ The letters are the modules, handed out in the order you installed them: install
 Riff before Softhand and Riff becomes `B`. Below the rule sit the shelf, the
 vault and the settings, which are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
 **Softhand** (paint), **Riff** (music), **Pocketboi** (games) and
-**American Poker** sit in the shelf until you switch them on there. Every module
+**US Poker** sit in the shelf until you switch them on there. Every module
 opens with a fake loading bar before its own front door appears.
 
 ```
@@ -191,8 +191,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.30.0 │
-  │   UPDATE       check github for a new version       0.30.0 │
+  │   INFO         CRead OS and device info             0.30.1 │
+  │   UPDATE       check github for a new version       0.30.1 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -223,7 +223,7 @@ SOFTWARE                                  install and remove modules
   │   SOFTHAND  16 colors, endless possibilities.     install │
   │   RIFF      a Soundtrack for your life.           install │
   │   POCKETBOI get gaming, my friend!                install │
-  │   AMERICAN POKER ten dollars and a dream.         install │
+  │   US POKER ten dollars and a dream.         install │
   └──────────────────────────────────────────────────────────┘
 ```
 
@@ -394,9 +394,9 @@ when you leave.
 
 Nothing is shipped with it: the ROMs are yours to bring.
 
-## American Poker
+## US Poker
 
-American Poker is a five-card-draw machine, installed from the `SOFTWARE` shelf
+US Poker is a five-card-draw machine, installed from the `SOFTWARE` shelf
 like the other modules. Its front door is the supplied logo, the bankroll left
 from the last visit and the highscore; `Enter` sits down.
 
@@ -414,12 +414,19 @@ loses the round. The steps are `$0.15`, `$0.30`, `$0.40`, `$0.60`, `$0.80`,
 `$1.20`, `$1.60`, `$2.40`, `$3`, `$4`, `$6`, `$8`, `$12`, `$16`, `$24`, `$32`,
 `$48`, `$84` and `$140.00`. The top cannot be risked further.
 
-The wallet and highscore live in `~/.config/cread/poker.save`, not in the vault
-and not in WebDAV. `C`, `exit` or leaving the module saves; the next visit
-continues from that amount. The `BEST` line and the front door show the highest
-bankroll ever reached. The short effects — the three-note win, the loss buzzer,
-the card and coin clicks — are generated in the program and go through
-`cread-sound`, like Pocketboi's speaker. `M` or `mute` silences them.
+The wallet, highscore and bankruptcy count live in
+`~/.config/cread/poker.save`, not in the vault and not in WebDAV. `C`, `exit`
+or leaving the module saves; the next visit continues from that amount. The
+`BEST` line and the front door show the highest bankroll ever reached; the
+front door also shows `BANKRUPTS`, which starts at 0 and rises by one every
+time the bankroll falls below the minimum, forever.
+
+When the bankroll cannot pay `$0.10`, the lose screen offers **RETRY? Y / N**.
+`Y` starts a fresh game with `$10.00` and keeps the bankruptcy count; `N` cashes
+out the empty wallet and returns to the front door. The short effects — the
+three-note win, the loss buzzer, the card and coin clicks — are generated in
+the program and go through `cread-sound`, like Pocketboi's speaker. `M` or
+`mute` silences them.
 
 ## How the picture is built
 
@@ -437,7 +444,7 @@ into that small raster with the original IBM VGA 8x16 bitmap face, then the GPU
 adds the CRT layer: scanlines keyed off the *emulated* row, a local phosphor
 bleed and a gentle vignette. Nothing in the shell animates: the picture is static until
 the text or the cursor changes. A program may ask for frames of its own —
-Pocketboi while a cartridge runs, American Poker only while the risk ladder is
+Pocketboi while a cartridge runs, US Poker only while the risk ladder is
 live.
 
 On a 1280x800 panel that gives 640x400 at 2x — the real VGA text mode. On a
@@ -651,7 +658,7 @@ assets/splash…   pixel art, blitted into the emulated framebuffer
 assets/inspiro…  the same, for Inspiro's front door
 assets/softhand… and for Softhand's
 assets/riff…     and for Riff's
-assets/american… and for American Poker's front door
+assets/american… and for US Poker's front door
 LICENSE          MIT
 THIRD-PARTY.md   what is not ours, and its terms
 ```
@@ -666,7 +673,7 @@ variant from the same pack. `font thin` swaps them at runtime and the choice is
 remembered.
 
 The boot logo (`assets/splash.png`), the Inspiro logo (`assets/inspiro.png`), the
-Softhand logo (`assets/softhand.png`) and the American Poker logo
+Softhand logo (`assets/softhand.png`) and the US Poker logo
 (`assets/american_logo.png`) are blitted at their native size in
 emulated pixels, so they keep hard edges
 through the CRT upscale. Themes tint them with the text colour: ink on paper,

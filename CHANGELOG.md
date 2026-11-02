@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.30.1
+
+- **The module is called `US POKER` in the boot menu.** The full name was too
+  wide for the drive row; the supplied logo still carries the American Poker
+  artwork.
+- **Bankruptcy is a real end.** Falling below the minimum bet shows a lose
+  screen with `RETRY? Y / N`. `Y` starts a fresh `$10.00` game, `N` cashes out
+  the empty wallet and returns to the front door.
+- **Bankruptcies are counted forever.** The front door and the lose screen show
+  `BANKRUPTS`, starting at 0 and rising by one for every bust. It lives in
+  `~/.config/cread/poker.save` beside the bankroll and highscore, and a retry
+  never resets it.
+
 ## 0.30.0
 
 - **American Poker joins the SOFTWARE shelf.** A five-card-draw machine with

@@ -22,16 +22,18 @@ pub(super) fn draw(poker: &Poker, screen: &mut Screen) {
         return;
     }
 
-    draw_frame(screen, poker, "AMERICAN POKER");
+    draw_frame(screen, poker, "US POKER");
+    if poker.phase == Phase::GameOver {
+        // A lose screen, not a dialog over the hand: nothing from the table
+        // should peek out around the frame.
+        draw_game_over(poker, screen);
+        return;
+    }
     draw_paytable(poker, screen);
     draw_cards(poker, screen);
     draw_money(poker, screen);
     draw_message(poker, screen);
     draw_controls(screen, poker);
-
-    if poker.phase == Phase::GameOver {
-        draw_game_over(poker, screen);
-    }
 }
 
 fn draw_frame(screen: &mut Screen, poker: &Poker, title: &str) {
@@ -287,10 +289,10 @@ fn draw_controls(screen: &mut Screen, poker: &Poker) {
 }
 
 fn draw_game_over(poker: &Poker, screen: &mut Screen) {
-    let left = 24u32;
-    let right = 56u32;
-    let top = 8u32;
-    let bottom = 16u32;
+    let left = 22u32;
+    let right = 58u32;
+    let top = 7u32;
+    let bottom = 18u32;
     for y in top..=bottom {
         for x in left..=right {
             screen.put(x, y, Cell::blank(poker.ink, poker.paper));
@@ -320,7 +322,7 @@ fn draw_game_over(poker: &Poker, screen: &mut Screen) {
         screen.put(left, y, Cell::new('\u{2551}', poker.ink, poker.paper));
         screen.put(right, y, Cell::new('\u{2551}', poker.ink, poker.paper));
     }
-    put_center(screen, top + 2, "GAME OVER", poker.ink, poker.paper);
+    put_center(screen, top + 2, "BANKRUPT", poker.ink, poker.paper);
     put_center(
         screen,
         top + 4,
@@ -337,8 +339,15 @@ fn draw_game_over(poker: &Poker, screen: &mut Screen) {
     );
     put_center(
         screen,
-        top + 7,
-        "N NEW GAME   C CASH OUT",
+        top + 6,
+        &format!("BANKRUPTS {}", poker.bankrupts),
+        poker.ink,
+        poker.paper,
+    );
+    put_center(
+        screen,
+        top + 10,
+        "RETRY?   Y YES   N CASH OUT",
         poker.ink,
         poker.paper,
     );
@@ -417,6 +426,7 @@ mod tests {
             Wallet {
                 balance: 1_000,
                 best: 2_000,
+                bankrupts: 3,
             },
             dir.join("poker.save"),
             7,
@@ -437,7 +447,7 @@ mod tests {
         let mut screen = Screen::new(80, 25);
         draw(&poker, &mut screen);
         let text = rows(&screen);
-        assert!(text.contains("AMERICAN POKER"));
+        assert!(text.contains("US POKER"));
         assert!(text.contains("BALANCE $10.00"));
         assert!(text.contains("PRESS ENTER TO DEAL"));
         assert!(text.contains("PAYTABLE"));
@@ -491,9 +501,11 @@ mod tests {
         let mut screen = Screen::new(80, 25);
         draw(&poker, &mut screen);
         let text = rows(&screen);
-        assert!(text.contains("GAME OVER"));
-        assert!(text.contains("N NEW GAME"));
-        assert!(text.contains("C CASH OUT"));
+        assert!(text.contains("BANKRUPT"));
+        assert!(text.contains("BANKRUPTS"));
+        assert!(text.contains("RETRY?"));
+        assert!(text.contains("Y YES"));
+        assert!(text.contains("N CASH OUT"));
         let _ = std::fs::remove_dir_all(PathBuf::from(poker.save_path.parent().unwrap()));
     }
 

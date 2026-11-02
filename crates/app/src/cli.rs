@@ -185,6 +185,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "pokerplay",
                     "pokerhand",
                     "pokerrisk",
+                    "pokerover",
                     "palette",
                     "settings",
                     "webdav",
