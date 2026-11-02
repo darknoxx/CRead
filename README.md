@@ -75,6 +75,7 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        B: SOFTHAND    16 colors, endless possibilities.
                        C: RIFF        a Soundtrack for your life.
                        D: POCKETBOI   get gaming, my friend!
+                       E: AMERICAN POKER ten dollars and a dream.
                        ─────────────────────────────────────────
                        SOFTWARE       install and remove modules
                        THE VAULT      documents, pictures, cartridges
@@ -84,9 +85,9 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
 The letters are the modules, handed out in the order you installed them: install
 Riff before Softhand and Riff becomes `B`. Below the rule sit the shelf, the
 vault and the settings, which are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
-**Softhand** (paint) and **Riff** (music) sit in the shelf until you switch them
-on there. Every module opens with a fake loading bar before its own front door
-appears.
+**Softhand** (paint), **Riff** (music), **Pocketboi** (games) and
+**American Poker** sit in the shelf until you switch them on there. Every module
+opens with a fake loading bar before its own front door appears.
 
 ```
                                   [logo]
@@ -190,8 +191,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.29.0 │
-  │   UPDATE       check github for a new version       0.29.0 │
+  │   INFO         CRead OS and device info             0.30.0 │
+  │   UPDATE       check github for a new version       0.30.0 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -222,6 +223,7 @@ SOFTWARE                                  install and remove modules
   │   SOFTHAND  16 colors, endless possibilities.     install │
   │   RIFF      a Soundtrack for your life.           install │
   │   POCKETBOI get gaming, my friend!                install │
+  │   AMERICAN POKER ten dollars and a dream.         install │
   └──────────────────────────────────────────────────────────┘
 ```
 
@@ -392,6 +394,33 @@ when you leave.
 
 Nothing is shipped with it: the ROMs are yours to bring.
 
+## American Poker
+
+American Poker is a five-card-draw machine, installed from the `SOFTWARE` shelf
+like the other modules. Its front door is the supplied logo, the bankroll left
+from the last visit and the highscore; `Enter` sits down.
+
+The bankroll starts at `$10.00`. `B` steps the bet through `$0.10`, `$0.20`,
+`$0.50`, `$1`, `$2`, `$5`, `$10` and `$20`, never above what is left. `1`–`5`
+hold cards, `Enter` deals and draws, `T` takes a win, `R` opens the risk ladder,
+`C` cashes out and leaves, and `N` starts again with `$10.00` when the bankroll
+cannot pay the minimum. The paytable is 9/6 Jacks or Better, paid in dollars
+against the bet.
+
+The risk ladder is the German kind: after a win its two adjacent fields blink,
+and `Enter` stops the light. The timing is the show; the RNG decides. Success
+moves one step up, failure one step down, `T` takes what is left, and `$0.00`
+loses the round. The steps are `$0.15`, `$0.30`, `$0.40`, `$0.60`, `$0.80`,
+`$1.20`, `$1.60`, `$2.40`, `$3`, `$4`, `$6`, `$8`, `$12`, `$16`, `$24`, `$32`,
+`$48`, `$84` and `$140.00`. The top cannot be risked further.
+
+The wallet and highscore live in `~/.config/cread/poker.save`, not in the vault
+and not in WebDAV. `C`, `exit` or leaving the module saves; the next visit
+continues from that amount. The `BEST` line and the front door show the highest
+bankroll ever reached. The short effects — the three-note win, the loss buzzer,
+the card and coin clicks — are generated in the program and go through
+`cread-sound`, like Pocketboi's speaker. `M` or `mute` silences them.
+
 ## How the picture is built
 
 The emulated resolution is never scaled fractionally. For a physical surface of
@@ -406,8 +435,10 @@ The frame is rendered at `virtW x virtH`, upscaled by exactly `n` and centred;
 the leftover border (always fewer than `n` pixels) stays black. Text is drawn
 into that small raster with the original IBM VGA 8x16 bitmap face, then the GPU
 adds the CRT layer: scanlines keyed off the *emulated* row, a local phosphor
-bleed and a gentle vignette. Nothing animates: the picture is static until the
-text or the cursor changes.
+bleed and a gentle vignette. Nothing in the shell animates: the picture is static until
+the text or the cursor changes. A program may ask for frames of its own —
+Pocketboi while a cartridge runs, American Poker only while the risk ladder is
+live.
 
 On a 1280x800 panel that gives 640x400 at 2x — the real VGA text mode. On a
 2560x1080 ultrawide it is 1280x540. Automatic scaling targets a comfortable line
@@ -620,6 +651,7 @@ assets/splash…   pixel art, blitted into the emulated framebuffer
 assets/inspiro…  the same, for Inspiro's front door
 assets/softhand… and for Softhand's
 assets/riff…     and for Riff's
+assets/american… and for American Poker's front door
 LICENSE          MIT
 THIRD-PARTY.md   what is not ours, and its terms
 ```
@@ -633,8 +665,9 @@ Two bitmap faces ship with it: the classic IBM VGA 8x16 and the thinner ISO 9241
 variant from the same pack. `font thin` swaps them at runtime and the choice is
 remembered.
 
-The boot logo (`assets/splash.png`), the Inspiro logo (`assets/inspiro.png`) and
-the Softhand logo (`assets/softhand.png`) are blitted at their native size in
+The boot logo (`assets/splash.png`), the Inspiro logo (`assets/inspiro.png`), the
+Softhand logo (`assets/softhand.png`) and the American Poker logo
+(`assets/american_logo.png`) are blitted at their native size in
 emulated pixels, so they keep hard edges
 through the CRT upscale. Themes tint them with the text colour: ink on paper,
 light on the dark schemes.

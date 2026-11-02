@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.30.0
+
+- **American Poker joins the SOFTWARE shelf.** A five-card-draw machine with
+  the supplied logo as its front door, a real bankroll starting at `$10.00`,
+  bets from `$0.10` to `$20`, a 9/6 Jacks-or-Better paytable, cash-out at any
+  time and a saved highscore. The wallet lives in
+  `~/.config/cread/poker.save`, not in the vault and not in WebDAV.
+- **The risk ladder is the German kind.** After a win, the two adjacent fields
+  blink; `Enter` stops the light and the RNG moves the win one step up or one
+  step down, from `$0.00` through `$0.15` to `$140.00`. `T` takes the current
+  win. The timing is the show, not the mechanic.
+- **The machine talks.** A generated three-cling win, a loss buzzer, card,
+  hold and coin clicks, all through `cread-sound`; `M` mutes it. No sample
+  files.
+- **The risk light is a program clock, not a shell animation.** The frame loop
+  runs only while `Program::wants_frames` is true; Pocketboi still owns the
+  same budget while a cartridge runs.
+
 ## 0.29.0
 
 - **`SETTINGS` shows the local address.** A `NETWORK` row displays the IP the

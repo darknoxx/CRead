@@ -36,7 +36,8 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 `manual`, `notice` (the sync confirmation), `quit` (the exit question),
 `shutdown`, `reboot`, `backtolinux` (the save-and-leave questions),
 `software`, `pictures`, `riffplay`, `riffinsert`, `pocketboi[:<rom>]`,
-`picture[:<png>]`.
+`poker` (front door), `pokerplay` (the machine), `pokerhand` (a dealt hand)
+and `pokerrisk` (the ladder), `picture[:<png>]`.
 
 ## Layout
 
@@ -74,11 +75,15 @@ blink. Two consequences:
   by up to 620 ms — the exact bug that made Up/Down feel unresponsive.
 - Adding an effect that changes every frame (flicker, drift, animation) means
   bringing a frame clock back deliberately, not by accident. There are exactly
-  four: scanline drift, the fake loading bar, the launch bar (`boot_at`), and
-  the music clock (`riff_tick`: twice a second while a track plays, which is what
-  starts the next track). They are ordered in `frame()` and the **fastest one
-  wins**: the roll is checked before the music clock, or playing a track would
-  drop the frame rate to 2 fps and freeze the raster.
+  four shell clocks: scanline drift, the fake loading bar, the launch bar
+  (`boot_at`), and the music clock (`riff_tick`: twice a second while a track
+  plays, which is what starts the next track). A program may ask for frames of
+  its own through `Program::wants_frames` — Pocketboi while a cartridge runs,
+  American Poker only while the risk ladder is live. That is a program clock,
+  not a fifth shell effect, and it uses `PROGRAM_FRAME` only while it is true.
+  The shell clocks are ordered in `frame()` and the **fastest one wins**: the
+  roll is checked before the music clock, or playing a track would drop the
+  frame rate to 2 fps and freeze the raster.
 
 **The device limits come from the adapter.** `request_device` in
 `crates/render/src/gpu.rs` passes `adapter.limits()`, not the WebGPU defaults.

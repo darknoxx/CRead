@@ -70,9 +70,10 @@ const LOADING_SECONDS: f32 = 1.4;
 const ROLL_SPEED: f32 = 40.0;
 /// While the raster drifts we need a frame clock again; this is the budget.
 const ANIMATION_FPS: u32 = 60;
-/// One emulated Game Boy frame, in wall time: 59.7275 Hz. A running cartridge
-/// is clocked by this instead of 60 Hz, because its audio is tied to wall time
-/// and 0.45% more samples per second is a queue that grows into a delay.
+/// One program frame, in wall time: 59.7275 Hz. Pocketboi is clocked by this
+/// instead of 60 Hz because its audio is tied to wall time and 0.45% more
+/// samples per second is a queue that grows into a delay; American Poker uses
+/// the same budget for the risk light.
 const PROGRAM_FRAME: Duration = Duration::from_micros(16_734);
 /// How long a status message stays on the line before the mode hint returns.
 const STATUS_TTL: Duration = Duration::from_secs(4);
@@ -206,6 +207,8 @@ enum Home {
     SoftHand,
     /// Riff's front door.
     Riff,
+    /// American Poker's front door.
+    Poker,
 }
 
 /// What happens when the loading bar finishes.
@@ -294,6 +297,11 @@ pub const PROGRAMS: &[ProgramInfo] = &[
         entry: "POCKETBOI",
         tagline: "get gaming, my friend!",
     },
+    ProgramInfo {
+        id: "poker",
+        entry: "AMERICAN POKER",
+        tagline: "ten dollars and a dream.",
+    },
 ];
 
 /// The home screen a program opens onto.
@@ -301,6 +309,7 @@ fn program_home(index: usize) -> Home {
     match PROGRAMS.get(index).map(|program| program.id) {
         Some("softhand") => Home::SoftHand,
         Some("riff") => Home::Riff,
+        Some("poker") => Home::Poker,
         _ => Home::Boot,
     }
 }
@@ -416,6 +425,8 @@ struct App {
     softhand_at: Option<(i32, i32, u32)>,
     riff_logo: Option<Splash>,
     riff_at: Option<(i32, i32, u32)>,
+    poker_logo: Option<Splash>,
+    poker_at: Option<(i32, i32, u32)>,
     /// The screensaver is switched on in SETTINGS.
     screensaver_on: bool,
     /// Minutes of silence before it starts.
@@ -608,6 +619,10 @@ impl App {
                 .map_err(|e| eprintln!("cread: riff logo: {e}"))
                 .ok(),
             riff_at: None,
+            poker_logo: Splash::from_png(include_bytes!("../../../assets/american_logo.png"))
+                .map_err(|e| eprintln!("cread: poker logo: {e}"))
+                .ok(),
+            poker_at: None,
             screensaver_on,
             screensaver_minutes,
             clock_24h,
@@ -792,7 +807,7 @@ impl App {
             self.dirty = true;
         }
 
-        // A running cartridge redraws every frame; nothing else does.
+        // A running cartridge, or a live risk ladder, redraws every frame.
         if self
             .program
             .as_ref()
@@ -867,6 +882,10 @@ impl App {
                 self.fb.draw_splash(logo, x, y, divisor, &style);
             }
             if let (Some(logo), Some((x, y, divisor))) = (self.riff_logo.as_ref(), self.riff_at) {
+                let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
+                self.fb.draw_splash(logo, x, y, divisor, &style);
+            }
+            if let (Some(logo), Some((x, y, divisor))) = (self.poker_logo.as_ref(), self.poker_at) {
                 let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
                 self.fb.draw_splash(logo, x, y, divisor, &style);
             }
@@ -1649,7 +1668,11 @@ impl App {
                     done = program.key(key) == Outcome::Exit;
                 }
                 if done {
-                    self.leave_to_boot();
+                    if self.program_id == Some("poker") {
+                        self.leave_poker();
+                    } else {
+                        self.leave_to_boot();
+                    }
                 }
                 self.poke();
             }
@@ -1823,6 +1846,8 @@ impl App {
             Err(CommandError::Empty) => {
                 if self.has_document {
                     self.to_write();
+                } else if self.home == Home::Poker {
+                    self.start_poker();
                 } else {
                     self.boot_activate();
                 }
@@ -2448,6 +2473,35 @@ impl App {
     }
 
     // ── programs ────────────────────────────────────────────────────────────
+
+    /// Open the machine from its front door.
+    fn start_poker(&mut self) {
+        self.show_poker(cread_poker::Poker::new());
+    }
+
+    fn show_poker(&mut self, program: cread_poker::Poker) {
+        self.program = Some(Box::new(program));
+        self.program_id = Some("poker");
+        self.home = Home::Poker;
+        self.mode = Mode::Program;
+        self.program_prompt = false;
+        self.command.clear();
+        self.command_error.clear();
+        self.dirty = true;
+    }
+
+    /// Leaving the machine returns to its own front door, not the boot list:
+    /// the wallet and highscore are the next thing the player wants to see.
+    fn leave_poker(&mut self) {
+        self.close_program();
+        self.picture_path = None;
+        self.program_prompt = false;
+        self.program_point = (-1, -1);
+        self.mode = Mode::Action;
+        self.command.clear();
+        self.command_error.clear();
+        self.dirty = true;
+    }
 
     /// Drop everything and stand on the boot screen again.
     fn leave_to_boot(&mut self) {
@@ -3639,6 +3693,13 @@ impl ApplicationHandler for App {
                 self.home = Home::Riff;
                 self.mode = Mode::Action;
             }
+            "poker" => {
+                self.home = Home::Poker;
+                self.mode = Mode::Action;
+            }
+            "pokerplay" => self.start_poker(),
+            "pokerhand" => self.show_poker(cread_poker::Poker::demo_hand()),
+            "pokerrisk" => self.show_poker(cread_poker::Poker::demo_risk()),
             "riffplay" => {
                 if let Err(e) = self
                     .riff_ensure_loaded()
@@ -4318,6 +4379,31 @@ mod tests {
                 "SETTINGS"
             ]
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn american_poker_opens_on_its_own_front_door_and_returns_there() {
+        let dir = vault("poker-front");
+        let mut app = app_in(&dir);
+        let index = PROGRAMS
+            .iter()
+            .position(|program| program.id == "poker")
+            .expect("the poker module");
+
+        app.pending = Some(Pending::Program(index));
+        app.finish_loading();
+        assert_eq!(app.home, Home::Poker);
+        assert_eq!(app.mode, Mode::Action, "the logo is the front door");
+
+        app.start_poker();
+        assert_eq!(app.program_id, Some("poker"));
+        assert_eq!(app.mode, Mode::Program);
+
+        app.leave_poker();
+        assert!(app.program.is_none());
+        assert_eq!(app.home, Home::Poker);
+        assert_eq!(app.mode, Mode::Action);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

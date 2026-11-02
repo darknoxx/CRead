@@ -18,6 +18,7 @@ impl App {
         self.inspiro_at = None;
         self.softhand_at = None;
         self.riff_at = None;
+        self.poker_at = None;
 
         if !self.standalone_screen(&mut screen) {
             if self.dialog_open() {
@@ -309,7 +310,7 @@ impl App {
             if self.program.is_some() {
                 // The prompt is the shell's, but the vocabulary belongs to the
                 // module: a game has no actions to save.
-                if self.program_id == Some("pocketboi") {
+                if matches!(self.program_id, Some("pocketboi" | "poker")) {
                     "mute   exit".to_string()
                 } else {
                     "save   open   undo   exit".to_string()
@@ -321,6 +322,8 @@ impl App {
                 String::new()
             } else if self.home == Home::Riff {
                 "riff insert   riff play   help for commands".to_string()
+            } else if self.home == Home::Poker {
+                "Enter play   Esc boot   help for commands".to_string()
             } else if matches!(self.home, Home::SoftHand | Home::Inspiro) {
                 "new   open   help for commands".to_string()
             } else {
@@ -555,6 +558,34 @@ impl App {
                     title_row,
                     "16 colors, endless possibilities.",
                     "type new or open to start",
+                    &self.command,
+                    hint,
+                    error,
+                );
+            } else if self.home == Home::Poker {
+                let title_row = match front_door_layout(&self.poker_logo, max_w, max_h, cols, rows)
+                {
+                    Some((x, y, divisor, img_rows)) => {
+                        self.poker_at = (!overlay_open).then_some((x, y, divisor));
+                        rows.saturating_sub(img_rows + 1 + 3) / 2 + img_rows + 1
+                    }
+                    None => {
+                        self.poker_at = None;
+                        rows.saturating_sub(3) / 2
+                    }
+                };
+                let wallet = cread_poker::wallet();
+                let tagline = format!(
+                    "BALANCE {}  ·  HIGHSCORE {}",
+                    cread_poker::money(wallet.balance),
+                    cread_poker::money(wallet.best)
+                );
+                ui::draw_front_door(
+                    screen,
+                    &self.theme,
+                    title_row,
+                    &tagline,
+                    "PRESS ENTER TO PLAY",
                     &self.command,
                     hint,
                     error,

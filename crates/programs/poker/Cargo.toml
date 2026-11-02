@@ -1,0 +1,11 @@
+[package]
+name = "cread-poker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+cread-core.workspace = true
+cread-sound.workspace = true
+rodio = "0.21"

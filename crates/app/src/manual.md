@@ -41,10 +41,11 @@ For beginners. No prior knowledge needed.
 5. Softhand — painting pictures
 6. Riff — listening to music
 7. Pocketboi — games
-8. The settings
-9. The screensaver
-10. Backing up with WebDAV
-11. Updates
+8. American Poker — the machine
+9. The settings
+10. The screensaver
+11. Backing up with WebDAV
+12. Updates
 
 **Appendices**
 
@@ -187,6 +188,8 @@ whole system. From here you reach everything you need:
 A: INSPIRO       where your ideas have room to grow.
 B: SOFTHAND      16 colors, endless possibilities.
 C: RIFF          a Soundtrack for your life.
+D: POCKETBOI     get gaming, my friend!
+E: AMERICAN POKER ten dollars and a dream.
 ─────────────────────────────────────────────────
 SOFTWARE         install and remove modules
 THE VAULT        documents, pictures, cartridges
@@ -573,7 +576,58 @@ In a game, press Esc and type `mute` to silence Pocketboi.
 
 ---
 
-## Chapter 8: The settings
+## Chapter 8: American Poker — the machine
+
+American Poker is a five-card-draw machine. Install it through
+**SOFTWARE**, like the other modules. Choose its drive on the start screen:
+the machine opens on its logo with the bankroll from the last visit and the
+highscore. Press **Enter** to sit down.
+
+You start with **$10.00**. The smallest bet is **$0.10**; `B` steps the bet
+through `$0.10`, `$0.20`, `$0.50`, `$1`, `$2`, `$5`, `$10` and `$20`, but never
+above the bankroll. The paytable is 9/6 Jacks or Better, paid against the bet.
+
+| Key | Effect |
+| --- | --- |
+| 1–5 | Hold or release that card. |
+| Enter | Deal, draw, take a win, or continue after a loss. |
+| B | Raise the bet to the next affordable step. |
+| R | Risk the current win on the ladder. |
+| T | Take the current win. |
+| C | Cash out and leave; the bankroll is saved. |
+| N | New game with $10.00 after the bankroll is gone. |
+| M | Mute or unmute the machine. |
+| Esc | The command line (`mute`, `exit`). |
+
+### The risk ladder
+
+After a win, `R` opens the ladder. The two steps next to the current win blink
+alternately: the higher one is the possible win, the lower one the fallback.
+`Enter` stops the light. The timing is theatre; the machine's RNG decides.
+Success moves one step up, failure one step down. `T` takes what is left; at
+`$0.00` the win for that round is gone. The ladder ends at `$140.00`; a larger
+main-game win is taken directly.
+
+The steps are `$0.15`, `$0.30`, `$0.40`, `$0.60`, `$0.80`, `$1.20`, `$1.60`,
+`$2.40`, `$3`, `$4`, `$6`, `$8`, `$12`, `$16`, `$24`, `$32`, `$48`, `$84` and
+`$140.00`, with `$0.00` as the loss.
+
+### The bankroll
+
+`C` (or `exit`) takes a held win, saves the bankroll and returns to the front
+door. The next visit starts with exactly that amount and the saved highscore.
+The file is `~/.config/cread/poker.save`; it is not in the vault and not synced.
+The front door and the `BEST` line show the highest bankroll ever reached.
+
+If the bankroll cannot pay the minimum, the machine shows **GAME OVER**; `N`
+starts a fresh game with `$10.00`. The highscore is kept.
+
+The short sounds are generated: the win makes three rising clings, a loss
+buzzes, and the deal, hold and cash-out click. `M` or `mute` silences them.
+
+---
+
+## Chapter 9: The settings
 
 You reach **SETTINGS** from the start screen. The rows are sorted into
 groups.
@@ -629,7 +683,7 @@ time. The other screens show only the time.
 
 ---
 
-## Chapter 9: The screensaver
+## Chapter 10: The screensaver
 
 If you do nothing for a while, the screen turns black. A large clock with
 hour, minute and second hands appears in the middle.
@@ -654,7 +708,7 @@ minutes.
 
 ---
 
-## Chapter 10: Backing up with WebDAV
+## Chapter 11: Backing up with WebDAV
 
 CRead can back up your files to a server automatically. That is
 voluntary. Without settings, nothing happens.
@@ -720,7 +774,7 @@ SYNC TO SERVER?
 
 ---
 
-## Chapter 11: Updates
+## Chapter 12: Updates
 
 CRead can update itself. That is voluntary and only happens when you
 start it.
@@ -865,6 +919,19 @@ The most important commands. Upper and lower case do not matter.
 | I | Load music. |
 | R | Random. |
 
+## In American Poker
+
+| Key | Effect |
+| --- | --- |
+| 1–5 | Hold a card. |
+| Enter | Deal, draw, take, or risk. |
+| B | Raise the bet. |
+| R | Risk the win. |
+| T | Take the win. |
+| C | Cash out and save. |
+| N | New game after game over. |
+| M | Mute. |
+
 ---
 
 # Appendix C — When something goes wrong
@@ -883,7 +950,7 @@ If the file is still open: press Esc and save at once.
 
 That is the screensaver. Press any key.
 
-### No sound in Riff or Pocketboi
+### No sound in Riff, Pocketboi or American Poker
 
 CRead uses the system's output device. Check the system settings to see
 whether speakers or headphones are selected. Then start CRead again.
