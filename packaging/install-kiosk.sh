@@ -14,9 +14,10 @@ fi
 
 USER_NAME=${CREAD_USER:-cread}
 VAULT=${CREAD_VAULT:-/home/$USER_NAME/Documents/CRead}
-XKB_LAYOUT=${XKB_LAYOUT:-de}
+XKB_LAYOUT=${XKB_LAYOUT:-$(sed -n 's/^XKBLAYOUT="\(.*\)"/\1/p' /etc/default/keyboard 2>/dev/null | head -n 1)}
+[ -n "$XKB_LAYOUT" ] || XKB_LAYOUT=us
 BIN=${1:?usage: $0 /path/to/cread}
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 [ -x "$BIN" ] || {
     echo "$BIN is not an executable" >&2

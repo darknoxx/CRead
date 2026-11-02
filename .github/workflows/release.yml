@@ -140,5 +140,6 @@ jobs:
             dist/*.tar.gz
             dist/*.tar.gz.sha256
             dist/*.tar.gz.minisig
+            packaging/install.sh
           body_path: RELEASE_NOTES.md
           generate_release_notes: false

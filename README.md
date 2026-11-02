@@ -188,8 +188,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         version and credits                  0.27.0 │
-  │   UPDATE       check github for a new version       0.27.0 │
+  │   INFO         version and credits                  0.27.1 │
+  │   UPDATE       check github for a new version       0.27.1 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   USER MANUAL  read the manual                             │
@@ -591,8 +591,16 @@ cread: AMD Radeon 780M (Vulkan, IntegratedGpu) · surface Bgra8Unorm
 `llvmpipe (Vulkan, Cpu)` instead means there is no GPU driver and Mesa is
 rasterising on the CPU: it still works, it is just how the app is developed.
 
-On a Raspberry Pi 4 or 5 the same binary runs as a kiosk under cage; the
-recipe, including WebDAV and SD-card notes, is in
+On a Raspberry Pi 4 or 5 the same binary runs as a kiosk under cage. On a
+fresh Pi OS Lite the quickest path is the signed installer:
+
+```sh
+curl -fLO https://github.com/darknoxx/CRead/releases/latest/download/install.sh
+less install.sh
+sudo bash install.sh
+```
+
+The full recipe, including WebDAV, updates and SD-card notes, is in
 [docs/raspberry-pi.md](docs/raspberry-pi.md).
 
 ## Layout

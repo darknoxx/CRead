@@ -30,7 +30,7 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-dev \
             libwayland-dev wayland-protocols \
             libasound2-dev libudev-dev \
-            libssl-dev
+            libssl-dev shellcheck
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -43,6 +43,9 @@ jobs:
 
       - name: Lints
         run: cargo clippy --all-targets -- -D warnings
+
+      - name: Shell scripts
+        run: shellcheck packaging/*.sh
 
       - name: Tests
         run: cargo test --workspace

@@ -48,7 +48,7 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 | `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | unsigned or unverified bytes are never installed |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition; the screens in `app/{boot,browser,compose,sync,webdav}.rs`, commands in `app/commands/*` | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
-| `packaging/` | kiosk unit, polkit rule, install and headless-update scripts | the Pi recipe; nothing here is compiled into the binary |
+| `packaging/` | kiosk unit, polkit rule, bootstrap, install and headless-update scripts | the Pi recipe; nothing here is compiled into the binary |
 | `docs/` | the Raspberry Pi recipe | setup, not user documentation; the manual lives in `crates/app/src/manual.md` |
 
 ## Invariants
@@ -267,8 +267,10 @@ arm64 runner (so the binaries need no glibc newer than 2.34), packages
 `cread-linux-x86_64.tar.gz` and `cread-linux-aarch64.tar.gz` with a `VERSION.txt`
 and the packaging files, uploads them as artifacts, and a single publish job
 adds the checksums and minisign signatures and attaches both to one GitHub
-Release whose body is the matching CHANGELOG section. `ci` runs fmt, clippy and
-tests on every push and pull request, plus the tests natively on aarch64.
+Release whose body is the matching CHANGELOG section. The bootstrap
+`packaging/install.sh` is attached as `install.sh` too. `ci` runs fmt, clippy,
+shellcheck and tests on every push and pull request, plus the tests natively on
+aarch64.
 
 Pushing is done over HTTPS with the `gh` credential helper; the SSH key here is
 passphrase-protected and there is usually no agent running.

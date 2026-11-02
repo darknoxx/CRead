@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.27.1
+
+- **One command for a fresh Pi.** `install.sh` (attached to every release)
+  installs cage, xwayland, Mesa Vulkan and minisign, downloads the release,
+  checks its SHA256 and minisign signature against the public keys baked into
+  the script, and runs the packaged installer for the user who invoked sudo.
+  It asks before changing anything, supports `--version`, `--user` and `--yes`,
+  and warns on cards smaller than 8 GB.
+- **`SETTINGS → STORAGE` is in the Pi guide** and the guide has a quick install
+  section.
+- **The kiosk takes the keyboard layout from Pi OS** (`XKBLAYOUT` in
+  `/etc/default/keyboard`) instead of always assuming German.
+
 ## 0.27.0
 
 - **`SETTINGS` shows how full the disk is.** A `STORAGE` row draws a ten-cell
