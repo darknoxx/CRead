@@ -96,7 +96,8 @@ starts on its boot screen; press `Esc`, then `open` or `new`.
 ## WebDAV and offline
 
 Open `SETTINGS -> WEBDAV`, fill in server, user, password and folder, and
-switch `sync` on. The `sync.json` is written with mode `0600`.
+switch `sync` on. The `sync.json` is written with mode `0600`. The `STORAGE`
+row in the same screen shows the card's fill level; Enter refreshes it.
 
 CRead is local-first:
 

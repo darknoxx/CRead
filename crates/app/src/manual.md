@@ -617,6 +617,7 @@ time. The other screens show only the time.
 | INFO | Version and acknowledgements. |
 | UPDATE | Looks for a new version. |
 | SOFTWARE | The software shelf. |
+| STORAGE | How full the disk is. Enter refreshes it. |
 | USER MANUAL | Opens this manual. Nothing in it can be changed. |
 
 ### Using it

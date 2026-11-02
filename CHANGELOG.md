@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.0
+
+- **`SETTINGS` shows how full the disk is.** A `STORAGE` row draws a ten-cell
+  bar of the vault's filesystem, the percentage and the used/total size. Enter
+  refreshes it. The reading comes from `df -P -k`, so a later USB SSD shows the
+  right filesystem instead of the SD card.
+
 ## 0.26.3
 
 - **The pointer stays hidden until the mouse really moves.** winit emits a

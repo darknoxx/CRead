@@ -13,6 +13,7 @@ pub mod program;
 pub mod raster;
 pub mod resolution;
 pub mod screen;
+pub mod space;
 pub mod storage;
 pub mod theme;
 

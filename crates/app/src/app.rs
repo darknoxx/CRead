@@ -25,7 +25,7 @@ use cread_core::{
     music, picture,
     program::{Outcome, PointerEvent, PointerKind, Program},
     resolution::target_line_px_for_scale_factor,
-    storage,
+    space, storage,
 };
 use cread_render::{
     CrtSettings, Face, Font, FrameStatus, Framebuffer, Renderer, Splash, SplashStyle, raster,
@@ -317,6 +317,7 @@ enum SetupAction {
     Info,
     Update,
     Software,
+    Storage,
     Manual,
 }
 
@@ -356,6 +357,8 @@ struct App {
     software_selected: usize,
     /// Highlighted row on the SETTINGS screen.
     setup_selected: usize,
+    /// Last storage reading, taken when SETTINGS opens or STORAGE is activated.
+    space: Option<space::Space>,
     /// The layout was checked (and loose documents moved) once already.
     vault_ready: bool,
     /// Written to disk since the last successful sync in this session.
@@ -559,6 +562,7 @@ impl App {
             doc,
             software_selected: 0,
             setup_selected: 0,
+            space: None,
             vault_ready: false,
             unsynced: false,
             quit: None,
@@ -3004,6 +3008,14 @@ impl App {
                 Some(Action::Software),
             ),
             (
+                ui::MenuItem::row(
+                    "STORAGE",
+                    storage_detail(self.space),
+                    storage_value(self.space),
+                ),
+                Some(Action::Storage),
+            ),
+            (
                 ui::MenuItem::row("USER MANUAL", "read the manual", ""),
                 Some(Action::Manual),
             ),
@@ -3043,6 +3055,7 @@ impl App {
     }
 
     fn open_setup(&mut self) {
+        self.refresh_space();
         self.mode = Mode::Setup;
         let entries = self.setup_entries();
         if self.setup_selected >= entries.len() || entries[self.setup_selected].1.is_none() {
@@ -3054,6 +3067,11 @@ impl App {
         self.command.clear();
         self.program_prompt = false;
         self.dirty = true;
+    }
+
+    fn refresh_space(&mut self) {
+        let vault = self.vault();
+        self.space = space::at(&vault).or_else(|| space::at(std::path::Path::new("/")));
     }
 
     /// What Enter does on the SETTINGS screen.
@@ -3138,6 +3156,10 @@ impl App {
             }
             SetupAction::Update => self.start_update_check(),
             SetupAction::Software => self.open_software(),
+            SetupAction::Storage => {
+                self.refresh_space();
+                self.dirty = true;
+            }
             SetupAction::Manual => self.open_manual(Mode::Setup),
         }
     }
@@ -3837,6 +3859,20 @@ fn boot_logo(
 
 fn report_word(report: &SyncReport) -> String {
     report.summary()
+}
+
+/// The SETTINGS row's left-hand text: used and total, or a dash.
+fn storage_detail(space: Option<space::Space>) -> String {
+    space
+        .map(|space| space.used_total())
+        .unwrap_or_else(|| "no reading".into())
+}
+
+/// The SETTINGS row's right-hand text: the bar and the percentage.
+fn storage_value(space: Option<space::Space>) -> String {
+    space
+        .map(|space| format!("{} {}%", space.bar(), space.percent()))
+        .unwrap_or_else(|| "\u{2014}".into())
 }
 
 #[cfg(test)]
@@ -4644,6 +4680,37 @@ mod tests {
             "unwritten text still warns, even with autosave on: {line}"
         );
         assert!(!line.contains("autosave on"), "{line}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_settings_show_the_disk_and_keep_the_manual_last() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let dir = vault("storage-row");
+        let mut app = app_in(&dir);
+        app.open_setup();
+
+        let rows = app.setup_rows();
+        let storage = rows
+            .iter()
+            .position(|row| row.name == "STORAGE")
+            .expect("the storage row");
+        assert_eq!(storage, rows.len() - 2, "just before the manual");
+        assert_eq!(rows.last().unwrap().name, "USER MANUAL");
+        assert!(app.space.is_some(), "the vault's filesystem is readable");
+
+        app.space = Some(space::Space {
+            total: 100 * GIB,
+            used: 50 * GIB,
+            free: 50 * GIB,
+        });
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("STORAGE"), "{text}");
+        assert!(text.contains("50%"), "{text}");
+        assert!(text.contains('\u{2588}'), "the bar has filled cells");
+        assert!(text.contains('\u{2591}'), "and empty cells");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
