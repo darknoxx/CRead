@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.29.0
+
+- **`SETTINGS` shows the local address.** A `NETWORK` row displays the IP the
+  kernel would use, refreshed when SETTINGS opens or Enter is pressed. It is
+  the address for SSH, SFTP and WebDAV on the local network.
+- **`INFO` shows the machine, not just the credits.** The about screen now
+  starts with the board (`/sys/firmware/devicetree/base/model` or DMI), CPU and
+  core count, memory, kernel, distribution and local address, then the usual
+  licence notes. The SETTINGS row says `CRead OS and device info`.
+
 ## 0.28.0
 
 - **`reboot` and `backtolinux` are commands.** `reboot` saves, asks once and

@@ -279,12 +279,18 @@ impl App {
             } else {
                 command::specs_for(self.help_scope())
             };
+            let device = self
+                .machine
+                .as_ref()
+                .map(Machine::lines)
+                .unwrap_or_default();
             ui::draw_help(
                 screen,
                 &self.theme,
                 self.help_about,
                 &specs,
                 self.help_selected,
+                &device,
             );
             return true;
         }

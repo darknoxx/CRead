@@ -44,6 +44,7 @@ impl App {
     }
 
     pub(super) fn cmd_about(&mut self) -> Result<String, String> {
+        self.refresh_machine();
         self.help_about = true;
         self.mode = Mode::Help;
         self.dirty = true;

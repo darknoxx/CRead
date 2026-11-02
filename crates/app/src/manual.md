@@ -614,10 +614,11 @@ time. The other screens show only the time.
 
 | Row | Effect |
 | --- | --- |
-| INFO | Version and acknowledgements. |
+| INFO | Version, credits and device info. |
 | UPDATE | Looks for a new version. |
 | SOFTWARE | The software shelf. |
 | STORAGE | How full the disk is. Enter refreshes it. |
+| NETWORK | Your local IP address. Enter refreshes it. |
 | USER MANUAL | Opens this manual. Nothing in it can be changed. |
 
 ### Using it

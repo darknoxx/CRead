@@ -8,6 +8,7 @@ mod boot;
 mod browser;
 mod commands;
 mod compose;
+mod machine;
 mod power;
 mod sync;
 mod update;
@@ -16,6 +17,7 @@ mod webdav;
 use browser::{Browser, BrowserKind, BrowserMode};
 use webdav::FormState;
 
+use machine::Machine;
 use power::PowerPrompt;
 use sync::QuitPrompt;
 
@@ -318,6 +320,7 @@ enum SetupAction {
     Update,
     Software,
     Storage,
+    Network,
     Manual,
 }
 
@@ -359,6 +362,8 @@ struct App {
     setup_selected: usize,
     /// Last storage reading, taken when SETTINGS opens or STORAGE is activated.
     space: Option<space::Space>,
+    /// Board, CPU, memory and local address, read when SETTINGS or INFO opens.
+    machine: Option<Machine>,
     /// The layout was checked (and loose documents moved) once already.
     vault_ready: bool,
     /// Written to disk since the last successful sync in this session.
@@ -563,6 +568,7 @@ impl App {
             software_selected: 0,
             setup_selected: 0,
             space: None,
+            machine: None,
             vault_ready: false,
             unsynced: false,
             quit: None,
@@ -2996,7 +3002,7 @@ impl App {
             ),
             (ui::MenuItem::rule(), None),
             (
-                ui::MenuItem::row("INFO", "version and credits", ui::VERSION),
+                ui::MenuItem::row("INFO", "CRead OS and device info", ui::VERSION),
                 Some(Action::Info),
             ),
             (
@@ -3014,6 +3020,17 @@ impl App {
                     storage_value(self.space),
                 ),
                 Some(Action::Storage),
+            ),
+            (
+                ui::MenuItem::row(
+                    "NETWORK",
+                    "local address",
+                    self.machine
+                        .as_ref()
+                        .map(Machine::ip_label)
+                        .unwrap_or_else(|| "no address".into()),
+                ),
+                Some(Action::Network),
             ),
             (
                 ui::MenuItem::row("USER MANUAL", "read the manual", ""),
@@ -3056,6 +3073,7 @@ impl App {
 
     fn open_setup(&mut self) {
         self.refresh_space();
+        self.refresh_machine();
         self.mode = Mode::Setup;
         let entries = self.setup_entries();
         if self.setup_selected >= entries.len() || entries[self.setup_selected].1.is_none() {
@@ -3067,6 +3085,10 @@ impl App {
         self.command.clear();
         self.program_prompt = false;
         self.dirty = true;
+    }
+
+    fn refresh_machine(&mut self) {
+        self.machine = Some(Machine::read());
     }
 
     fn refresh_space(&mut self) {
@@ -3158,6 +3180,10 @@ impl App {
             SetupAction::Software => self.open_software(),
             SetupAction::Storage => {
                 self.refresh_space();
+                self.dirty = true;
+            }
+            SetupAction::Network => {
+                self.refresh_machine();
                 self.dirty = true;
             }
             SetupAction::Manual => self.open_manual(Mode::Setup),
@@ -3555,6 +3581,7 @@ impl ApplicationHandler for App {
             "vault" => self.open_browser(),
             "screensaver" => self.start_screensaver(),
             "about" => {
+                self.refresh_machine();
                 self.help_about = true;
                 self.mode = Mode::Help;
             }
@@ -4702,7 +4729,12 @@ mod tests {
             .iter()
             .position(|row| row.name == "STORAGE")
             .expect("the storage row");
-        assert_eq!(storage, rows.len() - 2, "just before the manual");
+        let network = rows
+            .iter()
+            .position(|row| row.name == "NETWORK")
+            .expect("the network row");
+        assert_eq!(storage + 1, network, "network follows storage");
+        assert_eq!(network + 1, rows.len() - 1, "just before the manual");
         assert_eq!(rows.last().unwrap().name, "USER MANUAL");
         assert!(app.space.is_some(), "the vault's filesystem is readable");
 
@@ -4717,6 +4749,23 @@ mod tests {
         assert!(text.contains("50%"), "{text}");
         assert!(text.contains('\u{2588}'), "the bar has filled cells");
         assert!(text.contains('\u{2591}'), "and empty cells");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_about_screen_shows_the_machine() {
+        let dir = vault("about-machine");
+        let mut app = app_in(&dir);
+        app.refresh_machine();
+        app.help_about = true;
+        app.mode = Mode::Help;
+
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("CRead 0."), "the version title: {text}");
+        assert!(text.contains("Network"), "the local address line: {text}");
+        assert!(text.contains("Kernel") || text.contains("System"), "{text}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

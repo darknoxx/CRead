@@ -1320,6 +1320,7 @@ pub fn draw_help(
     about: bool,
     specs: &[&cread_core::command::Spec],
     selected: usize,
+    device: &[String],
 ) {
     let cols = screen.cols();
     let rows = screen.rows();
@@ -1340,6 +1341,20 @@ pub fn draw_help(
 
     if about {
         let width = cols.saturating_sub(4) as usize;
+
+        // The machine first: this is the screen people open to find out what
+        // they are looking at.
+        for line in device {
+            if y >= last {
+                break;
+            }
+            screen.put_str_ellipsis(2, y, line, cols.saturating_sub(4), theme.fg, bg);
+            y += 1;
+        }
+        if !device.is_empty() && y < last {
+            y += 1;
+        }
+
         for (paragraph, text) in ABOUT.iter().enumerate() {
             if paragraph > 0 && y < last {
                 y += 1;
@@ -1925,7 +1940,7 @@ mod tests {
     fn the_about_screen_credits_what_is_not_ours() {
         let vp = vp(1280, 800);
         let mut screen = Screen::new(vp.cols(), vp.rows());
-        draw_help(&mut screen, &Theme::BLACK, true, &[], 0);
+        draw_help(&mut screen, &Theme::BLACK, true, &[], 0, &[]);
         let text = rows_as_text(&screen);
 
         for needle in [
