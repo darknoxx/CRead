@@ -386,6 +386,9 @@ struct App {
     pointer: (f64, f64),
     /// False when a kiosk has hidden the OS pointer until it is moved.
     pointer_visible: bool,
+    /// winit sends a synthetic CursorMoved on pointer enter; that one must not
+    /// count as "the mouse was moved".
+    skip_pointer_motion: bool,
     dragging: bool,
     /// False after a wheel scroll, until the next key or click: the view must
     /// not snap back to the cursor while you are just looking around.
@@ -576,6 +579,7 @@ impl App {
             view_width: 0,
             pointer: (0.0, 0.0),
             pointer_visible: true,
+            skip_pointer_motion: false,
             dragging: false,
             follow_cursor: true,
             clipboard: None,
@@ -3664,12 +3668,20 @@ impl ApplicationHandler for App {
                 self.recompute_viewport();
             }
             WindowEvent::ScaleFactorChanged { .. } => self.recompute_viewport(),
+            WindowEvent::CursorEntered { .. } => {
+                if self.opts.kiosk {
+                    self.skip_pointer_motion = true;
+                }
+            }
             WindowEvent::CursorMoved { position, .. } => {
+                let synthetic = std::mem::take(&mut self.skip_pointer_motion);
                 self.last_input = Instant::now();
                 if self.mode == Mode::Screensaver {
                     return;
                 }
-                self.show_pointer();
+                if !synthetic {
+                    self.show_pointer();
+                }
                 self.pointer = (position.x, position.y);
                 if !self.program_pointer(PointerKind::Move) {
                     self.on_mouse_drag();

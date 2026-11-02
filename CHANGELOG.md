@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.3
+
+- **The pointer stays hidden until the mouse really moves.** winit emits a
+  synthetic `CursorMoved` when the pointer enters the window; the first frame
+  of 0.26.2 treated that as movement and showed the arrow immediately. The
+  enter event is now ignored; a real move (or a click) reveals it.
+
 ## 0.26.2
 
 - **A kiosk shows no pointer until the mouse moves.** `--kiosk` now hides the

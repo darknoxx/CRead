@@ -188,8 +188,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         version and credits                  0.26.2 │
-  │   UPDATE       check github for a new version       0.26.2 │
+  │   INFO         version and credits                  0.26.3 │
+  │   UPDATE       check github for a new version       0.26.3 │
   │   SOFTWARE     install and remove modules                  │
   │   USER MANUAL  read the manual                             │
   └────────────────────────────────────────────────────────────┘
