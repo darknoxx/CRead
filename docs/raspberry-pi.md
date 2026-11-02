@@ -75,16 +75,20 @@ sudo ./packaging/install-kiosk.sh ./cread
 
 The script creates the `cread` user (unless it exists), installs the binary to
 `/opt/cread/cread` (owned by that user), installs the systemd unit and a
-polkit rule for `shutdown`, turns the journal volatile and disables the swap
-and the tty1 getty.
-
-Start it:
+polkit rule for `shutdown`, turns the journal volatile, disables the swap unit
+for the next boot and disables the tty1 getty. It starts the kiosk itself.
 
 ```sh
-sudo systemctl start cread-kiosk
-sudo systemctl status cread-kiosk
+systemctl status cread-kiosk
 journalctl -u cread-kiosk -f
 ```
+
+If the display is unplugged when the kiosk starts, CRead keeps running
+headlessly and SSH stays available; reconnect the monitor and restart the
+service if the output does not come back by itself.
+
+In kiosk mode the OS pointer is hidden until the mouse is moved. A Pi with no
+mouse therefore shows no arrow at all.
 
 The unit starts cage on tty1, with `CREAD_VAULT` in the user's home. CRead
 starts on its boot screen; press `Esc`, then `open` or `new`.

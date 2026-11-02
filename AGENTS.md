@@ -144,6 +144,8 @@ saves and exits instead of spawning a new process, because cage ends with
 CRead. systemd's `Restart=always` starts cage and the new binary together. On
 a kiosk the binary is user-owned in `/opt/cread`, so the in-app updater needs
 no root. `packaging/cread-update.sh` is the headless `--update-once` fallback.
+The same flag hides the OS pointer until it is moved, so a machine without a
+mouse never shows an arrow.
 
 **An update is signed or it is nothing.** The updater trusts two minisign keys
 baked into `crates/update`: the current one and a spare for rotation (a binary

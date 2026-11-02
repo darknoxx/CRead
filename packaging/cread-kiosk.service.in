@@ -1,7 +1,7 @@
 [Unit]
 Description=CRead kiosk
-After=systemd-user-sessions.service
-Wants=systemd-user-sessions.service
+After=systemd-user-sessions.service seatd.service
+Wants=systemd-user-sessions.service seatd.service
 Conflicts=getty@tty1.service
 
 [Service]
@@ -19,7 +19,7 @@ Environment=XKB_DEFAULT_LAYOUT=@XKB@
 # user-owned folder so the in-app updater can replace it without root.
 ExecStart=/usr/bin/cage -- /opt/cread/cread --kiosk
 Restart=always
-RestartSec=2
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target

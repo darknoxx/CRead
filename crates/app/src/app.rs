@@ -384,6 +384,8 @@ struct App {
     view_width: usize,
     /// Last known pointer position in physical pixels.
     pointer: (f64, f64),
+    /// False when a kiosk has hidden the OS pointer until it is moved.
+    pointer_visible: bool,
     dragging: bool,
     /// False after a wheel scroll, until the next key or click: the view must
     /// not snap back to the cursor while you are just looking around.
@@ -573,6 +575,7 @@ impl App {
             view_top: 0,
             view_width: 0,
             pointer: (0.0, 0.0),
+            pointer_visible: true,
             dragging: false,
             follow_cursor: true,
             clipboard: None,
@@ -1988,6 +1991,7 @@ impl App {
         self.screensaver_back = self.mode;
         self.mode = Mode::Screensaver;
         self.last_input = Instant::now();
+        self.hide_pointer();
         self.dirty = true;
     }
 
@@ -2144,6 +2148,28 @@ impl App {
 
     fn on_mouse_release(&mut self) {
         self.dragging = false;
+    }
+
+    /// A kiosk starts without a pointer. It appears with the first real move
+    /// (or click), so a machine with no mouse never shows an arrow.
+    fn hide_pointer(&mut self) {
+        if !self.opts.kiosk || !self.pointer_visible {
+            return;
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.set_cursor_visible(false);
+        }
+        self.pointer_visible = false;
+    }
+
+    fn show_pointer(&mut self) {
+        if !self.opts.kiosk || self.pointer_visible {
+            return;
+        }
+        if let Some(window) = self.window.as_ref() {
+            window.set_cursor_visible(true);
+        }
+        self.pointer_visible = true;
     }
 
     fn on_mouse_drag(&mut self) {
@@ -3476,6 +3502,7 @@ impl ApplicationHandler for App {
 
         self.renderer = Some(renderer);
         self.window = Some(window);
+        self.hide_pointer();
         self.recompute_viewport();
         self.dirty = true;
 
@@ -3642,6 +3669,7 @@ impl ApplicationHandler for App {
                 if self.mode == Mode::Screensaver {
                     return;
                 }
+                self.show_pointer();
                 self.pointer = (position.x, position.y);
                 if !self.program_pointer(PointerKind::Move) {
                     self.on_mouse_drag();
@@ -3652,6 +3680,7 @@ impl ApplicationHandler for App {
                 if self.mode == Mode::Screensaver {
                     return;
                 }
+                self.show_pointer();
                 if self.program.is_some() {
                     let code = match button {
                         MouseButton::Left => Some(cread_core::program::BUTTON_LEFT),

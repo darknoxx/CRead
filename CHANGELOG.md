@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.26.2
+
+- **A kiosk shows no pointer until the mouse moves.** `--kiosk` now hides the
+  OS cursor at startup (and while the screensaver runs); the first movement or
+  click brings it back. A Pi with no mouse never shows an arrow.
+- **The installer leaves no black console behind.** It disables the swap unit
+  without running `swapoff` immediately (that was the long hang on a small
+  card) and starts/restarts `cread-kiosk` itself. The unit also starts after
+  `seatd.service`.
+- **The Pi recipe** mentions the headless case when the monitor is unplugged
+  and the pointer behaviour.
+
 ## 0.26.1
 
 - **The renderer asks the GPU what it can do.** The device was created with

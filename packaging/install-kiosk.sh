@@ -62,8 +62,10 @@ Storage=volatile
 RuntimeMaxUse=32M
 EOF
 
+# Only disable the swap unit here. Stopping it runs swapoff, which can block
+# for a long time on a small card; it will be gone after the next boot.
 if systemctl list-unit-files dphys-swapfile.service >/dev/null 2>&1; then
-    systemctl disable --now dphys-swapfile.service >/dev/null 2>&1 || true
+    systemctl disable dphys-swapfile.service >/dev/null 2>&1 || true
 fi
 systemctl disable --now getty@tty1.service >/dev/null 2>&1 || true
 # The compositor needs /run/user/<uid>; lingering creates it even before the
@@ -80,7 +82,7 @@ CRead kiosk installed for $USER_NAME.
 
   binary:  /opt/cread/cread
   vault:   $VAULT
-  service: cread-kiosk.service (start: systemctl start cread-kiosk)
+  service: cread-kiosk.service (starting now)
 
 Open the WebDAV form once inside CRead (SETTINGS -> WEBDAV) and switch sync on.
 The in-app updater replaces /opt/cread/cread and exits; systemd brings cage and
@@ -92,3 +94,8 @@ Still worth doing by hand for the SD card:
     /boot/firmware/config.txt
   - do NOT use an overlay/read-only root: the in-app updater writes /opt/cread
 EOF
+
+# Start (or restart) the kiosk so the screen does not stay on a bare console.
+if ! systemctl restart cread-kiosk.service; then
+    echo "cread-kiosk did not start; check: journalctl -u cread-kiosk -b" >&2
+fi
