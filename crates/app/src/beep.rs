@@ -19,9 +19,18 @@ const SECONDS: f32 = 0.09;
 /// Beep once, without blocking the caller: the file is written and the player
 /// runs on a thread of its own, so a slow sound server never stalls a frame.
 pub fn play() {
-    std::thread::spawn(|| {
+    play_wav(wav());
+}
+
+/// Two short beeps with a gap: the calendar reminder.
+pub fn play_twice() {
+    play_wav(wav_twice());
+}
+
+fn play_wav(bytes: Vec<u8>) {
+    std::thread::spawn(move || {
         let path = std::env::temp_dir().join("cread-beep.wav");
-        if write_wav(&path).is_err() {
+        if write_bytes(&path, &bytes).is_err() {
             return;
         }
         for player in PLAYERS {
@@ -37,18 +46,32 @@ pub fn play() {
     });
 }
 
-fn write_wav(path: &std::path::Path) -> std::io::Result<()> {
+fn write_bytes(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut file = std::fs::File::create(path)?;
-    file.write_all(&wav())
+    file.write_all(bytes)
 }
 
 /// The beep as a 16-bit mono WAV: a square wave with a short fade at both ends,
 /// because a hard edge on a square wave clicks.
 pub fn wav() -> Vec<u8> {
-    let total = (SAMPLE_RATE as f32 * SECONDS) as usize;
-    let period = SAMPLE_RATE as f32 / FREQUENCY;
+    wav_from_pcm(tone_pcm(FREQUENCY, SECONDS))
+}
+
+pub fn wav_twice() -> Vec<u8> {
+    let mut pcm = tone_pcm(FREQUENCY, SECONDS);
+    pcm.extend(std::iter::repeat_n(
+        0i16,
+        (SAMPLE_RATE as f32 * 0.12) as usize,
+    ));
+    pcm.extend(tone_pcm(FREQUENCY, SECONDS));
+    wav_from_pcm(pcm)
+}
+
+fn tone_pcm(frequency: f32, seconds: f32) -> Vec<i16> {
+    let total = (SAMPLE_RATE as f32 * seconds) as usize;
+    let period = SAMPLE_RATE as f32 / frequency;
     let fade = (SAMPLE_RATE as f32 * 0.004) as usize;
-    let mut pcm = Vec::with_capacity(total * 2);
+    let mut pcm = Vec::with_capacity(total);
     for index in 0..total {
         let high = ((index as f32 / period) as u32).is_multiple_of(2);
         let base = if high { 0.25 } else { -0.25 };
@@ -59,13 +82,16 @@ pub fn wav() -> Vec<u8> {
         } else {
             1.0
         };
-        let sample = (base * envelope.clamp(0.0, 1.0) * i16::MAX as f32) as i16;
-        pcm.extend_from_slice(&sample.to_le_bytes());
+        pcm.push((base * envelope.clamp(0.0, 1.0) * i16::MAX as f32) as i16);
     }
+    pcm
+}
 
-    let mut out = Vec::with_capacity(44 + pcm.len());
+fn wav_from_pcm(pcm: Vec<i16>) -> Vec<u8> {
+    let data: Vec<u8> = pcm.iter().flat_map(|sample| sample.to_le_bytes()).collect();
+    let mut out = Vec::with_capacity(44 + data.len());
     out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&((36 + pcm.len()) as u32).to_le_bytes());
+    out.extend_from_slice(&((36 + data.len()) as u32).to_le_bytes());
     out.extend_from_slice(b"WAVEfmt ");
     out.extend_from_slice(&16u32.to_le_bytes()); // fmt chunk size
     out.extend_from_slice(&1u16.to_le_bytes()); // PCM
@@ -75,8 +101,8 @@ pub fn wav() -> Vec<u8> {
     out.extend_from_slice(&2u16.to_le_bytes()); // block align
     out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
     out.extend_from_slice(b"data");
-    out.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
-    out.extend_from_slice(&pcm);
+    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    out.extend_from_slice(&data);
     out
 }
 
@@ -105,6 +131,11 @@ mod tests {
             u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize,
             bytes.len() - 8
         );
+    }
+
+    #[test]
+    fn the_double_beep_is_longer_than_one() {
+        assert!(wav_twice().len() > wav().len());
     }
 
     #[test]

@@ -19,6 +19,8 @@ pub(super) enum BootItem {
     Program(usize),
     /// The install screen.
     Software,
+    /// The month grid.
+    Calendar,
     /// The system settings.
     Setup,
 }
@@ -51,6 +53,7 @@ impl App {
         items.push(BootItem::Rule);
         items.push(BootItem::Software);
         items.push(BootItem::Vault);
+        items.push(BootItem::Calendar);
         items.push(BootItem::Setup);
         items
     }
@@ -75,8 +78,13 @@ impl App {
                 BootItem::Software => {
                     ui::BootItem::row("SOFTWARE", "install and remove modules", true)
                 }
-                BootItem::Vault => {
-                    ui::BootItem::row("THE VAULT", "documents, pictures, cartridges", true)
+                BootItem::Vault => ui::BootItem::row(
+                    "THE VAULT",
+                    "documents, pictures, cartridges, calendar",
+                    true,
+                ),
+                BootItem::Calendar => {
+                    ui::BootItem::row("CALENDAR", "appointments and reminders", true)
                 }
                 BootItem::Setup => {
                     ui::BootItem::row("SETTINGS", "webdav, theme, font, screen", true)
@@ -100,6 +108,7 @@ impl App {
             BootItem::Inspiro => self.start_loading(Pending::Inspiro),
             BootItem::Program(index) => self.start_loading(Pending::Program(index)),
             BootItem::Software => self.open_software(),
+            BootItem::Calendar => self.open_calendar(),
             BootItem::Setup => self.open_setup(),
         }
     }

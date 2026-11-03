@@ -45,6 +45,7 @@ impl App {
                 | Mode::Power
                 | Mode::UpdatePrompt
                 | Mode::Notice
+                | Mode::Reminder
         )
     }
 
@@ -74,6 +75,14 @@ impl App {
                 top: self.manual_top,
             };
             ui::draw_manual(screen, &self.theme, &view);
+            return true;
+        }
+        if self.mode == Mode::Calendar {
+            self.draw_calendar(screen);
+            return true;
+        }
+        if self.mode == Mode::CalendarEdit {
+            self.draw_calendar_form(screen);
             return true;
         }
         if self.mode == Mode::Software {
@@ -818,6 +827,7 @@ impl App {
             Mode::Notice => {
                 ui::draw_notice(screen, &self.theme, &self.notice_text);
             }
+            Mode::Reminder => self.draw_reminder(screen),
             Mode::UpdatePrompt => {
                 let version = self
                     .update_offer

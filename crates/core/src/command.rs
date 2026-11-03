@@ -67,6 +67,8 @@ pub enum Command {
     Update,
     /// Read the built-in user manual.
     Manual,
+    /// Open the calendar.
+    Calendar,
     /// The clock screensaver: start it, switch it on/off, or set the idle time.
     Screensaver(ScreensaverAction),
     About,
@@ -365,6 +367,13 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
+        name: "calendar",
+        aliases: &["cal"],
+        argument: "",
+        summary: "appointments, reminders and the month",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
+    Spec {
         name: "manual",
         aliases: &["handbook"],
         argument: "",
@@ -526,6 +535,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "settings" => Command::Settings,
         "update" => Command::Update,
         "manual" => Command::Manual,
+        "calendar" => Command::Calendar,
         "screensaver" => match rest {
             "" => Command::Screensaver(ScreensaverAction::Start),
             "on" => Command::Screensaver(ScreensaverAction::Enabled(true)),
@@ -755,6 +765,7 @@ mod tests {
     fn update_is_a_command_like_everything_else() {
         assert_eq!(parse("update"), Ok(Command::Update));
         assert_eq!(parse("manual"), Ok(Command::Manual));
+        assert_eq!(parse("calendar"), Ok(Command::Calendar));
         assert_eq!(parse("shutdown"), Ok(Command::Shutdown));
         assert_eq!(parse("poweroff"), Ok(Command::Shutdown));
         assert_eq!(parse("reboot"), Ok(Command::Reboot));

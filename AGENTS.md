@@ -37,7 +37,8 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 `shutdown`, `reboot`, `backtolinux` (the save-and-leave questions),
 `software`, `pictures`, `riffplay`, `riffinsert`, `pocketboi[:<rom>]`,
 `poker` (front door), `pokerplay` (the machine), `pokerhand` (a dealt hand),
-`pokerrisk` (the ladder) and `pokerover` (the lose screen), `picture[:<png>]`.
+`pokerrisk` (the ladder) and `pokerover` (the lose screen), `calendar` (month),
+`calendaredit` (the event form) and `reminder` (the modal), `picture[:<png>]`.
 
 ## Layout
 
@@ -81,6 +82,8 @@ blink. Two consequences:
   its own through `Program::wants_frames` — Pocketboi while a cartridge runs,
   US Poker only while the risk ladder is live. That is a program clock,
   not a fifth shell effect, and it uses `PROGRAM_FRAME` only while it is true.
+  A calendar reminder is a **one-shot deadline** (`next_reminder_instant`), not
+  another clock: the loop sleeps until the appointment and then wakes once.
   The shell clocks are ordered in `frame()` and the **fastest one wins**: the
   roll is checked before the music clock, or playing a track would drop the
   frame rate to 2 fps and freeze the raster.
@@ -141,8 +144,9 @@ theme-agnostic: black page, fixed VGA colours, drawn into a full-screen raster
 and blitted with `Framebuffer::draw_canvas` so the CRT pass still runs over it.
 Only a key wakes it (the mouse is ignored); the key that wakes it is swallowed.
 The idle timer counts keyboard *and* pointer activity, so painting with the
-mouse does not summon the clock. `cread_screensaver`'s `IDLE_MINUTES` is the
-list `SETTINGS` cycles through.
+mouse does not summon the clock. A due calendar reminder wakes it into a modal
+window and returns to the clock after `Esc`; the reminder is not a user key.
+`cread_screensaver`'s `IDLE_MINUTES` is the list `SETTINGS` cycles through.
 
 **A kiosk update is a session restart, not a process restart.** `--kiosk`
 changes the last step of the updater: after the signed binary is in place it
@@ -188,15 +192,23 @@ so the CRT pass stays the same for text and pictures.
 the owning process; `arboard::Clipboard` is kept in `App` for exactly that
 reason. Creating one per operation silently loses the text.
 
-**The vault has three rooms.** `Documents/` for text, `Pictures/` for PNGs,
-`Roms/` for cartridges; the vault root is only the shelf, and `saveas` cannot
-leave its room (`..` and absolute names are folded away). `THE VAULT` on the
-boot screen is a folder browser that opens each file with the program that owns
-it; each program's own `open` starts in its room (`Documents/` for Inspiro,
-`Pictures/` for Softhand, the music folder for Riff) and only lists what that
-program can use. Loose documents from an older vault are moved into
-`Documents/` on first use — never overwritten, a name clash stays put and is
-reported.
+**The vault has four rooms.** `Documents/` for text, `Pictures/` for PNGs,
+`Roms/` for cartridges and `Calendar/` for appointments; the vault root is only
+the shelf, and `saveas` cannot leave its room (`..` and absolute names are
+folded away). `THE VAULT` on the boot screen is a folder browser that opens each
+file with the program that owns it; each program's own `open` starts in its room
+(`Documents/` for Inspiro, `Pictures/` for Softhand, the music folder for Riff)
+and only lists what that program can use. Loose documents from an older vault
+are moved into `Documents/` on first use — never overwritten, a name clash stays
+put and is reported.
+
+**The calendar is a shell screen, not a module.** `Calendar/` holds one Markdown
+file per appointment; the form writes it, Inspiro can open it, and the WebDAV
+worker mirrors the room. `Mode::Calendar` lives in the shell because the
+reminder service has to run while another screen is in front. `Command::Calendar`
+and the boot row are the two entrances. The reminder timer is one-shot, deletes
+are tombstones, and conflict copies are ignored. A reminder only fires while
+CRead runs; missed ones are dropped.
 
 **Saving is the writer's decision.** Autosave is opt-in (`autosave on`, stored in
 the preferences); by default a document only reaches disk through `save`,
@@ -205,15 +217,17 @@ that fires on its own.
 
 **Local files win.** Sync never overwrites a both-sides change: the remote copy
 is parked next to the local file as `name.conflict-<unix>.<ext>` and the local
-version stays. Documents are never deleted on the server. The one exception is
+version stays. Calendar deletions are visible tombstones (`deleted: true`) for
+the same reason; a hidden file would not reach the server, and a removed file
+would come back. Documents are never deleted on the server. The one exception is
 the editor's own unnamed draft (`untitled-N.md`): it is marked as a draft in the
 sync index (`set_draft`), and when `saveas` names it, its remote copy is deleted
 with the local placeholder. A draft that outlives the session is promoted back
 to an ordinary document at startup, so nothing the writer typed is thrown away.
 
 **Sync mirrors the vault, not the documents.** Everything under the vault root
-goes up — `Roms`, `Pictures`, folders you make yourself — with the tree
-recreated on the server; only hidden entries (the sync index lives in
+goes up — `Roms`, `Pictures`, `Calendar`, folders you make yourself — with the
+tree recreated on the server; only hidden entries (the sync index lives in
 `.cread-sync`) stay local. Downloads are written byte for byte
 (`storage::save_bytes_atomic`), because a cartridge is not UTF-8.
 

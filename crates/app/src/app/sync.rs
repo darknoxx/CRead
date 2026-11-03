@@ -38,8 +38,9 @@ impl App {
                     } else {
                         self.set_status(format!("sync: {}", report_word(&report)));
                     }
-                    if report.downloaded > 0 {
+                    if report.downloaded > 0 || report.conflicts > 0 {
                         self.reload_after_sync();
+                        self.reload_calendar();
                     }
                 }
                 SyncEvent::Failed(e) => self.set_status(format!("sync failed: {e}")),

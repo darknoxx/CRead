@@ -30,7 +30,7 @@ OPTIONS:
         --kiosk             Hand the update restart to the service manager
         --show VIEW         Start in a view: editor | welcome | action | search |
                             view | inspiro | softhand | riff | picture |
-                            software | poker | palette | settings | help
+                            software | poker | calendar | palette | settings | help
         --command TEXT      Prefill the action prompt (handy for demos)
         --screenshot-delay MS  Wait before capturing (lets background work finish)
         --screenshot PATH   Render one frame to PATH (PNG) and exit
@@ -186,6 +186,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "pokerhand",
                     "pokerrisk",
                     "pokerover",
+                    "calendar",
+                    "calendaredit",
+                    "reminder",
                     "palette",
                     "settings",
                     "webdav",

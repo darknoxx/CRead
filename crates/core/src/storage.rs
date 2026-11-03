@@ -146,6 +146,11 @@ pub fn roms_in(vault: &Path) -> PathBuf {
     vault.join("Roms")
 }
 
+/// Calendar entries live in `<vault>/Calendar`.
+pub fn calendar_in(vault: &Path) -> PathBuf {
+    vault.join("Calendar")
+}
+
 /// Every file under `root`, recursively, sorted by path. Dotfiles and hidden
 /// folders are skipped: they are the app's own, never the writer's.
 pub fn walk_files(root: &Path) -> Vec<PathBuf> {

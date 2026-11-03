@@ -42,10 +42,11 @@ For beginners. No prior knowledge needed.
 6. Riff — listening to music
 7. Pocketboi — games
 8. US Poker — the machine
-9. The settings
-10. The screensaver
-11. Backing up with WebDAV
-12. Updates
+9. Calendar — appointments
+10. The settings
+11. The screensaver
+12. Backing up with WebDAV
+13. Updates
 
 **Appendices**
 
@@ -192,7 +193,8 @@ D: POCKETBOI     get gaming, my friend!
 E: US POKER ten dollars and a dream.
 ─────────────────────────────────────────────────
 SOFTWARE         install and remove modules
-THE VAULT        documents, pictures, cartridges
+THE VAULT        documents, pictures, cartridges, calendar
+CALENDAR         appointments and reminders
 SETTINGS         webdav, theme, font, screen
 ```
 
@@ -205,12 +207,13 @@ others yourself. That keeps your welcome screen tidy.
 The letters follow the order in which you installed the modules. If you
 install Riff first, you get `B: RIFF`.
 
-### The three rows below the rule
+### The four rows below the rule
 
 | Row | What it does |
 | --- | --- |
 | **SOFTWARE** | Shows the software shelf. That is where you install modules. |
 | **THE VAULT** | Shows all the folders with your files. |
+| **CALENDAR** | Opens the month grid and the appointment list. |
 | **SETTINGS** | Shows the settings of CRead OS. |
 
 ### Using it
@@ -268,13 +271,14 @@ By default that is:
 
 On an English system the folder is `~/Documents/CRead`.
 
-The vault has three main folders:
+The vault has four main folders:
 
 | Folder | Contents |
 | --- | --- |
 | `Documents` | Your texts. Every file ends in `.md`. |
 | `Pictures` | Your pictures. Every file ends in `.png`. |
 | `Roms` | Your Game Boy games. Every file ends in `.gb` or `.gbc`. |
+| `Calendar` | Appointments. One Markdown file per entry. |
 
 ### The vault browser
 
@@ -630,7 +634,74 @@ buzzes, and the deal, hold and cash-out click. `M` or `mute` silences them.
 
 ---
 
-## Chapter 9: The settings
+## Chapter 9: Calendar — appointments
+
+The calendar is a system screen: open it from **CALENDAR** on the start
+screen, or type `calendar` at any prompt. It uses the files in the
+`Calendar/` folder in your vault. One appointment is one Markdown file, so
+Inspiro can open it too.
+
+### The month
+
+The week starts on Monday. The arrows move by day or week, `PgUp` and
+`PgDn` by month, and `Home` returns to today. `Tab` switches between the
+month grid and the list of the selected day.
+
+| Key | Effect |
+| --- | --- |
+| Arrow keys | Day or week. |
+| PgUp / PgDn | Previous / next month. |
+| Home | Today. |
+| Tab | Month grid ↔ day list. |
+| Enter | New appointment (grid) or edit the selected one (list). |
+| E | Edit the selected appointment. |
+| D | Delete the selected appointment. |
+| Esc | Back to where the calendar was opened from. |
+
+### The event form
+
+| Field | Meaning |
+| --- | --- |
+| Title | What the appointment is. Required. |
+| Date | `YYYY-MM-DD`. |
+| Time | `HH:MM`; leave empty for an all-day entry. |
+| Remind | Minutes before the time. All-day entries have no alarm. |
+| Notes | One line of extra text. |
+
+`Tab` moves between fields, `Enter` saves, `Esc` cancels.
+
+Files look like this:
+
+```markdown
+---
+title: Doctor
+date: 2026-11-05
+time: 10:30
+remind: 15
+deleted: false
+---
+Bring the card.
+```
+
+### Reminders
+
+A due reminder double-beeps and shows a small window. `Enter` opens the
+calendar on that appointment, `Esc` closes the window. If the screensaver is
+running, the reminder wakes the screen; closing it returns to the clock.
+Reminders only run while CRead is running. One missed while CRead was closed
+is dropped silently. `beep off` leaves the window without the sound.
+
+### WebDAV and deleting
+
+`Calendar/` is part of the vault, so the normal WebDAV sync mirrors it.
+Deleting writes a visible tombstone (`deleted: true`) instead of removing the
+file; the calendar hides it. That is what stops the local-first sync from
+bringing a deleted appointment back from the server. Conflict copies
+(`*.conflict-…md`) are ignored by the calendar and stay in the vault for you.
+
+---
+
+## Chapter 10: The settings
 
 You reach **SETTINGS** from the start screen. The rows are sorted into
 groups.
@@ -686,7 +757,7 @@ time. The other screens show only the time.
 
 ---
 
-## Chapter 10: The screensaver
+## Chapter 11: The screensaver
 
 If you do nothing for a while, the screen turns black. A large clock with
 hour, minute and second hands appears in the middle.
@@ -711,7 +782,7 @@ minutes.
 
 ---
 
-## Chapter 11: Backing up with WebDAV
+## Chapter 12: Backing up with WebDAV
 
 CRead can back up your files to a server automatically. That is
 voluntary. Without settings, nothing happens.
@@ -777,7 +848,7 @@ SYNC TO SERVER?
 
 ---
 
-## Chapter 12: Updates
+## Chapter 13: Updates
 
 CRead can update itself. That is voluntary and only happens when you
 start it.
@@ -834,6 +905,7 @@ The most important commands. Upper and lower case do not matter.
 | `fullscreen` | `fs` | The whole screen. |
 | `help [all]` | `?`, `h` | Shows the commands. |
 | `manual` | `handbook` | Shows this manual. |
+| `calendar` | `cal` | Appointments, reminders and the month. |
 | `mute` | `silence` | Silences the running program. |
 | `new` | `n` | New document. |
 | `open [name]` | `o`, `e` | Shows the vault or opens a name. |
@@ -932,8 +1004,21 @@ The most important commands. Upper and lower case do not matter.
 | R | Risk the win. |
 | T | Take the win. |
 | C | Cash out and save. |
-| N | New game after game over. |
+| N | Cash out on the lose screen. |
+| Y | Retry with $10.00 on the lose screen. |
 | M | Mute. |
+
+## In Calendar
+
+| Key | Effect |
+| --- | --- |
+| Arrow keys | Day or week. |
+| PgUp / PgDn | Month. |
+| Home | Today. |
+| Tab | Grid or day list. |
+| Enter | New or edit. |
+| E / D | Edit / delete. |
+| Esc | Back. |
 
 ---
 
@@ -953,7 +1038,7 @@ If the file is still open: press Esc and save at once.
 
 That is the screensaver. Press any key.
 
-### No sound in Riff, Pocketboi or US Poker
+### No sound in Riff, Pocketboi, US Poker or Calendar
 
 CRead uses the system's output device. Check the system settings to see
 whether speakers or headphones are selected. Then start CRead again.

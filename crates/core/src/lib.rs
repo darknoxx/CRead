@@ -3,6 +3,7 @@
 //! Nothing in here touches a GPU, a window or a network socket, which keeps the
 //! tricky parts (layout, wrapping, undo, sync bookkeeping) unit-testable.
 
+pub mod calendar;
 pub mod command;
 pub mod editor;
 pub mod markdown;

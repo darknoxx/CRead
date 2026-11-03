@@ -26,6 +26,11 @@ impl App {
         Ok(String::new())
     }
 
+    pub(super) fn cmd_calendar(&mut self) -> Result<String, String> {
+        self.open_calendar();
+        Ok(String::new())
+    }
+
     pub(super) fn cmd_manual(&mut self) -> Result<String, String> {
         let back = self.mode;
         self.open_manual(back);

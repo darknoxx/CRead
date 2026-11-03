@@ -1,11 +1,13 @@
 //! Window lifetime, frame loop and input.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 mod boot;
 mod browser;
+mod calendar;
 mod commands;
 mod compose;
 mod machine;
@@ -17,6 +19,7 @@ mod webdav;
 use browser::{Browser, BrowserKind, BrowserMode};
 use webdav::FormState;
 
+use calendar::{CalendarState, EventForm, ReminderDue};
 use machine::Machine;
 use power::PowerPrompt;
 use sync::QuitPrompt;
@@ -267,6 +270,12 @@ enum Mode {
     Power,
     /// The user manual: read-only Markdown with a scrollbar.
     Manual,
+    /// The month grid and the day's appointments.
+    Calendar,
+    /// The new/edit event form.
+    CalendarEdit,
+    /// A due reminder; a modal over whatever was in front.
+    Reminder,
     /// A small box confirming one thing, e.g. the sync switch.
     Notice,
     /// The clock, after a while without input.
@@ -449,6 +458,16 @@ struct App {
     manual_back: Mode,
     notice_text: String,
     notice_back: Mode,
+    pub(super) calendar: CalendarState,
+    calendar_back: Mode,
+    pub(super) calendar_form: Option<EventForm>,
+    pub(super) reminder: Option<ReminderDue>,
+    reminder_back: Mode,
+    pub(super) reminder_title: String,
+    pub(super) reminder_when: String,
+    reminder_date: chrono::NaiveDate,
+    reminder_path: PathBuf,
+    reminder_fired: HashSet<String>,
     /// The running program, if any.
     program: Option<Box<dyn Program>>,
     /// Which module the program belongs to. The shell needs this where the
@@ -637,6 +656,16 @@ impl App {
             manual_back: Mode::Setup,
             notice_text: String::new(),
             notice_back: Mode::Setup,
+            calendar: CalendarState::today(),
+            calendar_back: Mode::Action,
+            calendar_form: None,
+            reminder: None,
+            reminder_back: Mode::Action,
+            reminder_title: String::new(),
+            reminder_when: String::new(),
+            reminder_date: chrono::Local::now().date_naive(),
+            reminder_path: PathBuf::new(),
+            reminder_fired: HashSet::new(),
             program: None,
             program_id: None,
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
@@ -773,6 +802,7 @@ impl App {
     fn frame(&mut self, el: &ActiveEventLoop) {
         self.pump_sync();
         self.pump_update(el);
+        self.pump_reminders();
         // An idle machine rests: the screensaver counts from the last key or
         // pointer event, and never starts over a progress window.
         if self.screensaver_due() {
@@ -969,6 +999,11 @@ impl App {
             let wait = (next_toggle - time).clamp(0.005, 1.0);
             self.next_frame = frame_start + Duration::from_secs_f32(wait);
         }
+        if let Some(reminder) = self.next_reminder_instant()
+            && reminder < self.next_frame
+        {
+            self.next_frame = reminder;
+        }
     }
 
     // ── persistence ─────────────────────────────────────────────────────────
@@ -1129,6 +1164,7 @@ impl App {
             storage::documents_in(&vault),
             storage::pictures_in(&vault),
             storage::roms_in(&vault),
+            storage::calendar_in(&vault),
         ] {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -1366,6 +1402,9 @@ impl App {
             Mode::Checking => self.on_key_checking(event),
             Mode::UpdatePrompt => self.on_key_update_prompt(event),
             Mode::Manual => self.on_key_manual(event),
+            Mode::Calendar => self.on_key_calendar(el, event),
+            Mode::CalendarEdit => self.on_key_calendar_edit(event),
+            Mode::Reminder => self.on_key_reminder(event),
             Mode::Notice => self.on_key_notice(),
             Mode::Screensaver => {
                 // Waking happens above; nothing else reaches this screen.
@@ -1897,7 +1936,7 @@ impl App {
     /// Has the machine been quiet long enough to rest?
     fn screensaver_due(&self) -> bool {
         self.screensaver_on
-            && self.mode != Mode::Screensaver
+            && !matches!(self.mode, Mode::Screensaver | Mode::Reminder)
             && self.boot_at.is_none()
             && !matches!(self.mode, Mode::Loading | Mode::Checking)
             && self.last_input.elapsed()
@@ -2317,6 +2356,12 @@ impl App {
     fn beep(&mut self) {
         if self.beep_on {
             crate::beep::play();
+        }
+    }
+
+    fn beep_twice(&mut self) {
+        if self.beep_on {
+            crate::beep::play_twice();
         }
     }
 
@@ -3637,6 +3682,9 @@ impl ApplicationHandler for App {
             self.request_sync();
         }
 
+        self.prepare_vault();
+        self.reload_calendar();
+
         match self.opts.show.as_str() {
             "palette" => self.open_browser(),
             "settings" => self.open_setup(),
@@ -3685,6 +3733,19 @@ impl ApplicationHandler for App {
                 self.mode = Mode::Help;
             }
             "manual" => self.open_manual(self.mode),
+            "calendar" => self.open_calendar(),
+            "calendaredit" => {
+                self.open_calendar();
+                self.new_event_form();
+            }
+            "reminder" => {
+                self.open_calendar();
+                self.reminder_title = "Demo appointment".into();
+                self.reminder_when = "Today · 10:30".into();
+                self.reminder_date = chrono::Local::now().date_naive();
+                self.reminder_back = self.mode;
+                self.mode = Mode::Reminder;
+            }
             "notice" => {
                 self.open_webdav();
                 self.open_notice("SYNC ON", Mode::Webdav);
@@ -4327,7 +4388,14 @@ mod tests {
         };
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "", "SOFTWARE", "THE VAULT", "SETTINGS"]
+            vec![
+                "A: INSPIRO",
+                "",
+                "SOFTWARE",
+                "THE VAULT",
+                "CALENDAR",
+                "SETTINGS"
+            ]
         );
 
         // Row 0 is Inspiro, the system: it refuses to go.
@@ -4353,6 +4421,7 @@ mod tests {
                 "",
                 "SOFTWARE",
                 "THE VAULT",
+                "CALENDAR",
                 "SETTINGS"
             ]
         );
@@ -4365,7 +4434,14 @@ mod tests {
         assert_eq!(app.prefs.installed.len(), 0);
         assert_eq!(
             labels(&app),
-            vec!["A: INSPIRO", "", "SOFTWARE", "THE VAULT", "SETTINGS"]
+            vec![
+                "A: INSPIRO",
+                "",
+                "SOFTWARE",
+                "THE VAULT",
+                "CALENDAR",
+                "SETTINGS"
+            ]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4386,9 +4462,126 @@ mod tests {
                 "",
                 "SOFTWARE",
                 "THE VAULT",
+                "CALENDAR",
                 "SETTINGS"
             ]
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn calendar_loads_the_month_and_the_day_list() {
+        let dir = vault("calendar");
+        let cal_dir = storage::calendar_in(&dir);
+        std::fs::create_dir_all(&cal_dir).unwrap();
+        let today = chrono::Local::now().date_naive();
+        let event = cread_core::calendar::Event {
+            title: "Doctor".into(),
+            date: today,
+            time: Some(chrono::NaiveTime::from_hms_opt(10, 0, 0).unwrap()),
+            remind: Some(15),
+            deleted: false,
+            notes: String::new(),
+        };
+        std::fs::write(cal_dir.join("doctor.md"), event.to_markdown()).unwrap();
+
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        assert_eq!(app.mode, Mode::Calendar);
+        assert!(
+            app.calendar
+                .events
+                .iter()
+                .any(|entry| entry.event.title == "Doctor")
+        );
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("CALENDAR"));
+        assert!(text.contains("Doctor"));
+        assert!(text.contains("10:00"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn calendar_form_writes_a_markdown_event() {
+        let dir = vault("calendar-form");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        app.new_event_form();
+        let today = chrono::Local::now().date_naive();
+        {
+            let form = app.calendar_form.as_mut().unwrap();
+            form.title = "Checkup".into();
+            form.date = today.format("%Y-%m-%d").to_string();
+            form.time = "10:30".into();
+            form.remind = "10".into();
+        }
+        app.save_event_form();
+        assert_eq!(app.mode, Mode::Calendar);
+        assert!(app.calendar_form.is_none());
+        let entries = cread_core::calendar::load_events(&storage::calendar_in(&dir));
+        let saved = entries
+            .iter()
+            .find(|entry| entry.event.title == "Checkup")
+            .expect("the event file");
+        assert_eq!(saved.event.time, chrono::NaiveTime::from_hms_opt(10, 30, 0));
+        assert_eq!(saved.event.remind, Some(10));
+        assert!(app.unsynced);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deleting_a_calendar_event_leaves_a_tombstone() {
+        let dir = vault("calendar-delete");
+        let cal_dir = storage::calendar_in(&dir);
+        std::fs::create_dir_all(&cal_dir).unwrap();
+        let today = chrono::Local::now().date_naive();
+        let event = cread_core::calendar::Event {
+            title: "Old".into(),
+            date: today,
+            time: None,
+            remind: None,
+            deleted: false,
+            notes: String::new(),
+        };
+        let path = cal_dir.join("old.md");
+        std::fs::write(&path, event.to_markdown()).unwrap();
+
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        app.calendar.selected = today;
+        app.calendar.selected_event = 0;
+        app.delete_selected_event();
+        let entries = cread_core::calendar::load_events(&cal_dir);
+        assert!(entries.iter().any(|entry| entry.event.deleted));
+        assert!(
+            !entries
+                .iter()
+                .any(|entry| entry.event.title == "Old" && !entry.event.deleted)
+        );
+        assert!(app.unsynced);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_due_calendar_reminder_opens_in_front() {
+        let dir = vault("calendar-reminder");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        app.beep_on = false;
+        let now = chrono::Local::now();
+        app.reminder = Some(ReminderDue {
+            at: now.naive_local() - chrono::Duration::minutes(1),
+            key: "test".into(),
+            title: "Doctor".into(),
+            when: "today".into(),
+            date: now.date_naive(),
+            path: std::path::PathBuf::new(),
+        });
+        app.pump_reminders();
+        assert_eq!(app.mode, Mode::Reminder);
+        assert_eq!(app.reminder_title, "Doctor");
+        assert!(app.reminder_fired.contains("test"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4441,11 +4634,15 @@ mod tests {
         app.boot_step(1);
         assert_eq!(app.boot_selected, 2, "over the rule, onto SOFTWARE");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 3, "onto DOCUMENTS");
+        assert_eq!(app.boot_selected, 3, "onto THE VAULT");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 4, "onto SETTINGS");
+        assert_eq!(app.boot_selected, 4, "onto CALENDAR");
         app.boot_step(1);
-        assert_eq!(app.boot_selected, 4, "the end is the end");
+        assert_eq!(app.boot_selected, 5, "onto SETTINGS");
+        app.boot_step(1);
+        assert_eq!(app.boot_selected, 5, "the end is the end");
+        app.boot_step(-1);
+        assert_eq!(app.boot_selected, 4);
         app.boot_step(-1);
         assert_eq!(app.boot_selected, 3);
         app.boot_step(-1);

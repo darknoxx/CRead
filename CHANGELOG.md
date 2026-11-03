@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.31.0
+
+- **A calendar in the vault.** `CALENDAR` is a system screen on the boot list
+  and a `calendar` command. It shows a Monday-first month grid, a day list and a
+  Markdown event form. Appointments live one file per event in `Calendar/`, so
+  the existing WebDAV sync mirrors them and conflicts stay local.
+- **Reminders.** A due appointment double-beeps and opens a modal window;
+  `Enter` opens the calendar on it, `Esc` closes. If the screensaver is running
+  it is woken and returns afterwards. Reminders only fire while CRead runs;
+  missed ones are dropped silently.
+- **Delete without resurrection.** Deletion writes a visible tombstone
+  (`deleted: true`) instead of removing the file. The local-first sync therefore
+  cannot bring the appointment back; conflict copies are ignored by the
+  calendar.
+- **A one-shot reminder deadline**, not a fifth frame clock: `next_frame` wakes
+  the loop at the appointment and then goes back to sleep.
+
 ## 0.30.2
 
 - **Closing the window banks the table.** A held win and a bust now go through

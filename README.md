@@ -78,7 +78,8 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        E: US POKER ten dollars and a dream.
                        ─────────────────────────────────────────
                        SOFTWARE       install and remove modules
-                       THE VAULT      documents, pictures, cartridges
+                       THE VAULT      documents, pictures, cartridges, calendar
+                       CALENDAR       appointments and reminders
                        SETTINGS       webdav, theme, font, screen
 ```
 
@@ -146,6 +147,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | `undo` / `redo` | `u` | also on `Ctrl+Z` / `Ctrl+Shift+Z` |
 | `settings` | `set`, `cfg` | WebDAV setup |
 | `manual` | `handbook` | the user manual, read-only |
+| `calendar` | `cal` | appointments, reminders and the month |
 | `help` | `?`, `h` | the list above, on screen |
 | `about` | | version and credits |
 | `exit!` | `quit`, `q`, `x` | save and exit from anywhere |
@@ -191,8 +193,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.30.2 │
-  │   UPDATE       check github for a new version       0.30.2 │
+  │   INFO         CRead OS and device info             0.31.0 │
+  │   UPDATE       check github for a new version       0.31.0 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -241,16 +243,17 @@ your documents and pictures where they are; removing Riff stops the music.
 
 Everything you make lives in one folder — `~/Dokumente/CRead` on a German
 desktop, `~/Documents/CRead` in English — and that folder is the machine's whole
-disk. `THE VAULT`, the third row of the boot screen, opens it as a browser:
+disk. `THE VAULT`, a row of the boot screen, opens it as a browser:
 
 ```
-THE VAULT                                documents, pictures, cartridges
+THE VAULT                                documents, pictures, cartridges, calendar
   ┌──────────────────────────────────────────────────────────┐
   │ ► + new document                                          │
   │   + sync now                                              │
   │   Documents/                                              │
   │   Pictures/                                               │
   │   Roms/                                                   │
+  │   Calendar/                                               │
   └──────────────────────────────────────────────────────────┘
 ```
 
@@ -260,13 +263,14 @@ and `.markdown` in Inspiro, `.png` in Softhand, `.gb`/`.gbc` in Pocketboi.
 Folders first, then files; a file nothing here can open is simply not listed,
 because this is a shelf and not a file manager.
 
-Three folders are the shelf:
+Four folders are the shelf:
 
 | Folder | Holds | Written by |
 | --- | --- | --- |
 | `Documents/` | Markdown and text | Inspiro, `new`, `saveas` |
 | `Pictures/` | 16-colour PNGs | Softhand |
 | `Roms/` | `.gb` and `.gbc` cartridges | you, or a sync from another machine |
+| `Calendar/` | one Markdown file per appointment | the calendar, or an editor |
 
 Every program opens in its own room: `open` in Inspiro lists `Documents/`,
 `open` in Softhand lists `Pictures/`, and `THE VAULT` on the boot screen is the
@@ -283,6 +287,45 @@ A vault from before the layout change still opens: on the first use, loose
 documents sitting in the vault root move into `Documents/`. Nothing is
 overwritten — a name that is already taken stays where it is and the status
 line says so.
+
+## Calendar
+
+`CALENDAR` is a system screen, not a module: open it from the boot screen or
+type `calendar` at any prompt. The month grid starts on Monday; arrows move by
+day or week, `PgUp`/`PgDn` by month, `Home` returns to today. `Tab` switches
+between the grid and the selected day's list. `Enter` makes a new appointment
+from the grid or edits the selected one from the list; `E` edits, `D` deletes,
+`Esc` goes back to where you came from.
+
+Every appointment is one Markdown file in `Calendar/`:
+
+```markdown
+---
+title: Doctor
+date: 2026-11-05
+time: 10:30
+remind: 15
+deleted: false
+---
+Bring the card.
+```
+
+The form writes it; Inspiro can open it too. `time` empty means an all-day
+entry (no alarm); `remind` is minutes before the time. The list shows `*` on
+days with appointments.
+
+A due reminder double-beeps and puts a small window in front: `Enter` opens the
+calendar on that appointment, `Esc` closes it. If the screensaver was running,
+the reminder wakes it and `Esc` returns to the clock. Reminders only fire while
+CRead is running; a reminder missed while it was closed is dropped silently.
+`beep off` leaves the window without the sound.
+
+Deleting writes a visible tombstone (`deleted: true`) instead of removing the
+file. That is what keeps the local-first WebDAV sync from bringing the
+appointment back on the next round; the calendar hides tombstones. Conflict
+copies (`*.conflict-…md`) are ignored and remain in the vault for manual
+resolution. A sync that downloads calendar files rescans the folder and
+reschedules the next reminder.
 
 ## View mode
 
