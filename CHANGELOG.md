@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.31.1
+
+- **Weekly appointments.** The event form has a `Repeat` field (`none` or
+  `weekly`); a weekly appointment appears on the same weekday and its reminder
+  fires each week. All-day weekly entries still have no alarm.
+- **The event form is two-stage.** It opens with the first field selected;
+  `Enter` starts editing and shows a cursor, `Enter` again confirms and moves to
+  the next field, and the last row is `SAVE`. `Tab` still moves between fields.
+- **Spaces in titles and notes.** The form only handled character keys, not the
+  named Space key, so `notes` and `title` could not contain spaces.
+- **The Time label no longer overlaps its value.** The long inline label was
+  replaced by short labels and a hint line; the time now reads cleanly.
+
 ## 0.31.0
 
 - **A calendar in the vault.** `CALENDAR` is a system screen on the boot list

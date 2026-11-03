@@ -193,8 +193,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.31.0 │
-  │   UPDATE       check github for a new version       0.31.0 │
+  │   INFO         CRead OS and device info             0.31.1 │
+  │   UPDATE       check github for a new version       0.31.1 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -305,14 +305,21 @@ title: Doctor
 date: 2026-11-05
 time: 10:30
 remind: 15
+repeat: none
 deleted: false
 ---
 Bring the card.
 ```
 
 The form writes it; Inspiro can open it too. `time` empty means an all-day
-entry (no alarm); `remind` is minutes before the time. The list shows `*` on
-days with appointments.
+entry (no alarm); `remind` is minutes before the time. `repeat: weekly` repeats
+the appointment on the same weekday from `date` onwards; the reminder fires
+each week. The list shows `*` on days with appointments.
+
+The event form opens with the first field selected. `Enter` selects it and
+shows a cursor; `Enter` again confirms and moves to the next field. `Tab` still
+moves between fields, the last row is `SAVE`, and `Enter` on it writes the file.
+Titles and notes may contain spaces.
 
 A due reminder double-beeps and puts a small window in front: `Enter` opens the
 calendar on that appointment, `Esc` closes it. If the screensaver was running,

@@ -38,7 +38,7 @@ impl CalendarState {
     fn selected_events(&self) -> Vec<&cal::Entry> {
         self.events
             .iter()
-            .filter(|entry| !entry.event.deleted && entry.event.date == self.selected)
+            .filter(|entry| entry.event.occurs_on(self.selected))
             .collect()
     }
 
@@ -61,7 +61,9 @@ pub(super) struct EventForm {
     pub(super) time: String,
     pub(super) remind: String,
     pub(super) notes: String,
+    pub(super) repeat: String,
     pub(super) field: usize,
+    pub(super) editing: bool,
     pub(super) error: String,
 }
 
@@ -74,7 +76,9 @@ impl EventForm {
             time: String::new(),
             remind: "10".into(),
             notes: String::new(),
+            repeat: "none".into(),
             field: 0,
+            editing: false,
             error: String::new(),
         }
     }
@@ -95,17 +99,20 @@ impl EventForm {
                 .map(|minutes| minutes.to_string())
                 .unwrap_or_default(),
             notes: entry.event.notes.trim_end().to_string(),
+            repeat: entry.event.repeat.as_str().into(),
             field: 0,
+            editing: false,
             error: String::new(),
         }
     }
 
-    fn values(&self) -> [(&'static str, &str); 5] {
+    fn values(&self) -> [(&'static str, &str); 6] {
         [
             ("Title", &self.title),
-            ("Date (YYYY-MM-DD)", &self.date),
-            ("Time (HH:MM, empty = all day)", &self.time),
-            ("Remind (minutes)", &self.remind),
+            ("Date", &self.date),
+            ("Time", &self.time),
+            ("Repeat", &self.repeat),
+            ("Remind", &self.remind),
             ("Notes", &self.notes),
         ]
     }
@@ -115,7 +122,8 @@ impl EventForm {
             0 => &mut self.title,
             1 => &mut self.date,
             2 => &mut self.time,
-            3 => &mut self.remind,
+            3 => &mut self.repeat,
+            4 => &mut self.remind,
             _ => &mut self.notes,
         }
     }
@@ -334,11 +342,21 @@ impl App {
                 }
             }
         };
+        let repeat = match cal::Repeat::parse(&form.repeat) {
+            Some(repeat) => repeat,
+            None => {
+                if let Some(form) = self.calendar_form.as_mut() {
+                    form.error = "repeat must be none or weekly".into();
+                }
+                return;
+            }
+        };
         let event = cal::Event {
             title,
             date,
             time,
             remind,
+            repeat,
             deleted: false,
             notes: form.notes.trim_end().to_string(),
         };
@@ -446,21 +464,42 @@ impl App {
                 self.mode = Mode::Calendar;
                 self.dirty = true;
             }
-            Key::Named(NamedKey::Enter) => self.save_event_form(),
+            Key::Named(NamedKey::Enter) => {
+                if form.field == 6 {
+                    self.save_event_form();
+                    return;
+                }
+                if form.editing {
+                    form.field += 1;
+                    form.editing = form.field < 6;
+                } else {
+                    form.editing = true;
+                }
+                self.poke();
+            }
             Key::Named(NamedKey::Tab) => {
                 if shift {
                     form.field = form.field.saturating_sub(1);
                 } else {
-                    form.field = (form.field + 1) % 5;
+                    form.field = (form.field + 1) % 7;
                 }
+                form.editing = form.field < 6;
                 self.poke();
             }
             Key::Named(NamedKey::Backspace) => {
-                form.active_value_mut().pop();
+                if form.editing {
+                    form.active_value_mut().pop();
+                }
+                self.poke();
+            }
+            Key::Named(NamedKey::Space) => {
+                if form.editing {
+                    form.active_value_mut().push(' ');
+                }
                 self.poke();
             }
             Key::Character(text) => {
-                if self.mods.alt_key() {
+                if !form.editing || self.mods.alt_key() {
                     return;
                 }
                 for ch in text.chars().filter(|ch| !ch.is_control()) {
@@ -493,12 +532,9 @@ impl App {
             if entry.event.deleted {
                 continue;
             }
-            let Some(at) = entry.event.reminder_at() else {
+            let Some((occurrence, at)) = entry.event.next_reminder_after(now) else {
                 continue;
             };
-            if at <= now {
-                continue;
-            }
             let key = reminder_key(entry, at);
             if self.reminder_fired.contains(&key) {
                 continue;
@@ -509,10 +545,10 @@ impl App {
                 title: entry.event.title.clone(),
                 when: format!(
                     "{} · {}",
-                    entry.event.date.format("%A %d %B %Y"),
+                    occurrence.format("%A %d %B %Y"),
                     entry.event.time_label(self.clock_24h)
                 ),
-                date: entry.event.date,
+                date: occurrence,
                 path: entry.path.clone(),
             };
             if next.as_ref().is_none_or(|old| due.at < old.at) {
@@ -701,7 +737,7 @@ impl App {
                     .calendar
                     .events
                     .iter()
-                    .filter(|entry| !entry.event.deleted && entry.event.date == *date)
+                    .filter(|entry| entry.event.occurs_on(*date))
                     .count();
                 let (fg, bg) = if selected {
                     (self.theme.bg, self.theme.fg)
@@ -814,7 +850,7 @@ impl App {
         );
         let left = 7u32;
         let right = 72u32;
-        let top = 3u32;
+        let top = 2u32;
         let bottom = 20u32;
         screen.put_str(left, top, "\u{2554}", self.theme.fg, self.theme.bg);
         screen.put_str(right, top, "\u{2557}", self.theme.fg, self.theme.bg);
@@ -866,11 +902,43 @@ impl App {
             );
             let value_x = left + 22;
             screen.put_str_ellipsis(value_x, y, value, right.saturating_sub(value_x + 1), fg, bg);
+            if selected && form.editing {
+                let cursor = value_x + value.chars().count() as u32;
+                if cursor < right {
+                    screen.put(cursor, y, Cell::blank(self.theme.bg, self.theme.fg));
+                }
+            }
         }
+        let save_selected = form.field == 6;
+        if save_selected {
+            screen.hline(
+                left + 2,
+                top + 15,
+                right - left - 3,
+                ' ',
+                self.theme.bg,
+                self.theme.fg,
+            );
+        }
+        screen.put_str(
+            left + 2,
+            top + 15,
+            if save_selected { "> SAVE" } else { "  SAVE" },
+            if save_selected {
+                self.theme.bg
+            } else {
+                self.theme.accent
+            },
+            if save_selected {
+                self.theme.fg
+            } else {
+                self.theme.bg
+            },
+        );
         if !form.error.is_empty() {
             screen.put_str_ellipsis(
                 left + 2,
-                bottom.saturating_sub(2),
+                bottom.saturating_sub(1),
                 &form.error,
                 right - left - 3,
                 self.theme.error,
@@ -880,14 +948,21 @@ impl App {
         screen.put_str(
             left + 2,
             bottom + 1,
-            "Tab next/previous   Enter save   Esc cancel",
+            "Enter edit/confirm   Tab next   Esc cancel",
             self.theme.dim,
             self.theme.bg,
         );
         screen.put_str(
             left + 2,
             bottom + 2,
-            "All-day events have no alarm; leave Time empty.",
+            "Date YYYY-MM-DD · Time HH:MM (blank = all day)",
+            self.theme.dim,
+            self.theme.bg,
+        );
+        screen.put_str(
+            left + 2,
+            bottom + 3,
+            "Repeat none/weekly · Remind minutes before",
             self.theme.dim,
             self.theme.bg,
         );

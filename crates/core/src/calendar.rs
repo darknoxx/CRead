@@ -7,6 +7,29 @@ use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Repeat {
+    Never,
+    Weekly,
+}
+
+impl Repeat {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "" | "none" | "never" | "once" => Some(Self::Never),
+            "weekly" | "week" => Some(Self::Weekly),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Never => "none",
+            Self::Weekly => "weekly",
+        }
+    }
+}
+
 /// A calendar entry, independent of its file name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Event {
@@ -15,6 +38,7 @@ pub struct Event {
     pub time: Option<NaiveTime>,
     /// Minutes before `time`; `None` means no alarm.
     pub remind: Option<u32>,
+    pub repeat: Repeat,
     /// A tombstone: kept in the vault so a deleted event does not come back
     /// from the WebDAV server on the next sync.
     pub deleted: bool,
@@ -71,6 +95,10 @@ impl Event {
                     .map_err(|_| format!("bad reminder: {text}"))?,
             ),
         };
+        let repeat = match fields.get("repeat").map(String::as_str) {
+            None => Repeat::Never,
+            Some(text) => Repeat::parse(text).ok_or_else(|| format!("bad repeat: {text}"))?,
+        };
         let deleted = fields.get("deleted").is_some_and(|value| {
             matches!(
                 value.to_ascii_lowercase().as_str(),
@@ -83,6 +111,7 @@ impl Event {
             date,
             time,
             remind,
+            repeat,
             deleted,
             notes,
         })
@@ -101,6 +130,7 @@ impl Event {
             Some(minutes) => out.push_str(&format!("remind: {minutes}\n")),
             None => out.push_str("remind: \n"),
         }
+        out.push_str(&format!("repeat: {}\n", self.repeat.as_str()));
         if self.deleted {
             out.push_str("deleted: true\n");
         } else {
@@ -117,6 +147,45 @@ impl Event {
         let minutes = self.remind?;
         let start = self.date.and_time(time);
         start.checked_sub_signed(Duration::minutes(i64::from(minutes)))
+    }
+
+    pub fn occurs_on(&self, date: NaiveDate) -> bool {
+        if self.deleted || date < self.date {
+            return false;
+        }
+        match self.repeat {
+            Repeat::Never => date == self.date,
+            Repeat::Weekly => (date - self.date).num_days().rem_euclid(7) == 0,
+        }
+    }
+
+    /// The next future reminder and the date of that occurrence.
+    pub fn next_reminder_after(&self, now: NaiveDateTime) -> Option<(NaiveDate, NaiveDateTime)> {
+        if self.deleted {
+            return None;
+        }
+        let time = self.time?;
+        let minutes = self.remind?;
+        let mut occurrence = self.date;
+        if self.repeat == Repeat::Weekly {
+            let days = (now.date() - self.date).num_days();
+            if days > 0 {
+                occurrence = self.date + Duration::days((days / 7) * 7);
+            }
+            loop {
+                let reminder = occurrence
+                    .and_time(time)
+                    .checked_sub_signed(Duration::minutes(i64::from(minutes)))?;
+                if reminder > now {
+                    return Some((occurrence, reminder));
+                }
+                occurrence = occurrence.checked_add_signed(Duration::weeks(1))?;
+            }
+        }
+        let reminder = occurrence
+            .and_time(time)
+            .checked_sub_signed(Duration::minutes(i64::from(minutes)))?;
+        (reminder > now).then_some((occurrence, reminder))
     }
 
     pub fn time_label(&self, clock_24h: bool) -> String {
@@ -299,6 +368,7 @@ mod tests {
             date: date("2026-11-05"),
             time: Some(time("10:30")),
             remind: Some(15),
+            repeat: Repeat::Never,
             deleted: false,
             notes: "Karte mitnehmen.".into(),
         };
@@ -327,6 +397,7 @@ mod tests {
             date: date("2026-01-02"),
             time: None,
             remind: None,
+            repeat: Repeat::Never,
             deleted: true,
             notes: String::new(),
         };
@@ -363,6 +434,30 @@ mod tests {
     }
 
     #[test]
+    fn weekly_events_repeat_and_schedule_the_next_occurrence() {
+        let event = Event {
+            title: "Standup".into(),
+            date: date("2026-11-02"),
+            time: Some(time("10:00")),
+            remind: Some(15),
+            repeat: Repeat::Weekly,
+            deleted: false,
+            notes: String::new(),
+        };
+        assert!(event.occurs_on(date("2026-11-02")));
+        assert!(event.occurs_on(date("2026-11-09")));
+        assert!(!event.occurs_on(date("2026-11-03")));
+        assert!(!event.occurs_on(date("2026-10-26")));
+        let now = NaiveDateTime::parse_from_str("2026-11-03 12:00", "%Y-%m-%d %H:%M").unwrap();
+        let (occurrence, reminder) = event.next_reminder_after(now).unwrap();
+        assert_eq!(occurrence, date("2026-11-09"));
+        assert_eq!(
+            reminder,
+            NaiveDateTime::parse_from_str("2026-11-09 09:45", "%Y-%m-%d %H:%M").unwrap()
+        );
+    }
+
+    #[test]
     fn filenames_are_safe_and_unique() {
         let name = event_filename(
             date("2026-11-05"),
@@ -384,6 +479,7 @@ mod tests {
             date: date("2026-11-05"),
             time: None,
             remind: None,
+            repeat: Repeat::Never,
             deleted: false,
             notes: String::new(),
         };

@@ -205,7 +205,8 @@ put and is reported.
 **The calendar is a shell screen, not a module.** `Calendar/` holds one Markdown
 file per appointment; the form writes it, Inspiro can open it, and the WebDAV
 worker mirrors the room. `Mode::Calendar` lives in the shell because the
-reminder service has to run while another screen is in front. `Command::Calendar`
+reminder service has to run while another screen is in front. An appointment
+can repeat weekly; its reminder is recalculated for every occurrence. `Command::Calendar`
 and the boot row are the two entrances. The reminder timer is one-shot, deletes
 are tombstones, and conflict copies are ignored. A reminder only fires while
 CRead runs; missed ones are dropped.

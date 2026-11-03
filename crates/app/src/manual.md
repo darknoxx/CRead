@@ -665,10 +665,13 @@ month grid and the list of the selected day.
 | Title | What the appointment is. Required. |
 | Date | `YYYY-MM-DD`. |
 | Time | `HH:MM`; leave empty for an all-day entry. |
+| Repeat | `none` or `weekly`. Weekly repeats on the same weekday from Date. |
 | Remind | Minutes before the time. All-day entries have no alarm. |
-| Notes | One line of extra text. |
+| Notes | One line of extra text. Spaces are allowed. |
 
-`Tab` moves between fields, `Enter` saves, `Esc` cancels.
+The form opens with the first field selected. `Enter` selects it and shows a
+cursor; `Enter` again confirms and moves to the next field. `Tab` still moves
+between fields, the last row is `SAVE`, and `Enter` on it saves. `Esc` cancels.
 
 Files look like this:
 
@@ -678,10 +681,17 @@ title: Doctor
 date: 2026-11-05
 time: 10:30
 remind: 15
+repeat: none
 deleted: false
 ---
 Bring the card.
 ```
+
+### Weekly appointments
+
+Set Repeat to `weekly`; the appointment then appears every week on the same
+weekday from Date onwards. The reminder fires for each occurrence. All-day
+weekly entries have no alarm.
 
 ### Reminders
 

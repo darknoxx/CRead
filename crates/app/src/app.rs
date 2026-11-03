@@ -4480,6 +4480,7 @@ mod tests {
             date: today,
             time: Some(chrono::NaiveTime::from_hms_opt(10, 0, 0).unwrap()),
             remind: Some(15),
+            repeat: cread_core::calendar::Repeat::Never,
             deleted: false,
             notes: String::new(),
         };
@@ -4514,6 +4515,7 @@ mod tests {
             form.title = "Checkup".into();
             form.date = today.format("%Y-%m-%d").to_string();
             form.time = "10:30".into();
+            form.repeat = "weekly".into();
             form.remind = "10".into();
         }
         app.save_event_form();
@@ -4526,6 +4528,7 @@ mod tests {
             .expect("the event file");
         assert_eq!(saved.event.time, chrono::NaiveTime::from_hms_opt(10, 30, 0));
         assert_eq!(saved.event.remind, Some(10));
+        assert_eq!(saved.event.repeat, cread_core::calendar::Repeat::Weekly);
         assert!(app.unsynced);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -4541,6 +4544,7 @@ mod tests {
             date: today,
             time: None,
             remind: None,
+            repeat: cread_core::calendar::Repeat::Never,
             deleted: false,
             notes: String::new(),
         };
