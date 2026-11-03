@@ -653,9 +653,11 @@ month grid and the list of the selected day.
 | PgUp / PgDn | Previous / next month. |
 | Home | Today. |
 | Tab | Month grid ↔ day list. |
-| Enter | New appointment (grid) or edit the selected one (list). |
+| Enter | Always a new appointment. |
 | E | Edit the selected appointment. |
 | D | Delete the selected appointment. |
+| Up / Down | Select an appointment in the list. |
+| Space | Toggle Repeat between none and weekly in the form. |
 | Esc | Back to where the calendar was opened from. |
 
 ### The event form
@@ -666,12 +668,14 @@ month grid and the list of the selected day.
 | Date | `YYYY-MM-DD`. |
 | Time | `HH:MM`; leave empty for an all-day entry. |
 | Repeat | `none` or `weekly`. Weekly repeats on the same weekday from Date. |
-| Remind | Minutes before the time. All-day entries have no alarm. |
+| Remind | Minutes before the time; empty = no alarm. All-day entries have no alarm. |
 | Notes | One line of extra text. Spaces are allowed. |
 
 The form opens with the first field selected. `Enter` selects it and shows a
 cursor; `Enter` again confirms and moves to the next field. `Tab` still moves
 between fields, the last row is `SAVE`, and `Enter` on it saves. `Esc` cancels.
+Space toggles Repeat between `none` and `weekly`; in other fields it is a normal
+space. Leave Remind empty for no alarm.
 
 Files look like this:
 
@@ -1026,8 +1030,10 @@ The most important commands. Upper and lower case do not matter.
 | PgUp / PgDn | Month. |
 | Home | Today. |
 | Tab | Grid or day list. |
-| Enter | New or edit. |
+| Enter | New appointment. |
 | E / D | Edit / delete. |
+| Up / Down | Select an appointment in the list. |
+| Space | Toggle Repeat in the form. |
 | Esc | Back. |
 
 ---

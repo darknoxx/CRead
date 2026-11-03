@@ -4500,6 +4500,24 @@ mod tests {
         assert!(text.contains("CALENDAR"));
         assert!(text.contains("Doctor"));
         assert!(text.contains("10:00"));
+        assert!(text.contains("[GRID]"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn calendar_edit_shows_a_visible_cursor() {
+        let dir = vault("calendar-cursor");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        app.new_event_form();
+        {
+            let form = app.calendar_form.as_mut().unwrap();
+            form.title = "Abc".into();
+            form.editing = true;
+        }
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains('\u{2588}'), "the block cursor: {text}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

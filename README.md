@@ -193,8 +193,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.31.1 │
-  │   UPDATE       check github for a new version       0.31.1 │
+  │   INFO         CRead OS and device info             0.31.2 │
+  │   UPDATE       check github for a new version       0.31.2 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -293,8 +293,9 @@ line says so.
 `CALENDAR` is a system screen, not a module: open it from the boot screen or
 type `calendar` at any prompt. The month grid starts on Monday; arrows move by
 day or week, `PgUp`/`PgDn` by month, `Home` returns to today. `Tab` switches
-between the grid and the selected day's list. `Enter` makes a new appointment
-from the grid or edits the selected one from the list; `E` edits, `D` deletes,
+between the grid and the selected day's list; the day heading shows `[GRID]` or
+`[LIST]`, and in the list the up/down arrows select an appointment. `Enter`
+always makes a new appointment, `E` edits the selected one, `D` deletes, and
 `Esc` goes back to where you came from.
 
 Every appointment is one Markdown file in `Calendar/`:
@@ -319,7 +320,9 @@ each week. The list shows `*` on days with appointments.
 The event form opens with the first field selected. `Enter` selects it and
 shows a cursor; `Enter` again confirms and moves to the next field. `Tab` still
 moves between fields, the last row is `SAVE`, and `Enter` on it writes the file.
-Titles and notes may contain spaces.
+Space toggles `Repeat` between `none` and `weekly`; in every other field it is an
+ordinary space. Leave `Remind` empty for no alarm (an all-day event has none
+either). Titles and notes may contain spaces.
 
 A due reminder double-beeps and puts a small window in front: `Enter` opens the
 calendar on that appointment, `Esc` closes it. If the screensaver was running,

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.31.2
+
+- **The form cursor is visible.** The caret was drawn black on the black field;
+  it is now a solid block in the text colour.
+- **`Enter` always makes a new appointment; `E` is the edit key.** `Tab`
+  switches grid/list and the day heading shows `[GRID]` or `[LIST]`; in the
+  list, up/down select an appointment.
+- **Space toggles `Repeat`** between `none` and `weekly`; in other fields it is
+  an ordinary space.
+- **No reminder:** leave `Remind` empty. All-day appointments have no alarm
+  either.
+
 ## 0.31.1
 
 - **Weekly appointments.** The event form has a `Repeat` field (`none` or

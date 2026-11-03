@@ -44,12 +44,11 @@ impl CalendarState {
 
     fn clamp(&mut self) {
         let count = self.selected_events().len();
-        if count == 0 {
-            self.selected_event = 0;
-            self.focus = CalendarFocus::Grid;
+        self.selected_event = if count == 0 {
+            0
         } else {
-            self.selected_event = self.selected_event.min(count - 1);
-        }
+            self.selected_event.min(count - 1)
+        };
     }
 }
 
@@ -265,6 +264,7 @@ impl App {
             .get(self.calendar.selected_event)
             .cloned()
         else {
+            self.set_status("no appointment to edit");
             return;
         };
         let entry = (*entry).clone();
@@ -280,6 +280,7 @@ impl App {
             .get(self.calendar.selected_event)
             .cloned()
         else {
+            self.set_status("no appointment to delete");
             return;
         };
         let mut event = entry.event.clone();
@@ -394,13 +395,7 @@ impl App {
         let _ = el;
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => self.leave_calendar(),
-            Key::Named(NamedKey::Enter) => {
-                if self.calendar.focus == CalendarFocus::List {
-                    self.edit_selected_event();
-                } else {
-                    self.new_event_form();
-                }
-            }
+            Key::Named(NamedKey::Enter) => self.new_event_form(),
             Key::Named(NamedKey::Tab) => {
                 self.calendar.focus = if self.calendar.focus == CalendarFocus::Grid {
                     CalendarFocus::List
@@ -411,19 +406,39 @@ impl App {
                 self.poke();
             }
             Key::Named(NamedKey::ArrowLeft) => {
-                self.move_calendar(-1);
+                if self.calendar.focus == CalendarFocus::Grid {
+                    self.move_calendar(-1);
+                }
                 self.poke();
             }
             Key::Named(NamedKey::ArrowRight) => {
-                self.move_calendar(1);
+                if self.calendar.focus == CalendarFocus::Grid {
+                    self.move_calendar(1);
+                }
                 self.poke();
             }
             Key::Named(NamedKey::ArrowUp) => {
-                self.move_calendar(-7);
+                if self.calendar.focus == CalendarFocus::List {
+                    let count = self.calendar.selected_events().len();
+                    if count > 0 {
+                        self.calendar.selected_event =
+                            self.calendar.selected_event.saturating_sub(1);
+                    }
+                } else {
+                    self.move_calendar(-7);
+                }
                 self.poke();
             }
             Key::Named(NamedKey::ArrowDown) => {
-                self.move_calendar(7);
+                if self.calendar.focus == CalendarFocus::List {
+                    let count = self.calendar.selected_events().len();
+                    if count > 0 {
+                        self.calendar.selected_event =
+                            (self.calendar.selected_event + 1).min(count - 1);
+                    }
+                } else {
+                    self.move_calendar(7);
+                }
                 self.poke();
             }
             Key::Named(NamedKey::PageUp) => {
@@ -493,7 +508,14 @@ impl App {
                 self.poke();
             }
             Key::Named(NamedKey::Space) => {
-                if form.editing {
+                if form.field == 3 {
+                    form.repeat = if form.repeat == "weekly" {
+                        "none".into()
+                    } else {
+                        "weekly".into()
+                    };
+                    form.editing = true;
+                } else if form.editing {
                     form.active_value_mut().push(' ');
                 }
                 self.poke();
@@ -763,13 +785,18 @@ impl App {
         }
 
         let heading = format!(
-            "{} {}",
+            "{} {}   [{}]",
             self.calendar
                 .selected
                 .format("%A")
                 .to_string()
                 .to_uppercase(),
-            self.calendar.selected.format("%d %B %Y")
+            self.calendar.selected.format("%d %B %Y"),
+            if self.calendar.focus == CalendarFocus::Grid {
+                "GRID"
+            } else {
+                "LIST"
+            }
         );
         screen.put_str(2, 9, &heading, self.theme.accent, self.theme.bg);
         let events = self.calendar.selected_events();
@@ -800,14 +827,14 @@ impl App {
         screen.put_str(
             1,
             21,
-            "arrows day/week   PgUp/PgDn month   Tab grid/list   Enter new/edit",
+            "Tab grid/list   Enter new   Up/Down list   Home today",
             self.theme.dim,
             self.theme.bg,
         );
         screen.put_str(
             1,
             22,
-            "E edit   D delete   Home today   Esc back",
+            "E edit   D delete   PgUp/PgDn month   Esc back",
             self.theme.dim,
             self.theme.bg,
         );
@@ -905,7 +932,11 @@ impl App {
             if selected && form.editing {
                 let cursor = value_x + value.chars().count() as u32;
                 if cursor < right {
-                    screen.put(cursor, y, Cell::blank(self.theme.bg, self.theme.fg));
+                    screen.put(
+                        cursor,
+                        y,
+                        Cell::new('\u{2588}', self.theme.bg, self.theme.fg),
+                    );
                 }
             }
         }
@@ -962,7 +993,14 @@ impl App {
         screen.put_str(
             left + 2,
             bottom + 3,
-            "Repeat none/weekly · Remind minutes before",
+            "Repeat none/weekly (Space toggles)",
+            self.theme.dim,
+            self.theme.bg,
+        );
+        screen.put_str(
+            left + 2,
+            bottom + 4,
+            "Remind minutes before (blank = none)",
             self.theme.dim,
             self.theme.bg,
         );
