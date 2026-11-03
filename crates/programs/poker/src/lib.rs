@@ -54,6 +54,9 @@ pub struct Poker {
     pub(crate) balance: u64,
     pub(crate) best: u64,
     pub(crate) bankrupts: u64,
+    /// The current bust has already been counted. Keeps `exit` + drop from
+    /// counting the same bankruptcy twice.
+    bust_counted: bool,
     pub(crate) bet: u64,
     pub(crate) hand: Option<[Card; 5]>,
     pub(crate) held: [bool; 5],
@@ -69,6 +72,8 @@ pub struct Poker {
     pub(crate) paper: u8,
     pub(crate) ink: u8,
     save_path: PathBuf,
+    /// Real games cash out in `Drop`; unit tests and demo tables opt out.
+    persist_on_drop: bool,
 }
 
 impl Default for Poker {
@@ -79,17 +84,31 @@ impl Default for Poker {
 
 impl Poker {
     pub fn new() -> Self {
-        let wallet = save::load();
-        Self::build(wallet, save::path(), seed(), true)
+        Self::new_at(save::path())
     }
 
-    fn build(wallet: Wallet, save_path: PathBuf, seed: u64, sound: bool) -> Self {
+    /// Open a machine with a specific save file. The app uses this in tests so
+    /// they never touch the real wallet.
+    pub fn new_at(save_path: PathBuf) -> Self {
+        let wallet = save::load_from(&save_path);
+        Self::build(wallet, save_path, seed(), true, true)
+    }
+
+    fn build(
+        wallet: Wallet,
+        save_path: PathBuf,
+        seed: u64,
+        sound: bool,
+        persist_on_drop: bool,
+    ) -> Self {
         let balance = wallet.balance;
         let best = wallet.best.max(balance);
+        let busted = balance < MIN_BET;
         Self {
             balance,
             best,
             bankrupts: wallet.bankrupts,
+            bust_counted: busted,
             bet: MIN_BET,
             hand: None,
             held: [false; 5],
@@ -108,19 +127,20 @@ impl Poker {
             paper: 15,
             ink: 0,
             save_path,
+            persist_on_drop,
         }
     }
 
     #[cfg(test)]
     fn for_test(wallet: Wallet, save_path: PathBuf, seed: u64) -> Self {
-        Self::build(wallet, save_path, seed, false)
+        Self::build(wallet, save_path, seed, false, false)
     }
 
     /// A deterministic table for `--show pokerhand`; it never touches the real
     /// wallet.
     pub fn demo_hand() -> Self {
         let path = std::env::temp_dir().join("cread-poker-demo.save");
-        let mut poker = Self::build(Wallet::default(), path, 7, false);
+        let mut poker = Self::build(Wallet::default(), path, 7, false, false);
         poker.start_hand();
         // A fixed, readable hand for screenshots; the real machine shuffles.
         poker.hand = Some([
@@ -154,7 +174,7 @@ impl Poker {
 
     /// Raise the bet to the next affordable step, wrapping back to the minimum.
     pub(crate) fn cycle_bet(&mut self) {
-        if !matches!(self.phase, Phase::Ready | Phase::Result) {
+        if self.phase != Phase::Ready {
             return;
         }
         let next = BETS
@@ -185,9 +205,7 @@ impl Poker {
         }
         self.clamp_bet();
         if self.balance < self.bet {
-            if self.balance < MIN_BET {
-                self.bankrupts += 1;
-            }
+            self.count_bust();
             self.phase = Phase::GameOver;
             self.save();
             return;
@@ -249,9 +267,10 @@ impl Poker {
         }
         let busted = self.balance < MIN_BET;
         if busted {
-            self.bankrupts += 1;
+            self.count_bust();
         }
         self.result = None;
+        self.held = [false; 5];
         self.clamp_bet();
         self.phase = if busted {
             Phase::GameOver
@@ -341,6 +360,7 @@ impl Poker {
         self.deck = None;
         self.result = None;
         self.win = 0;
+        self.bust_counted = false;
         self.phase = Phase::Ready;
         self.update_best();
         self.save();
@@ -353,11 +373,18 @@ impl Poker {
             self.balance += self.win;
             self.win = 0;
         }
-        if self.balance < MIN_BET && self.phase != Phase::GameOver {
-            self.bankrupts += 1;
+        if self.balance < MIN_BET {
+            self.count_bust();
         }
         self.update_best();
         self.save();
+    }
+
+    fn count_bust(&mut self) {
+        if self.balance < MIN_BET && !self.bust_counted {
+            self.bankrupts += 1;
+            self.bust_counted = true;
+        }
     }
 
     fn update_best(&mut self) {
@@ -376,6 +403,14 @@ impl Poker {
     fn play(&mut self, effect: Effect) {
         if let Some(sound) = self.sound.as_mut() {
             sound.play(effect);
+        }
+    }
+}
+
+impl Drop for Poker {
+    fn drop(&mut self) {
+        if self.persist_on_drop {
+            self.cash_out();
         }
     }
 }
@@ -436,7 +471,7 @@ impl Program for Poker {
                 self.toggle_mute();
                 Ok(if self.muted { "muted" } else { "sound on" }.into())
             }
-            _ => Err("AMERICAN POKER does not know that command".into()),
+            _ => Err("US POKER does not know that command".into()),
         }
     }
 
@@ -653,6 +688,80 @@ mod tests {
         let poker = Poker::for_test(save::load_from(&path), path.clone(), 1);
         assert_eq!(poker.phase, Phase::GameOver);
         assert_eq!(poker.bankrupts, 5);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn the_bet_only_changes_before_a_deal() {
+        let mut poker = game("bet-phase", 1_000);
+        poker.cycle_bet();
+        assert_eq!(poker.bet, 20);
+        poker.phase = Phase::Result;
+        let before = poker.bet;
+        poker.cycle_bet();
+        assert_eq!(poker.bet, before, "a result keeps its original bet");
+        let _ = std::fs::remove_dir_all(poker.save_path.parent().unwrap());
+    }
+
+    #[test]
+    fn taking_a_hand_clears_the_held_markers() {
+        let mut poker = game("held-clear", 1_000);
+        poker.phase = Phase::Result;
+        poker.held = [true, false, true, false, false];
+        poker.win = 0;
+        poker.take();
+        assert_eq!(poker.held, [false; 5]);
+        let _ = std::fs::remove_dir_all(poker.save_path.parent().unwrap());
+    }
+
+    #[test]
+    fn dropping_the_table_banks_a_held_win() {
+        let path = temp_path("drop-win");
+        save::save_to(
+            &path,
+            &Wallet {
+                balance: 1_000,
+                best: 1_000,
+                bankrupts: 0,
+            },
+        )
+        .unwrap();
+        let mut poker = Poker::new_at(path.clone());
+        poker.phase = Phase::Result;
+        poker.win = 120;
+        drop(poker);
+
+        let wallet = save::load_from(&path);
+        assert_eq!(
+            wallet.balance, 1_120,
+            "closing the window must cash the win"
+        );
+        assert_eq!(wallet.best, 1_120);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn dropping_a_broke_table_counts_only_once() {
+        let path = temp_path("drop-bust");
+        save::save_to(
+            &path,
+            &Wallet {
+                balance: 1_000,
+                best: 1_000,
+                bankrupts: 0,
+            },
+        )
+        .unwrap();
+        let mut poker = Poker::new_at(path.clone());
+        poker.phase = Phase::Dealt;
+        poker.balance = 0;
+        poker.cash_out();
+        poker.exit();
+        drop(poker);
+
+        let wallet = save::load_from(&path);
+        assert_eq!(wallet.bankrupts, 1, "exit + drop is one bankruptcy");
+        assert_eq!(wallet.balance, 0);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

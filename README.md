@@ -191,8 +191,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.30.1 │
-  │   UPDATE       check github for a new version       0.30.1 │
+  │   INFO         CRead OS and device info             0.30.2 │
+  │   UPDATE       check github for a new version       0.30.2 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -403,8 +403,8 @@ from the last visit and the highscore; `Enter` sits down.
 The bankroll starts at `$10.00`. `B` steps the bet through `$0.10`, `$0.20`,
 `$0.50`, `$1`, `$2`, `$5`, `$10` and `$20`, never above what is left. `1`–`5`
 hold cards, `Enter` deals and draws, `T` takes a win, `R` opens the risk ladder,
-`C` cashes out and leaves, and `N` starts again with `$10.00` when the bankroll
-cannot pay the minimum. The paytable is 9/6 Jacks or Better, paid in dollars
+`C` cashes out and leaves; on the lose screen `Y` starts again with `$10.00`
+and `N` cashes out the empty wallet. The paytable is 9/6 Jacks or Better, paid in dollars
 against the bet.
 
 The risk ladder is the German kind: after a win its two adjacent fields blink,

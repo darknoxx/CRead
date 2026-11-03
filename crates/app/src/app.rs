@@ -2476,7 +2476,16 @@ impl App {
 
     /// Open the machine from its front door.
     fn start_poker(&mut self) {
-        self.show_poker(cread_poker::Poker::new());
+        let poker = if self.persist {
+            cread_poker::Poker::new()
+        } else {
+            // The window and exit paths cash out in Drop; tests must never
+            // write the real wallet from a temporary app.
+            let path =
+                std::env::temp_dir().join(format!("cread-poker-app-{}.save", std::process::id()));
+            cread_poker::Poker::new_at(path)
+        };
+        self.show_poker(poker);
     }
 
     fn show_poker(&mut self, program: cread_poker::Poker) {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.30.2
+
+- **Closing the window banks the table.** A held win and a bust now go through
+  `Poker::drop`; a `bust_counted` guard means `exit` plus the drop still counts
+  one bankruptcy, and app tests use a temporary wallet instead of the real one.
+- **The bet button only works before a deal.** Changing `B` on the result screen
+  used to show a new bet beside an old win. `HELD` markers also clear when a
+  hand is taken, so they do not linger on the ready screen.
+- **Docs and the unknown-command message say `US POKER`.** The README's `N` key
+  now says cash out, with `Y` as retry.
+
 ## 0.30.1
 
 - **The module is called `US POKER` in the boot menu.** The full name was too
