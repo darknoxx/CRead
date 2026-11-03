@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.31.4
+
+- **All-day appointments come first in the day list.** They used to sort by
+  their series start date, so a weekly timed appointment with an older start
+  could appear above an all-day entry. The list now puts every all-day event
+  first and sorts the timed ones by clock time.
+
 ## 0.31.3
 
 - **Unsaved calendar changes are protected.** The form's top bar shows

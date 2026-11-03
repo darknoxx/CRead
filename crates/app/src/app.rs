@@ -4505,6 +4505,49 @@ mod tests {
     }
 
     #[test]
+    fn all_day_appointments_sort_before_timed_ones() {
+        let dir = vault("calendar-all-day-first");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        let today = chrono::Local::now().date_naive();
+        let last_week = today - chrono::Duration::days(7);
+        let timed = cread_core::calendar::Event {
+            title: "Timed".into(),
+            date: last_week,
+            time: chrono::NaiveTime::from_hms_opt(9, 0, 0),
+            remind: None,
+            repeat: cread_core::calendar::Repeat::Weekly,
+            deleted: false,
+            notes: String::new(),
+        };
+        let all_day = cread_core::calendar::Event {
+            title: "All day".into(),
+            date: today,
+            time: None,
+            remind: None,
+            repeat: cread_core::calendar::Repeat::Never,
+            deleted: false,
+            notes: String::new(),
+        };
+        app.calendar.events = vec![
+            cread_core::calendar::Entry {
+                path: dir.join("timed.md"),
+                event: timed,
+            },
+            cread_core::calendar::Entry {
+                path: dir.join("all-day.md"),
+                event: all_day,
+            },
+        ];
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        let all_day = text.find("All day").expect("all-day title");
+        let timed = text.find("09:00").expect("timed title");
+        assert!(all_day < timed, "all-day row must come first:\n{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn an_unsaved_calendar_form_is_marked_and_warns_before_discarding() {
         let dir = vault("calendar-unsaved");
         let mut app = app_in(&dir);

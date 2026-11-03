@@ -315,7 +315,8 @@ Bring the card.
 The form writes it; Inspiro can open it too. `time` empty means an all-day
 entry (no alarm); `remind` is minutes before the time. `repeat: weekly` repeats
 the appointment on the same weekday from `date` onwards; the reminder fires
-each week. The list shows `*` on days with appointments.
+each week. The list shows `*` on days with appointments. In a day's list,
+all-day appointments always come first, followed by timed ones in clock order.
 
 The event form opens with the first field selected. `Enter` selects it and
 shows a cursor; `Enter` again confirms and moves to the next field. `Tab` still

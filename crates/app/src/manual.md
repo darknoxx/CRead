@@ -697,7 +697,8 @@ Bring the card.
 
 Set Repeat to `weekly`; the appointment then appears every week on the same
 weekday from Date onwards. The reminder fires for each occurrence. All-day
-weekly entries have no alarm.
+weekly entries have no alarm. In a day's list, all-day appointments always come
+first; timed appointments follow in clock order.
 
 ### Reminders
 

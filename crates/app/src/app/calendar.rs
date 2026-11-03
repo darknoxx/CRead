@@ -36,10 +36,19 @@ impl CalendarState {
     }
 
     fn selected_events(&self) -> Vec<&cal::Entry> {
-        self.events
+        let mut events: Vec<&cal::Entry> = self
+            .events
             .iter()
             .filter(|entry| entry.event.occurs_on(self.selected))
-            .collect()
+            .collect();
+        events.sort_by_key(|entry| {
+            (
+                entry.event.time.is_some(),
+                entry.event.time,
+                entry.event.title.clone(),
+            )
+        });
+        events
     }
 
     fn clamp(&mut self) {
