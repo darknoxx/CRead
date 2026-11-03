@@ -160,6 +160,7 @@ rather not think about it, `autosave on` writes 1.5 seconds after you stop
 typing, and the setting is remembered. While the document is clean, the bar
 says `autosave on` instead of `saved`. Quitting (`exit!`) and closing the window
 still save a modified document, so you cannot lose the last paragraph that way.
+`new` and `open` refuse to replace a modified buffer; save it first.
 
 A new document starts as `untitled.md` (then `untitled-2.md`, …) so autosave has
 somewhere to write. That file is a draft: naming it with `saveas` writes the
@@ -193,8 +194,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.31.3 │
-  │   UPDATE       check github for a new version       0.31.3 │
+  │   INFO         CRead OS and device info             0.31.5 │
+  │   UPDATE       check github for a new version       0.31.5 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -278,7 +279,9 @@ whole shelf. A room only lists what its program can do something with — a text
 file in `Pictures/` is not a painting and is not shown.
 
 `saveas` has a fixed home: documents always land in `Documents/`, pictures
-always in `Pictures/`. Subfolders are fine (`saveas kapitel/eins` writes
+always in `Pictures/`. It refuses a name that already exists; an existing
+document or picture is never silently replaced. Subfolders are fine
+(`saveas kapitel/eins` writes
 `Documents/kapitel/eins.md`); `..` and absolute paths are not, they are folded
 away. `open` still finds a document anywhere in the vault, and a bare name is
 enough: `open eins` finds `Documents/kapitel/eins.md`.
@@ -295,8 +298,8 @@ type `calendar` at any prompt. The month grid starts on Monday; arrows move by
 day or week, `PgUp`/`PgDn` by month, `Home` returns to today. `Tab` switches
 between the grid and the selected day's list; the day heading shows `[GRID]` or
 `[LIST]`, and in the list the up/down arrows select an appointment. `Enter`
-always makes a new appointment, `E` edits the selected one, `D` deletes, and
-`Esc` goes back to where you came from.
+always makes a new appointment; in list focus `E` edits the selected one and
+`D` twice deletes it. `Esc` goes back to where you came from.
 
 Every appointment is one Markdown file in `Calendar/`:
 

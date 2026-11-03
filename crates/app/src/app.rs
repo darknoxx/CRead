@@ -460,6 +460,8 @@ struct App {
     notice_back: Mode,
     pub(super) calendar: CalendarState,
     calendar_back: Mode,
+    /// The appointment a second `D` will delete. A single keypress only arms.
+    calendar_delete_armed: Option<PathBuf>,
     pub(super) calendar_form: Option<EventForm>,
     pub(super) reminder: Option<ReminderDue>,
     reminder_back: Mode,
@@ -658,6 +660,7 @@ impl App {
             notice_back: Mode::Setup,
             calendar: CalendarState::today(),
             calendar_back: Mode::Action,
+            calendar_delete_armed: None,
             calendar_form: None,
             reminder: None,
             reminder_back: Mode::Action,
@@ -784,6 +787,12 @@ impl App {
                 renderer.resize(vp.phys_w, vp.phys_h);
             }
             self.dirty = true;
+            // A resize is a new picture, not just a dirty flag: schedule the
+            // frame or the old surface can stay on screen until the cursor blink.
+            self.poke();
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
         }
     }
 
@@ -1043,6 +1052,9 @@ impl App {
     }
 
     fn save(&mut self) -> Result<String, String> {
+        if !self.has_document {
+            return Err("no document - use new or open".into());
+        }
         let path = match self.doc.path.clone() {
             Some(path) => path,
             None => self.free_untitled_path(),
@@ -1059,6 +1071,9 @@ impl App {
 
     /// Start a fresh file in the vault, named `untitled.md`, `untitled-2.md`, …
     fn new_document(&mut self) -> Result<String, String> {
+        if self.has_document && self.doc.editor.modified() {
+            return Err("unsaved changes - save first".into());
+        }
         self.prepare_vault();
         self.discard_scratch();
         let path = self.free_untitled_path();
@@ -1103,8 +1118,14 @@ impl App {
     }
 
     fn save_as(&mut self, name: &str) -> Result<String, String> {
+        if !self.has_document {
+            return Err("no document - use new or open".into());
+        }
         self.prepare_vault();
         let path = self.document_path(name)?;
+        if path.exists() && self.doc.path.as_deref() != Some(path.as_path()) {
+            return Err(format!("{} already exists", self.doc_title_of(&path)));
+        }
         self.save_to(&path)?;
         match self.drop_scratch(&path) {
             Some(removed) => Ok(format!("saved as {} ({removed} removed)", self.doc.title())),
@@ -1215,10 +1236,9 @@ impl App {
             return Err("a document needs a name".into());
         }
         let path = self.documents().join(relative);
-        Ok(if path.extension().is_some() {
-            path
-        } else {
-            path.with_extension("md")
+        Ok(match path.extension() {
+            Some(ext) if !ext.is_empty() => path,
+            _ => path.with_extension("md"),
         })
     }
 
@@ -1289,6 +1309,9 @@ impl App {
     }
 
     fn open_document(&mut self, path: PathBuf) -> Result<(), String> {
+        if self.has_document && self.doc.editor.modified() {
+            return Err("unsaved changes - save first".into());
+        }
         self.discard_scratch();
         let text =
             storage::load(&path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
@@ -1362,8 +1385,10 @@ impl App {
     fn on_key(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
         if event.state == ElementState::Released {
             // A game pad needs the key going up again; everything else ignores it.
+            // Releases reach the program even while the command prompt is
+            // open. Otherwise a held pad button stays pressed forever when the
+            // prompt was opened between press and release.
             if self.mode == Mode::Program
-                && !self.program_prompt
                 && let Some(key) = self.program_key(&event)
                 && let Some(program) = self.program.as_mut()
             {
@@ -1434,7 +1459,10 @@ impl App {
             PhysicalKey::Unidentified(_) => None,
         };
 
-        if ctrl {
+        // AltGr arrives as Ctrl+Alt on many X11/Wayland layouts. That is a
+        // printable character, not a command chord.
+        let altgr = self.mods.alt_key() && self.mods.control_key();
+        if ctrl && !altgr {
             // Undo is an editing gesture, not a command, so it keeps its key.
             match code {
                 Some(KeyCode::KeyF) => self.start_search(None),
@@ -1539,7 +1567,7 @@ impl App {
                 self.touch();
             }
             Key::Character(text) => {
-                if self.mods.alt_key() {
+                if self.mods.alt_key() && !self.mods.control_key() {
                     return;
                 }
                 if text.chars().any(|c| !c.is_control()) {
@@ -1660,7 +1688,9 @@ impl App {
                 self.poke();
             }
             Key::Named(NamedKey::Escape) => self.leave_help(),
-            _ => self.to_write(),
+            // Any other key leaves the screen the same way Esc does; this
+            // keeps a later `help` from returning to SETTINGS by mistake.
+            _ => self.leave_help(),
         }
     }
 
@@ -1860,7 +1890,12 @@ impl App {
 
     /// Hand a pointer event to the running program, if it should get one.
     fn program_pointer(&mut self, kind: PointerKind) -> bool {
-        if self.mode != Mode::Program || self.program_prompt {
+        if self.mode != Mode::Program {
+            return false;
+        }
+        // The prompt takes presses, but a release still has to reach the
+        // program or a brush stays glued to the canvas.
+        if self.program_prompt && !matches!(kind, PointerKind::Up(_)) {
             return false;
         }
         let (x, y) = self.raster_point();
@@ -1939,6 +1974,13 @@ impl App {
             && !matches!(self.mode, Mode::Screensaver | Mode::Reminder)
             && self.boot_at.is_none()
             && !matches!(self.mode, Mode::Loading | Mode::Checking)
+            // A running cartridge keeps playing while the clock covers it, and
+            // the waking key never reaches the pad. Do not rest on a live game.
+            && !(self.mode == Mode::Program
+                && self
+                    .program
+                    .as_ref()
+                    .is_some_and(|program| program.wants_frames()))
             && self.last_input.elapsed()
                 >= Duration::from_secs(u64::from(self.screensaver_minutes) * 60)
     }
@@ -2606,16 +2648,25 @@ impl App {
         let image = picture::load(&path)?;
         self.program = Some(Box::new(Softhand::with_picture(&image)));
         self.program_id = Some("softhand");
-        self.picture_path = Some(path.clone());
+        let resized = self
+            .program
+            .as_ref()
+            .is_some_and(|program| program.modified());
+        // A cropped or padded source is a new canvas, not the file on disk.
+        // Keeping the old path would overwrite the original on quit.
+        self.picture_path = (!resized).then_some(path.clone());
         self.program_prompt = false;
         self.mode = Mode::Program;
         self.dirty = true;
-        self.set_status(format!(
-            "opened {}",
-            path.file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        ));
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.set_status(if resized {
+            format!("opened {name} (resized copy - save as new)")
+        } else {
+            format!("opened {name}")
+        });
         Ok(())
     }
 
@@ -2624,7 +2675,18 @@ impl App {
     fn save_picture(&mut self, name: Option<&str>) -> Result<String, String> {
         let vault = self.vault();
         let path = match name {
-            Some(name) => picture::resolve(&vault, name)?,
+            Some(name) => {
+                let path = picture::resolve(&vault, name)?;
+                if path.exists() && self.picture_path.as_deref() != Some(path.as_path()) {
+                    return Err(format!(
+                        "{} already exists",
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default()
+                    ));
+                }
+                path
+            }
             None => match self.picture_path.clone() {
                 Some(path) => path,
                 None => picture::free_name(&vault),
@@ -3677,13 +3739,15 @@ impl ApplicationHandler for App {
                 .and_then(|()| self.riff_start_current());
         }
 
+        // Prepare the vault before the worker's first round: creating the four
+        // rooms and promoting a draft are writes the sync must not race.
+        self.prepare_vault();
+        self.reload_calendar();
+
         if self.sync_cfg.enabled {
             self.start_worker();
             self.request_sync();
         }
-
-        self.prepare_vault();
-        self.reload_calendar();
 
         match self.opts.show.as_str() {
             "palette" => self.open_browser(),
@@ -3837,10 +3901,40 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
+                // The exit box is already the question; closing the window
+                // while it is up means "leave now", exactly as documented.
+                if self.mode == Mode::Quit {
+                    el.exit();
+                    return;
+                }
+                // The event form has its own save path; never throw it away
+                // because somebody clicked the title-bar close button.
+                if self.calendar_form.as_ref().is_some_and(|form| form.dirty) {
+                    self.mode = Mode::CalendarEdit;
+                    self.set_status("unsaved appointment - SAVE or Esc first");
+                    self.poke();
+                    return;
+                }
                 // The window close button is a quit like any other: save what
                 // is unsaved, then give sync a chance to catch up.
-                if self.has_document && self.doc.editor.modified() {
-                    let _ = self.save();
+                if self.has_document
+                    && self.doc.editor.modified()
+                    && let Err(e) = self.save()
+                {
+                    self.set_status(e);
+                    self.poke();
+                    return;
+                }
+                if self
+                    .program
+                    .as_ref()
+                    .is_some_and(|program| program.modified())
+                    && self.picture_path.is_some()
+                    && let Err(e) = self.save_picture(None)
+                {
+                    self.set_status(e);
+                    self.poke();
+                    return;
                 }
                 let from = self.mode;
                 if !self.ask_quit(from) {
@@ -3848,6 +3942,14 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
+            WindowEvent::Focused(false) => {
+                // A button released outside the window never reaches us, and
+                // modifiers from the old focus must not stay latched.
+                self.dragging = false;
+                self.mods = ModifiersState::empty();
+                self.dirty = true;
+                self.poke();
+            }
             WindowEvent::Resized(size) => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.resize(size.width.max(1), size.height.max(1));
@@ -4102,6 +4204,51 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "typed but not saved"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn opening_another_document_never_discards_unsaved_text() {
+        let dir = vault("open-unsaved");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        app.doc.editor.insert_text("not saved yet");
+        std::fs::create_dir_all(dir.join("Documents")).unwrap();
+        std::fs::write(dir.join("Documents/other.md"), "other").unwrap();
+
+        let error = app
+            .open_document(dir.join("Documents/other.md"))
+            .unwrap_err();
+        assert!(error.contains("unsaved"), "{error}");
+        assert_eq!(app.doc.editor.text(), "not saved yet");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saveas_refuses_to_overwrite_an_existing_document() {
+        let dir = vault("saveas-existing");
+        let mut app = app_in(&dir);
+        app.new_document().unwrap();
+        app.doc.editor.insert_text("mine");
+        std::fs::create_dir_all(dir.join("Documents")).unwrap();
+        std::fs::write(dir.join("Documents/other.md"), "theirs").unwrap();
+
+        let error = app.save_as("other").unwrap_err();
+        assert!(error.contains("already exists"), "{error}");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("Documents/other.md")).unwrap(),
+            "theirs"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_without_a_document_does_not_create_untitled() {
+        let dir = vault("save-no-doc");
+        let mut app = app_in(&dir);
+        let error = app.save().unwrap_err();
+        assert!(error.contains("no document"), "{error}");
+        assert!(!dir.join("Documents/untitled.md").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4666,6 +4813,52 @@ mod tests {
         assert_eq!(app.mode, Mode::Reminder);
         assert_eq!(app.reminder_title, "Doctor");
         assert!(app.reminder_fired.contains("test"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fired_weekly_reminder_advances_to_next_week() {
+        let dir = vault("calendar-weekly-reminder");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        let at = chrono::Local::now().naive_local() + chrono::Duration::hours(2);
+        let path = dir.join("Calendar/weekly.md");
+        let event = cread_core::calendar::Event {
+            title: "Weekly".into(),
+            date: at.date(),
+            time: Some(at.time()),
+            remind: Some(0),
+            repeat: cread_core::calendar::Repeat::Weekly,
+            deleted: false,
+            notes: String::new(),
+        };
+        let entry = cread_core::calendar::Entry {
+            path: path.clone(),
+            event,
+        };
+        let key = format!("{}|{}", path.display(), at.format("%Y-%m-%d %H:%M"));
+        app.calendar.events = vec![entry];
+        app.reminder_fired.insert(key);
+        app.schedule_reminder();
+        assert_eq!(
+            app.reminder.as_ref().map(|due| due.at),
+            Some(at + chrono::Duration::weeks(1))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_reminder_opened_over_the_calendar_can_leave_the_calendar() {
+        let dir = vault("calendar-reminder-back");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        let back = app.calendar_back;
+        app.reminder_back = Mode::Calendar;
+        app.open_calendar_at(chrono::Local::now().date_naive(), dir.join("event.md"));
+        app.leave_calendar();
+        assert_ne!(app.mode, Mode::Calendar);
+        assert_ne!(app.mode, Mode::CalendarEdit);
+        assert_eq!(app.mode, back);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

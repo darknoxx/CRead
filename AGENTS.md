@@ -95,7 +95,7 @@ allow four, and wgpu rejects a request above the adapter's ceiling instead of
 clamping it. Do not go back to `DeviceDescriptor::default()`.
 
 **The CRT uniform layout must match the WGSL struct byte for byte.** `CrtUniforms`
-is 32 bytes and has a `const` assertion; the shader pads to the same size. A
+is 48 bytes and has a `const` assertion; the shader pads to the same size. A
 mismatch does not error — the wrong field is read and the screen can go black.
 
 **The logo blit happens after the cell grid.** `Framebuffer::draw_splash` runs

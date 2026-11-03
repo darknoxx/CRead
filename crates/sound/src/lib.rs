@@ -13,7 +13,8 @@ use rodio::{OutputStream, OutputStreamBuilder};
 /// ends up on the speakers while the system is set to headphones. The sound
 /// server's own PCM (`pipewire`, `pulse`) is the one that follows the system
 /// default and moves a stream when you switch output, so it is asked for by
-/// name; plain `default` is the next choice, hardware never.
+/// name; plain `default` is the next choice. A hardware device is only the
+/// last resort on machines that have no sound server at all.
 pub fn open_output() -> Option<OutputStream> {
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
     use rodio::{Device, cpal};
@@ -24,17 +25,23 @@ pub fn open_output() -> Option<OutputStream> {
             let Ok(name) = device.name() else { continue };
             match name.to_ascii_lowercase().as_str() {
                 "pipewire" | "pulse" => {
-                    return OutputStreamBuilder::from_device(device)
-                        .ok()?
-                        .open_stream_or_fallback()
-                        .ok();
+                    // A stale PCM may be listed before a working one; try the
+                    // next candidate instead of giving up on sound entirely.
+                    if let Some(stream) = open_device(device) {
+                        return Some(stream);
+                    }
                 }
                 "default" if fallback.is_none() => fallback = Some(device),
                 _ => {}
             }
         }
     }
-    let device = fallback.or_else(|| host.default_output_device())?;
+    fallback
+        .and_then(open_device)
+        .or_else(|| host.default_output_device().and_then(open_device))
+}
+
+fn open_device(device: rodio::Device) -> Option<OutputStream> {
     OutputStreamBuilder::from_device(device)
         .ok()?
         .open_stream_or_fallback()

@@ -216,7 +216,7 @@ pub const SPECS: &[Spec] = &[
         name: "scanlines",
         aliases: &["scan", "sl"],
         argument: "[on|off] -r",
-        summary: "toggle or set the scanlines",
+        summary: "switch scanlines on (off turns them off)",
         scopes: &[Scope::Editor],
     },
     Spec {
@@ -536,7 +536,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "update" => Command::Update,
         "manual" => Command::Manual,
         "calendar" => Command::Calendar,
-        "screensaver" => match rest {
+        "screensaver" => match rest.to_ascii_lowercase().as_str() {
             "" => Command::Screensaver(ScreensaverAction::Start),
             "on" => Command::Screensaver(ScreensaverAction::Enabled(true)),
             "off" => Command::Screensaver(ScreensaverAction::Enabled(false)),
@@ -795,6 +795,10 @@ mod tests {
         assert_eq!(
             parse("screensaver off"),
             Ok(Command::Screensaver(Action::Enabled(false)))
+        );
+        assert_eq!(
+            parse("screensaver ON"),
+            Ok(Command::Screensaver(Action::Enabled(true)))
         );
         assert_eq!(
             parse("screensaver 12"),

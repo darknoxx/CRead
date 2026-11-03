@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.31.5
+
+A full audit pass: crashes, silent overwrites and sync edge cases.
+
+- **Editor.** A plain mouse click no longer leaves a phantom selection that
+  eats the next typed character; Backspace after a click at a line start no
+  longer panics. Cut/`Delete` clear the selection anchor, Ctrl+Left works on
+  non-breaking spaces and other multi-byte whitespace, and Home/End/word
+  movement end the current undo run.
+- **Documents.** `new` and `open` refuse to discard a modified buffer.
+  `saveas` refuses an existing document or picture, `save` without a document
+  no longer creates an empty `untitled.md`, and a failed save on window close
+  keeps the window open with the error instead of quitting.
+- **Calendar.** A reminder that fires over the calendar can leave it again.
+  Two appointments due at the same time both fire. `E` only acts on the
+  visible list selection, `D` needs a second press to delete, and a reminder
+  waits while the event form is open.
+- **Sync.** Server-supplied names are validated before they become local
+  paths; malformed percent escapes cannot panic the worker; symlinks are not
+  followed. A locally deleted document stays deleted instead of returning from
+  the server, a missing server copy is re-uploaded, and a download that races
+  a local save becomes a conflict copy. Credentials are written atomically with
+  mode 0600.
+- **Atomic writes.** Temp names are unique per writer, pictures and
+  preferences are written atomically, and the updater replaces the binary in
+  one rename with the old inode kept as `cread.old`.
+- **Softhand.** Opening a picture that is not 640x368 no longer overwrites the
+  original with the cropped canvas; undo/redo mark the canvas modified.
+- **Pocketboi.** Releasing a key or mouse button after opening the prompt no
+  longer leaves it stuck, the shelf scrolls and cannot leave `Roms/`, upper-case
+  cartridge extensions load, and the screensaver does not cover a running game.
+- **US Poker.** A hand-edited wallet cannot overflow the bankroll.
+- **Sound and display.** A failing sound-server PCM falls through to the next
+  device, and the surface format prefers 8-bit targets so screenshots read back
+  correctly.
+
 ## 0.31.4
 
 - **All-day appointments come first in the day list.** They used to sort by

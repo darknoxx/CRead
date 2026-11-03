@@ -67,6 +67,11 @@ impl App {
         let cursor = self.doc.editor.cursor();
         self.doc.editor = Editor::from_text(&text);
         self.doc.editor.set_cursor(cursor);
+        if self.mode == Mode::View {
+            // Reading mode caches its rendered rows by width; zero forces the
+            // next frame to rebuild them from the new text.
+            self.view_width = 0;
+        }
         self.set_status("updated from server");
         self.dirty = true;
     }
@@ -112,15 +117,14 @@ impl App {
     pub(super) fn on_key_quit(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
         let Some(prompt) = self.quit else {
             self.mode = Mode::Action;
+            self.dirty = true;
+            self.poke();
             return;
         };
         match &event.logical_key {
-            Key::Named(NamedKey::Escape) => {
-                self.quit = None;
-                self.mode = prompt.from;
-                self.set_status("not synced");
-                self.poke();
-            }
+            // "Esc no" on the box means no sync and quit, not cancel. Leaving
+            // the prompt open with Esc would contradict the hint and the manual.
+            Key::Named(NamedKey::Escape) => self.confirm_quit(el, false),
             Key::Named(NamedKey::Enter) => self.confirm_quit(el, prompt.yes),
             Key::Named(NamedKey::ArrowLeft)
             | Key::Named(NamedKey::ArrowRight)

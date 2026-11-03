@@ -38,6 +38,7 @@ impl App {
     }
 
     pub(super) fn cmd_help(&mut self, argument: Option<String>) -> Result<String, String> {
+        self.help_from_setup = false;
         self.help_about = false;
         self.help_all = argument
             .as_deref()
@@ -49,6 +50,7 @@ impl App {
     }
 
     pub(super) fn cmd_about(&mut self) -> Result<String, String> {
+        self.help_from_setup = false;
         self.refresh_machine();
         self.help_about = true;
         self.mode = Mode::Help;
@@ -59,6 +61,15 @@ impl App {
     pub(super) fn cmd_exit(&mut self, el: &ActiveEventLoop) -> Result<String, String> {
         if self.has_document && self.doc.editor.modified() {
             self.save()?;
+        }
+        if self.program_id == Some("softhand")
+            && self.picture_path.is_some()
+            && self
+                .program
+                .as_ref()
+                .is_some_and(|program| program.modified())
+        {
+            self.save_picture(None)?;
         }
         // A program with its own levels closes one of them first.
         let mut closed = false;
@@ -97,9 +108,15 @@ impl App {
             self.save()?;
         }
         // A picture that was never saved keeps no file behind: quitting must
-        // not silently create one.
-        if self.program.is_some() && self.picture_path.is_some() {
-            let _ = self.save_picture(None);
+        // not silently create one. A changed one with a path must be written,
+        // and a write error must keep the app open.
+        if self
+            .program
+            .as_ref()
+            .is_some_and(|program| program.modified())
+            && self.picture_path.is_some()
+        {
+            self.save_picture(None)?;
         }
         let from = self.mode;
         if !self.ask_quit(from) {

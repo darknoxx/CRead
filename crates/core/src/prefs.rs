@@ -101,7 +101,7 @@ impl Prefs {
         }
         let text =
             serde_json::to_string_pretty(self).map_err(|e| io::Error::other(e.to_string()))?;
-        std::fs::write(path, text)
+        storage::save_atomic(path, &text)
     }
 
     /// Resolved theme, falling back to the default if the name is unknown.

@@ -193,6 +193,7 @@ impl App {
         self.calendar.selected = today;
         self.calendar.focus = CalendarFocus::Grid;
         self.calendar.selected_event = 0;
+        self.calendar_delete_armed = None;
         self.calendar_back = back;
         self.mode = Mode::Calendar;
         self.program_prompt = false;
@@ -201,27 +202,37 @@ impl App {
         self.dirty = true;
     }
 
-    fn open_calendar_at(&mut self, date: NaiveDate, path: PathBuf) {
+    pub(super) fn open_calendar_at(&mut self, date: NaiveDate, path: PathBuf) {
         self.prepare_vault();
         self.reload_calendar();
         self.calendar.month = month_for(date);
         self.calendar.selected = date;
         self.calendar.focus = CalendarFocus::List;
+        self.calendar_delete_armed = None;
         self.calendar.selected_event = self
             .calendar
             .selected_events()
             .iter()
             .position(|entry| entry.path == path)
             .unwrap_or(0);
-        self.calendar_back = self.reminder_back;
+        // A reminder that fires while the calendar is already in front must not
+        // make the calendar its own exit target.
+        if !matches!(self.reminder_back, Mode::Calendar | Mode::CalendarEdit) {
+            self.calendar_back = self.reminder_back;
+        }
         self.mode = Mode::Calendar;
         self.program_prompt = false;
         self.dirty = true;
     }
 
-    fn leave_calendar(&mut self) {
+    pub(super) fn leave_calendar(&mut self) {
         self.calendar_form = None;
-        self.mode = self.calendar_back;
+        self.calendar_delete_armed = None;
+        self.mode = if matches!(self.calendar_back, Mode::Calendar | Mode::CalendarEdit) {
+            Mode::Action
+        } else {
+            self.calendar_back
+        };
         self.program_prompt = false;
         self.command.clear();
         self.command_error.clear();
@@ -286,6 +297,27 @@ impl App {
         self.calendar_form = Some(EventForm::edit(&entry));
         self.mode = Mode::CalendarEdit;
         self.dirty = true;
+    }
+
+    /// `D` twice: the first press only names what the second would tombstone.
+    fn arm_or_delete_selected_event(&mut self) {
+        let Some(entry) = self
+            .calendar
+            .selected_events()
+            .get(self.calendar.selected_event)
+            .cloned()
+        else {
+            self.calendar_delete_armed = None;
+            self.set_status("no appointment to delete");
+            return;
+        };
+        if self.calendar_delete_armed.as_deref() == Some(entry.path.as_path()) {
+            self.calendar_delete_armed = None;
+            self.delete_selected_event();
+        } else {
+            self.calendar_delete_armed = Some(entry.path.clone());
+            self.set_status(format!("press D again to delete {}", entry.event.title));
+        }
     }
 
     pub(super) fn delete_selected_event(&mut self) {
@@ -408,6 +440,10 @@ impl App {
 
     pub(super) fn on_key_calendar(&mut self, el: &ActiveEventLoop, event: KeyEvent) {
         let _ = el;
+        // Arming a delete only survives until the next keypress.
+        if !matches!(&event.logical_key, Key::Character(text) if text.eq_ignore_ascii_case("d")) {
+            self.calendar_delete_armed = None;
+        }
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => self.leave_calendar(),
             Key::Named(NamedKey::Enter) => self.new_event_form(),
@@ -469,11 +505,17 @@ impl App {
                 self.poke();
             }
             Key::Character(text) => {
+                if self.mods.control_key() || self.mods.alt_key() {
+                    return;
+                }
                 for ch in text.chars() {
                     match ch.to_ascii_lowercase() {
                         'n' => self.new_event_form(),
+                        'e' | 'd' if self.calendar.focus != CalendarFocus::List => {
+                            self.set_status("select an appointment in the list first");
+                        }
                         'e' => self.edit_selected_event(),
-                        'd' => self.delete_selected_event(),
+                        'd' => self.arm_or_delete_selected_event(),
                         't' => self.focus_today(),
                         _ => {}
                     }
@@ -590,33 +632,39 @@ impl App {
     }
 
     pub(super) fn schedule_reminder(&mut self) {
-        let now = Local::now().naive_local();
+        // Look one minute back so a second appointment due at the same moment
+        // is still seen after the first one fired. Skip over occurrences that
+        // already fired; for a weekly event that advances to next week rather
+        // than getting stuck on today.
+        let base = Local::now().naive_local() - ChronoDuration::minutes(1);
         let mut next: Option<ReminderDue> = None;
         for entry in &self.calendar.events {
             if entry.event.deleted {
                 continue;
             }
-            let Some((occurrence, at)) = entry.event.next_reminder_after(now) else {
-                continue;
-            };
-            let key = reminder_key(entry, at);
-            if self.reminder_fired.contains(&key) {
-                continue;
-            }
-            let due = ReminderDue {
-                at,
-                key,
-                title: entry.event.title.clone(),
-                when: format!(
-                    "{} · {}",
-                    occurrence.format("%A %d %B %Y"),
-                    entry.event.time_label(self.clock_24h)
-                ),
-                date: occurrence,
-                path: entry.path.clone(),
-            };
-            if next.as_ref().is_none_or(|old| due.at < old.at) {
-                next = Some(due);
+            let mut search_from = base;
+            while let Some((occurrence, at)) = entry.event.next_reminder_after(search_from) {
+                let key = reminder_key(entry, at);
+                if self.reminder_fired.contains(&key) {
+                    search_from = at + ChronoDuration::seconds(1);
+                    continue;
+                }
+                let due = ReminderDue {
+                    at,
+                    key,
+                    title: entry.event.title.clone(),
+                    when: format!(
+                        "{} · {}",
+                        occurrence.format("%A %d %B %Y"),
+                        entry.event.time_label(self.clock_24h)
+                    ),
+                    date: occurrence,
+                    path: entry.path.clone(),
+                };
+                if next.as_ref().is_none_or(|old| due.at < old.at) {
+                    next = Some(due);
+                }
+                break;
             }
         }
         self.reminder = next;
@@ -626,6 +674,7 @@ impl App {
         if matches!(
             self.mode,
             Mode::Reminder
+                | Mode::CalendarEdit
                 | Mode::Quit
                 | Mode::Power
                 | Mode::UpdatePrompt
@@ -876,7 +925,7 @@ impl App {
         screen.put_str(
             1,
             22,
-            "E edit   D delete   PgUp/PgDn month   Esc back",
+            "E edit   D delete x2   PgUp/PgDn month   Esc back",
             self.theme.dim,
             self.theme.bg,
         );

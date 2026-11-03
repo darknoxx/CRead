@@ -228,7 +228,12 @@ pub fn load_events(dir: &Path) -> Vec<Entry> {
             continue;
         }
         let path = entry.path();
-        if !path.is_file() {
+        if entry
+            .file_type()
+            .map(|kind| kind.is_symlink())
+            .unwrap_or(true)
+            || !path.is_file()
+        {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {

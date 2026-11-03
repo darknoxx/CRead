@@ -160,6 +160,12 @@ pub fn unpack(tarball: &[u8]) -> Result<Vec<u8>, String> {
         if path.file_name().and_then(|name| name.to_str()) != Some("cread") {
             continue;
         }
+        if !entry.header().entry_type().is_file() {
+            return Err("the release's cread entry is not a regular file".into());
+        }
+        if entry.size() == 0 {
+            return Err("the release's cread binary is empty".into());
+        }
         if entry.size() > MAX {
             return Err("the binary in the release is implausibly large".into());
         }
@@ -188,24 +194,49 @@ pub fn install_bytes(target: &Path, binary: &[u8]) -> Result<PathBuf, String> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| "the binary has no name".to_string())?;
-    let fresh = dir.join(format!(".{name}.new"));
+    let fresh = dir.join(format!(".{name}.new-{}", std::process::id()));
     let backup = dir.join(format!("{name}.old"));
 
-    std::fs::write(&fresh, binary).map_err(|e| format!("cannot write {}: {e}", fresh.display()))?;
-    let mode = std::fs::metadata(target)
-        .map_err(|e| format!("cannot read {}: {e}", target.display()))?
-        .permissions();
-    std::fs::set_permissions(&fresh, mode)
-        .map_err(|e| format!("cannot set permissions on {}: {e}", fresh.display()))?;
+    let write = (|| -> std::io::Result<()> {
+        use std::io::Write;
+        let mut file = std::fs::File::create(&fresh)?;
+        file.write_all(binary)?;
+        file.sync_all()
+    })();
+    if let Err(e) = write {
+        let _ = std::fs::remove_file(&fresh);
+        return Err(format!("cannot write {}: {e}", fresh.display()));
+    }
+    let mode = match std::fs::metadata(target).map(|meta| meta.permissions()) {
+        Ok(mode) => mode,
+        Err(e) => {
+            let _ = std::fs::remove_file(&fresh);
+            return Err(format!("cannot read {}: {e}", target.display()));
+        }
+    };
+    if let Err(e) = std::fs::set_permissions(&fresh, mode) {
+        let _ = std::fs::remove_file(&fresh);
+        return Err(format!(
+            "cannot set permissions on {}: {e}",
+            fresh.display()
+        ));
+    }
 
+    // Keep the old inode under `.old` without moving it out of the way first.
+    // The rename below then replaces the live path in one step, so a crash can
+    // never leave the machine with no binary at all.
     let _ = std::fs::remove_file(&backup);
-    std::fs::rename(target, &backup)
-        .map_err(|e| format!("cannot move the old binary aside: {e}"))?;
+    if let Err(e) = std::fs::hard_link(target, &backup) {
+        let _ = std::fs::remove_file(&fresh);
+        return Err(format!("cannot keep the old binary: {e}"));
+    }
     if let Err(e) = std::fs::rename(&fresh, target) {
-        // Put the old one back rather than leaving no binary at all.
-        let _ = std::fs::rename(&backup, target);
         let _ = std::fs::remove_file(&fresh);
         return Err(format!("cannot replace the binary: {e}"));
+    }
+    // Make the rename durable, not just the file contents.
+    if let Ok(dir) = std::fs::File::open(dir) {
+        let _ = dir.sync_all();
     }
     Ok(backup)
 }
@@ -225,12 +256,13 @@ fn runtime() -> Result<tokio::runtime::Runtime, String> {
 }
 
 async fn fetch(url: &str) -> Result<Vec<u8>, String> {
+    const MAX_DOWNLOAD: u64 = 64 * 1024 * 1024;
     let client = reqwest::Client::builder()
         .user_agent(concat!("CRead/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|e| format!("cannot start the download: {e}"))?;
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .await
@@ -238,11 +270,24 @@ async fn fetch(url: &str) -> Result<Vec<u8>, String> {
     if !response.status().is_success() {
         return Err(format!("{url} answered {}", response.status()));
     }
-    let body = response
-        .bytes()
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_DOWNLOAD)
+    {
+        return Err(format!("{url} is larger than the update limit"));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|e| format!("reading {url} failed: {e}"))?;
-    Ok(body.to_vec())
+        .map_err(|e| format!("reading {url} failed: {e}"))?
+    {
+        if body.len() as u64 + chunk.len() as u64 > MAX_DOWNLOAD {
+            return Err(format!("{url} is larger than the update limit"));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 /// Ask GitHub for the newest release. `None` means "already current".
@@ -387,6 +432,9 @@ trusted comment: timestamp:1793539427\tfile:message.bin\tprehashed
 
         let empty = tarball_with_other_only();
         assert!(unpack(&empty).unwrap_err().contains("no cread"));
+
+        let empty_binary = tarball_with(b"");
+        assert!(unpack(&empty_binary).unwrap_err().contains("empty"));
     }
 
     fn tarball_with_other_only() -> Vec<u8> {

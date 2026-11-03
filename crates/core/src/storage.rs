@@ -3,6 +3,7 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Read a document. Invalid UTF-8 is replaced rather than rejected so a stray
 /// binary byte never costs you the file.
@@ -23,21 +24,55 @@ pub fn save_atomic(path: &Path, text: &str) -> io::Result<()> {
 /// The same, for anything that is not text: pictures, cartridges, what else
 /// ends up in the vault.
 pub fn save_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    save_bytes_atomic_with_mode(path, bytes, None)
+}
+
+/// Like [`save_bytes_atomic`], but a new file is created owner-only. Used for
+/// the WebDAV credentials, which must never be world-readable even briefly.
+#[cfg(unix)]
+pub fn save_bytes_atomic_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    save_bytes_atomic_with_mode(path, bytes, Some(0o600))
+}
+
+fn save_bytes_atomic_with_mode(path: &Path, bytes: &[u8], mode: Option<u32>) -> io::Result<()> {
+    #[cfg(not(unix))]
+    let _ = mode;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
 
+    // The UI and the sync worker live in one process and can save the same
+    // file at the same time. A PID-only temp name made them share an inode;
+    // the counter gives every writer its own sibling.
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
     let tmp = parent.join(format!(
-        ".{}.tmp-{}",
+        ".{}.tmp-{}-{}-{}",
         path.file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "cread".into()),
-        std::process::id()
+        std::process::id(),
+        NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
     ));
 
-    {
-        let mut file = fs::File::create(&tmp)?;
+    let write = (|| -> io::Result<()> {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
+        let mut file = options.open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
+        Ok(())
+    })();
+    if let Err(e) = write {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
     }
 
     match fs::rename(&tmp, path) {
@@ -68,25 +103,29 @@ pub fn vault_dir() -> PathBuf {
     documents_dir().join("CRead")
 }
 
-/// The user's document folder, from `~/.config/user-dirs.dirs` when present.
-pub fn documents_dir() -> PathBuf {
-    let xdg = std::env::var_os("XDG_CONFIG_HOME")
+/// A folder from `~/.config/user-dirs.dirs`, if it exists.
+pub fn xdg_user_dir(key: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home().join(".config"))
         .join("user-dirs.dirs");
-    if let Ok(text) = std::fs::read_to_string(xdg)
-        && let Some(dir) = documents_from_user_dirs(&text, &home())
-    {
-        return dir;
-    }
-    home().join("Documents")
+    let text = std::fs::read_to_string(path).ok()?;
+    user_dir_from(&text, key, &home())
 }
 
-/// Pull `XDG_DOCUMENTS_DIR` out of a `user-dirs.dirs` file.
-fn documents_from_user_dirs(text: &str, home: &Path) -> Option<PathBuf> {
+/// The user's document folder, following the localised XDG setting.
+pub fn documents_dir() -> PathBuf {
+    xdg_user_dir("XDG_DOCUMENTS_DIR").unwrap_or_else(|| home().join("Documents"))
+}
+
+/// Pull one `XDG_*_DIR` value out of a `user-dirs.dirs` file.
+fn user_dir_from(text: &str, key: &str, home: &Path) -> Option<PathBuf> {
     for line in text.lines() {
         let line = line.trim();
-        let Some(rest) = line.strip_prefix("XDG_DOCUMENTS_DIR=") else {
+        let Some(rest) = line
+            .strip_prefix(key)
+            .and_then(|rest| rest.strip_prefix('='))
+        else {
             continue;
         };
         let value = rest.trim().trim_matches('"');
@@ -165,6 +204,15 @@ pub fn walk_files(root: &Path) -> Vec<PathBuf> {
                 continue;
             }
             let path = entry.path();
+            // Never follow links: a link to the parent loops, and a link out of
+            // the vault would list files the writer never put here.
+            if entry
+                .file_type()
+                .map(|kind| kind.is_symlink())
+                .unwrap_or(true)
+            {
+                continue;
+            }
             if path.is_dir() {
                 walk(&path, out);
             } else if path.is_file() {
@@ -253,7 +301,11 @@ pub fn list_documents(dir: &Path) -> io::Result<Vec<PathBuf>> {
     let mut out: Vec<PathBuf> = fs::read_dir(dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_file())
+        .filter(|p| {
+            fs::symlink_metadata(p)
+                .map(|meta| meta.file_type().is_file())
+                .unwrap_or(false)
+        })
         .filter(|p| {
             let name = p
                 .file_name()
@@ -383,7 +435,7 @@ mod tests {
         let german =
             "XDG_DESKTOP_DIR=\"$HOME/Schreibtisch\"\nXDG_DOCUMENTS_DIR=\"$HOME/Dokumente\"\n";
         assert_eq!(
-            documents_from_user_dirs(german, home),
+            user_dir_from(german, "XDG_DOCUMENTS_DIR", home),
             None,
             "a folder that does not exist is ignored"
         );
@@ -391,15 +443,18 @@ mod tests {
         // Point at something that certainly exists to exercise the expansion.
         let existing = std::env::temp_dir();
         let line = format!("XDG_DOCUMENTS_DIR=\"{}\"\n", existing.display());
-        assert_eq!(documents_from_user_dirs(&line, home), Some(existing));
-
-        assert_eq!(documents_from_user_dirs("", home), None);
         assert_eq!(
-            documents_from_user_dirs("XDG_DOCUMENTS_DIR=\"\"", home),
+            user_dir_from(&line, "XDG_DOCUMENTS_DIR", home),
+            Some(existing)
+        );
+
+        assert_eq!(user_dir_from("", "XDG_DOCUMENTS_DIR", home), None);
+        assert_eq!(
+            user_dir_from("XDG_DOCUMENTS_DIR=\"\"", "XDG_DOCUMENTS_DIR", home),
             None
         );
         assert_eq!(
-            documents_from_user_dirs("XDG_DOCUMENTS_DIR=\"$HOME\"", home),
+            user_dir_from("XDG_DOCUMENTS_DIR=\"$HOME\"", "XDG_DOCUMENTS_DIR", home),
             None,
             "$HOME resolves to a missing directory here"
         );
@@ -426,5 +481,50 @@ mod tests {
         fs::write(&path, [0x68, 0x69, 0xff, 0x0a]).unwrap();
         assert_eq!(load(&path).unwrap(), "hi\u{fffd}\n");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn concurrent_atomic_writes_use_separate_temp_files() {
+        let dir = tmpdir("atomic-race");
+        let path = dir.join("note.md");
+        let threads: Vec<_> = (0..8)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    save_atomic(&path, &format!("writer {n}")).unwrap();
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("writer "), "{text}");
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp-"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_are_not_followed() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tmpdir("symlink");
+        let outside = tmpdir("symlink-outside");
+        fs::write(outside.join("secret.md"), "outside").unwrap();
+        fs::create_dir_all(dir.join("Documents")).unwrap();
+        fs::write(dir.join("Documents/local.md"), "local").unwrap();
+        symlink(&outside, dir.join("Documents/escape")).unwrap();
+        symlink(dir.join("Documents"), dir.join("Documents/loop")).unwrap();
+
+        let files = walk_files(&dir.join("Documents"));
+        assert_eq!(files, vec![dir.join("Documents/local.md")]);
+        fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
     }
 }

@@ -525,6 +525,8 @@ impl Sound {
 }
 
 pub struct Pocketboi {
+    /// The cartridge room. Navigation never climbs above it.
+    root: PathBuf,
     dir: PathBuf,
     entries: Vec<Entry>,
     selected: usize,
@@ -560,6 +562,7 @@ impl Pocketboi {
             paper: 0,
             ink: 15,
             palette: 0,
+            root: dir.clone(),
             dir,
         };
         boi.rescan();
@@ -602,8 +605,10 @@ impl Pocketboi {
     }
 
     fn up(&mut self) {
-        let parent = self.dir.parent().map(Path::to_path_buf);
-        if let Some(parent) = parent {
+        let Some(parent) = self.dir.parent().map(Path::to_path_buf) else {
+            return;
+        };
+        if parent.starts_with(&self.root) {
             self.dir = parent;
             self.selected = 0;
             self.rescan();
@@ -654,7 +659,12 @@ fn shelf(dir: &Path) -> Vec<Entry> {
     for entry in read.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') {
+        if name.starts_with('.')
+            || entry
+                .file_type()
+                .map(|kind| kind.is_symlink())
+                .unwrap_or(true)
+        {
             continue;
         }
         if path.is_dir() {
@@ -880,11 +890,12 @@ fn draw_shelf(screen: &mut Screen, boi: &Pocketboi) {
 
     let first = 5;
     let last = screen.rows().saturating_sub(2);
-    for (i, entry) in boi.entries.iter().enumerate() {
-        let y = first + i as u32;
-        if y >= last {
-            break;
-        }
+    let visible = last.saturating_sub(first) as usize;
+    // Keep the selected row on screen: the shelf can hold more cartridges than
+    // the stage has rows.
+    let start = boi.selected.saturating_sub(visible.saturating_sub(1));
+    for (i, entry) in boi.entries.iter().enumerate().skip(start).take(visible) {
+        let y = first + (i - start) as u32;
         let selected = i == boi.selected;
         let (fg, bg) = if selected {
             (paper, ink)
@@ -937,6 +948,44 @@ mod tests {
         let names: Vec<&str> = listed.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, vec!["Homebrew", "Pokemon.GBC", "Tetris.gb"]);
         assert!(listed[0].folder);
+        let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn the_shelf_keeps_the_selected_cartridge_visible() {
+        let vault = temp("shelf-scroll");
+        let roms = cread_core::storage::roms_in(&vault);
+        std::fs::create_dir_all(&roms).unwrap();
+        for n in 0..30 {
+            std::fs::write(roms.join(format!("game-{n:02}.gb")), b"x").unwrap();
+        }
+        let mut boi = Pocketboi::new(&vault);
+        for _ in 0..25 {
+            boi.key(KeyPress::Down);
+        }
+        let mut screen = Screen::new(80, 25);
+        let mut raster = Raster::new(640, 368);
+        boi.draw(&mut screen, &mut raster);
+        let text: String = (0..25)
+            .flat_map(|y| (0..80).map(move |x| (x, y)))
+            .map(|(x, y)| screen.get(x, y).unwrap().ch)
+            .collect();
+        assert!(text.contains("game-25.gb"), "selected row is on screen");
+        let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn the_shelf_does_not_climb_above_the_roms_folder() {
+        let vault = temp("shelf-root");
+        let roms = cread_core::storage::roms_in(&vault);
+        std::fs::create_dir_all(roms.join("Homebrew")).unwrap();
+        let mut boi = Pocketboi::new(&vault);
+        boi.key(KeyPress::Enter);
+        assert!(boi.dir.ends_with("Homebrew"));
+        boi.key(KeyPress::Backspace);
+        assert_eq!(boi.dir, roms);
+        boi.key(KeyPress::Backspace);
+        assert_eq!(boi.dir, roms, "the room is the root");
         let _ = std::fs::remove_dir_all(&vault);
     }
 

@@ -214,7 +214,9 @@ impl Cartridge {
         let extension = file_path
             .as_ref()
             .extension()
-            .ok_or(CartridgeError::ExtensionError)?;
+            .and_then(|extension| extension.to_str())
+            .ok_or(CartridgeError::ExtensionError)?
+            .to_ascii_lowercase();
 
         if extension != "gbc" && extension != "gb" {
             return Err(CartridgeError::ExtensionError);

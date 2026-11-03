@@ -27,6 +27,10 @@ into a stopped game with a message.
 A backwards stream position (`overflowing_sub` followed by `assert!`) is now a
 saturating subtraction: a corrupt save file should not panic.
 
+**`src/cartridge.rs` — cartridge extensions are case-insensitive.**
+`Tetris.GB` is listed on the shelf like `Tetris.gb`; Mizu compared the raw
+`OsStr` and refused the upper-case name.
+
 **`src/ppu.rs`, `src/cartridge.rs` — stdout stays quiet.**
 Several `println!` calls fired during normal play (turning the display off
 outside VBLANK happens in real games, plus "LOG:", "Loading SRAM", "target

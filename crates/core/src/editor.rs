@@ -304,6 +304,9 @@ impl Editor {
 
     /// Start (or continue) a selection for a movement, or drop it.
     fn begin_move(&mut self, extend: bool) {
+        // Navigation ends a typing run. Without this, undo after Home/End or a
+        // word jump can remove text typed before the move.
+        self.history.break_group();
         if extend {
             self.anchor.get_or_insert(self.cursor);
         } else {
@@ -355,6 +358,12 @@ impl Editor {
     }
 
     fn before_edit(&mut self, kind: EditKind) {
+        // A mouse press leaves an anchor equal to the cursor so a drag can
+        // extend it. That is not a selection; drop it before an edit, or the
+        // first inserted character silently becomes one and the next deletes it.
+        if self.anchor == Some(self.cursor) {
+            self.anchor = None;
+        }
         self.history.record(kind, &self.lines, self.cursor);
         self.modified = true;
     }
@@ -496,6 +505,9 @@ impl Editor {
         self.lines[from.line] = head + &tail;
         self.lines.drain(from.line + 1..=to.line);
         self.cursor = from;
+        // The range is gone; a stale anchor would point into text that no
+        // longer exists and panic on the next selection read.
+        self.anchor = None;
         self.preferred_x = None;
     }
 
@@ -559,7 +571,9 @@ impl Editor {
         let before: String = line.chars().take(self.cursor.col).collect();
         let trimmed = before.trim_end();
         match trimmed.rfind(char::is_whitespace) {
-            Some(byte) => self.cursor.col = trimmed[..=byte].chars().count(),
+            // `rfind` returns a byte offset. Step over the whole character
+            // instead of slicing into it: NBSP and em space are multi-byte.
+            Some(byte) => self.cursor.col = trimmed[..byte].chars().count() + 1,
             None => self.cursor.col = 0,
         }
     }
@@ -1181,5 +1195,59 @@ three");
         e.insert_char('b');
         e.undo();
         assert_eq!(e.text(), "a");
+    }
+
+    #[test]
+    fn home_ends_a_typing_run_for_undo() {
+        let mut e = ed("");
+        e.insert_text("abc");
+        e.move_home(false);
+        e.insert_char('X');
+        assert_eq!(e.text(), "Xabc");
+        assert!(e.undo());
+        assert_eq!(
+            e.text(),
+            "abc",
+            "undo must not remove the earlier typing run"
+        );
+    }
+
+    #[test]
+    fn a_click_does_not_leave_a_phantom_selection() {
+        let mut e = ed("hello");
+        e.begin_selection(Position { line: 0, col: 2 });
+        assert!(!e.has_selection());
+        e.insert_char('a');
+        e.insert_char('b');
+        assert_eq!(e.text(), "heabllo");
+
+        // A click at a line start followed by Backspace joins the lines; the
+        // next character must not index the line that no longer exists.
+        let mut e = ed("ab\ncd");
+        e.begin_selection(Position { line: 1, col: 0 });
+        e.backspace();
+        e.insert_char('x');
+        assert_eq!(e.text(), "abxcd");
+    }
+
+    #[test]
+    fn deleting_a_backwards_range_clears_the_anchor() {
+        let mut e = ed("hello world");
+        e.set_cursor(Position { line: 0, col: 5 });
+        for _ in 0..5 {
+            e.move_left(true);
+        }
+        e.delete_range(Position { line: 0, col: 5 }, Position { line: 0, col: 0 });
+        assert!(!e.has_selection());
+        e.insert_char('X');
+        assert_eq!(e.text(), "X world");
+    }
+
+    #[test]
+    fn word_left_crosses_multibyte_whitespace() {
+        let mut e = ed("a\u{a0}b");
+        e.set_cursor(Position { line: 0, col: 3 });
+        e.move_word_left(false);
+        assert_eq!(e.cursor().col, 2);
     }
 }

@@ -44,27 +44,17 @@ impl Config {
     /// Persist with owner-only permissions; it holds a password.
     pub fn save(&self) -> std::io::Result<()> {
         let path = Self::path();
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
         let text =
             serde_json::to_string_pretty(self).map_err(|e| std::io::Error::other(e.to_string()))?;
-
+        #[cfg(unix)]
+        storage::save_bytes_atomic_private(&path, text.as_bytes())?;
+        #[cfg(not(unix))]
+        storage::save_atomic(&path, &text)?;
+        // Also tighten a file that already existed with a looser mode.
         #[cfg(unix)]
         {
-            use std::io::Write;
-            use std::os::unix::fs::OpenOptionsExt;
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&path)?;
-            file.write_all(text.as_bytes())?;
-        }
-        #[cfg(not(unix))]
-        {
-            std::fs::write(&path, &text)?;
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         }
         Ok(())
     }
@@ -91,6 +81,10 @@ struct Entry {
     /// the writer made never is.
     #[serde(default)]
     draft: bool,
+    /// The writer deleted the local file. The server copy stays (documents are
+    /// never deleted there), but must not be downloaded again.
+    #[serde(default)]
+    deleted: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -227,9 +221,9 @@ pub fn decode_segment(s: &str) -> String {
     while i < bytes.len() {
         if bytes[i] == b'%'
             && i + 2 < bytes.len()
-            && let Ok(byte) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+            && let (Some(high), Some(low)) = (hex(bytes[i + 1]), hex(bytes[i + 2]))
         {
-            out.push(byte);
+            out.push(high << 4 | low);
             i += 3;
             continue;
         }
@@ -237,6 +231,45 @@ pub fn decode_segment(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// One path component from a listing. A decoded slash, `..` or a control
+/// character is server-controlled path traversal, never a vault name.
+fn safe_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains(['/', '\\', '\0'])
+        && !name.chars().any(char::is_control)
+}
+
+/// A relative vault name is safe when every component is a plain name.
+fn safe_relative(name: &str) -> bool {
+    !name.is_empty() && name.split('/').all(safe_name)
+}
+
+/// Join a server name under the vault without following a symlink on the way.
+fn safe_local_target(vault: &Path, name: &str) -> Option<PathBuf> {
+    if !safe_relative(name) {
+        return None;
+    }
+    let mut target = vault.to_path_buf();
+    for part in name.split('/') {
+        target.push(part);
+        if std::fs::symlink_metadata(&target).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            return None;
+        }
+    }
+    Some(target)
 }
 
 fn encode_path(path: &str) -> String {
@@ -266,6 +299,15 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
             continue;
         }
         let path = entry.path();
+        // A symlink is neither a document nor a folder to mirror. Following
+        // one can loop or upload files from outside the vault.
+        if entry
+            .file_type()
+            .map(|kind| kind.is_symlink())
+            .unwrap_or(true)
+        {
+            continue;
+        }
         let relative = if prefix.is_empty() {
             name.clone()
         } else {
@@ -397,17 +439,27 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
         let entry = index.files.get(name).cloned();
         let remote_version = remote.files.get(name).cloned();
 
+        if let Some(entry) = index.files.get_mut(name) {
+            // The file is back; it is not a tombstone any more.
+            entry.deleted = false;
+        }
         let local_changed = entry.as_ref().map(|e| e.hash != local_hash).unwrap_or(true);
         let remote_changed = match (&entry, &remote_version) {
             (Some(e), Some(v)) => &e.version != v,
             (None, Some(_)) => true,
-            // Gone from the server. Only count it as a change if we had synced it.
             (Some(_), None) => true,
             (None, None) => false,
         };
 
         let remote_path = join_remote(&remote_dir, name);
-        match plan(local_changed, remote_changed) {
+        // A version we synced before but the server no longer has is not a
+        // reason to fetch a 404. Local wins: put it back.
+        let action = if remote_version.is_none() {
+            Plan::Upload
+        } else {
+            plan(local_changed, remote_changed)
+        };
+        match action {
             Plan::Nothing => report.skipped += 1,
 
             Plan::Upload => {
@@ -418,15 +470,39 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                 touched_remote = true;
                 report.uploaded += 1;
                 set_hash(&mut index, name, local_hash);
-                if draft.as_deref() == Some(name.as_str())
-                    && let Some(entry) = index.files.get_mut(name)
-                {
-                    entry.draft = true;
+                if let Some(entry) = index.files.get_mut(name) {
+                    entry.deleted = false;
+                    if draft.as_deref() == Some(name.as_str()) {
+                        entry.draft = true;
+                    }
                 }
             }
 
             Plan::Download => {
                 let body = download(&client, &remote_path, name).await?;
+                let current = std::fs::read(path).ok();
+                if current.as_deref().map(hash).as_deref() != Some(local_hash.as_str()) {
+                    // The writer saved while the GET was in flight. Keep the
+                    // new local text and park the server version beside it.
+                    if let Some(current) = current {
+                        let conflict = conflict_path(vault, name);
+                        storage::save_bytes_atomic(&conflict, &body)
+                            .map_err(|e| format!("writing conflict copy failed: {e}"))?;
+                        client
+                            .put(&remote_path, current.clone())
+                            .await
+                            .map_err(|e| format!("upload {name} failed: {e}"))?;
+                        touched_remote = true;
+                        report.conflicts += 1;
+                        set_hash(&mut index, name, hash(&current));
+                    } else {
+                        // Deleted locally during the round: local wins.
+                        if let Some(entry) = index.files.get_mut(name) {
+                            entry.deleted = true;
+                        }
+                    }
+                    continue;
+                }
                 storage::save_bytes_atomic(path, &body)
                     .map_err(|e| format!("writing {name} failed: {e}"))?;
                 index.files.insert(
@@ -435,6 +511,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                         hash: hash(&body),
                         version: remote_version.unwrap_or_default(),
                         draft: false,
+                        deleted: false,
                     },
                 );
                 report.downloaded += 1;
@@ -450,6 +527,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                             hash: local_hash,
                             version: remote_version.unwrap_or_default(),
                             draft: false,
+                            deleted: false,
                         },
                     );
                     report.skipped += 1;
@@ -480,9 +558,20 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
         if index.files.contains_key(name) || local_exists(&tree, name) {
             continue;
         }
+        let Some(target) = safe_local_target(vault, name) else {
+            continue;
+        };
         let remote_path = join_remote(&remote_dir, name);
         let body = download(&client, &remote_path, name).await?;
-        let target = vault.join(name);
+        if target.exists() {
+            // Created locally while the listing was in flight. Do not
+            // overwrite it; keep the server version as a conflict copy.
+            let conflict = conflict_path(vault, name);
+            storage::save_bytes_atomic(&conflict, &body)
+                .map_err(|e| format!("writing conflict copy failed: {e}"))?;
+            report.conflicts += 1;
+            continue;
+        }
         storage::save_bytes_atomic(&target, &body)
             .map_err(|e| format!("writing {name} failed: {e}"))?;
         index.files.insert(
@@ -491,6 +580,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
                 hash: hash(&body),
                 version: remote.files.get(name).cloned().unwrap_or_default(),
                 draft: false,
+                deleted: false,
             },
         );
         report.downloaded += 1;
@@ -508,7 +598,11 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
         }
     }
 
-    index.files.retain(|name, _| local_exists(&tree, name));
+    // Keep a tombstone for a document deleted locally. The server copy stays,
+    // but forgetting the entry would make the next round download it again.
+    for (name, entry) in &mut index.files {
+        entry.deleted = !local_exists(&tree, name);
+    }
     index
         .save(vault)
         .map_err(|e| format!("cannot write sync index: {e}"))?;
@@ -604,6 +698,11 @@ fn list_into<'a>(
                 ListEntity::File(file) => (name_of_href(&file.href), Some(file)),
                 ListEntity::Folder(folder) => (name_of_href(&folder.href), None),
             };
+            if !safe_name(&name) {
+                // Never turn an untrusted href into a local path. Skipping the
+                // entry keeps the rest of the vault syncable.
+                continue;
+            }
             let relative = if prefix.is_empty() {
                 name.clone()
             } else {
@@ -734,6 +833,7 @@ mod tests {
                 hash: "abc".into(),
                 version: "1".into(),
                 draft: false,
+                deleted: false,
             },
         );
         assert!(index.save(&vault).unwrap(), "a changed index writes");
@@ -763,6 +863,7 @@ mod tests {
         let index: Index =
             serde_json::from_str(r#"{"files":{"a.md":{"hash":"h","version":"v"}}}"#).unwrap();
         assert!(!index.files["a.md"].draft, "a document, not a draft");
+        assert!(!index.files["a.md"].deleted, "an existing document");
     }
 
     #[test]
@@ -862,6 +963,66 @@ mod tests {
         assert_eq!(name_of_href("/dav/cread/%C3%BCber.md"), "über.md");
         assert_eq!(name_of_href("/dav/cread/"), "cread");
         assert_eq!(name_of_href("file.md"), "file.md");
+    }
+
+    #[test]
+    fn a_malformed_percent_escape_does_not_panic() {
+        assert_eq!(decode_segment("%Aü"), "%Aü");
+        assert_eq!(decode_segment("%"), "%");
+        assert_eq!(decode_segment("%2F"), "/");
+    }
+
+    #[test]
+    fn server_names_cannot_escape_the_vault() {
+        for name in ["..", ".", "", "a/b", "..\\..\\x", "a\0b"] {
+            assert!(!safe_name(name), "{name:?}");
+        }
+        assert!(safe_name("über.md"));
+        assert!(safe_relative("Documents/kapitel/eins.md"));
+        assert!(!safe_relative("Documents/../../.bashrc"));
+        assert!(!safe_relative("../.bashrc"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_server_name_cannot_write_through_a_local_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let vault = std::env::temp_dir().join(format!("cread-sync-target-{}", std::process::id()));
+        let outside = std::env::temp_dir().join(format!("cread-sync-out2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vault);
+        let _ = std::fs::remove_dir_all(&outside);
+        std::fs::create_dir_all(&vault).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, vault.join("Documents")).unwrap();
+        assert!(safe_local_target(&vault, "Documents/x.md").is_none());
+        let _ = std::fs::remove_dir_all(&vault);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_sync_walk_does_not_follow_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let vault = std::env::temp_dir().join(format!("cread-sync-link-{}", std::process::id()));
+        let outside = std::env::temp_dir().join(format!("cread-sync-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vault);
+        let _ = std::fs::remove_dir_all(&outside);
+        std::fs::create_dir_all(vault.join("Documents")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(vault.join("Documents/local.md"), "local").unwrap();
+        std::fs::write(outside.join("secret.md"), "secret").unwrap();
+        symlink(&outside, vault.join("Documents/escape")).unwrap();
+        symlink(vault.join("Documents"), vault.join("Documents/loop")).unwrap();
+
+        let names: Vec<String> = vault_tree(&vault)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, vec!["Documents/", "Documents/local.md"]);
+        let _ = std::fs::remove_dir_all(&vault);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 
     #[test]

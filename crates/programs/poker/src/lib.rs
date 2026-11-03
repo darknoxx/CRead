@@ -261,7 +261,7 @@ impl Poker {
             return;
         }
         if self.win > 0 {
-            self.balance += self.win;
+            self.balance = self.balance.saturating_add(self.win).min(save::MAX_MONEY);
             self.win = 0;
             self.play(Effect::Coin);
         }
@@ -370,7 +370,7 @@ impl Poker {
     /// Add a held win to the wallet, persist, and leave the table.
     pub fn cash_out(&mut self) {
         if matches!(self.phase, Phase::Result | Phase::Risk) && self.win > 0 {
-            self.balance += self.win;
+            self.balance = self.balance.saturating_add(self.win).min(save::MAX_MONEY);
             self.win = 0;
         }
         if self.balance < MIN_BET {
@@ -382,7 +382,7 @@ impl Poker {
 
     fn count_bust(&mut self) {
         if self.balance < MIN_BET && !self.bust_counted {
-            self.bankrupts += 1;
+            self.bankrupts = self.bankrupts.saturating_add(1);
             self.bust_counted = true;
         }
     }

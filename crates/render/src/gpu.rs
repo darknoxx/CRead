@@ -141,15 +141,21 @@ impl Renderer {
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
             .ok_or("surface has no usable configuration")?;
         // Prefer a non-sRGB target so palette values are written verbatim; an
-        // sRGB surface would re-encode our already-sRGB colours.
-        if let Some(linear) = surface
-            .get_capabilities(&adapter)
-            .formats
-            .iter()
-            .copied()
-            .find(|f| !f.is_srgb())
+        // sRGB surface would re-encode our already-sRGB colours. Stay on an
+        // 8-bit format: the screenshot readback is written as RGBA8.
+        let caps = surface.get_capabilities(&adapter);
+        let preferred = [
+            wgpu::TextureFormat::Bgra8Unorm,
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        ];
+        if let Some(format) = preferred
+            .into_iter()
+            .find(|format| caps.formats.contains(format))
+            .or_else(|| caps.formats.iter().copied().find(|f| !f.is_srgb()))
         {
-            config.format = linear;
+            config.format = format;
         }
         config.present_mode = wgpu::PresentMode::Fifo;
         surface.configure(&device, &config);

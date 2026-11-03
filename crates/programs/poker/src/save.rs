@@ -11,6 +11,8 @@ use cread_core::storage;
 pub const START_BALANCE: u64 = 1_000;
 /// The smallest bet the machine accepts.
 pub const MIN_BET: u64 = 10;
+/// A sane ceiling for a hand-edited wallet: one million dollars.
+pub const MAX_MONEY: u64 = 100_000_000;
 
 /// What survives between sessions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,13 +64,13 @@ pub fn load_from(path: &Path) -> Wallet {
         match key.trim() {
             "balance" => {
                 if let Some(value) = value {
-                    wallet.balance = value;
+                    wallet.balance = value.min(MAX_MONEY);
                     saw_balance = true;
                 }
             }
             "best" => {
                 if let Some(value) = value {
-                    wallet.best = value;
+                    wallet.best = value.min(MAX_MONEY);
                     saw_best = true;
                 }
             }
@@ -164,6 +166,20 @@ mod tests {
         assert_eq!(wallet.balance, 1_500);
         assert_eq!(wallet.best, 2_500);
         assert_eq!(wallet.bankrupts, 0);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_hand_edited_wallet_is_clamped() {
+        let path = temp("huge");
+        std::fs::write(
+            &path,
+            "balance=18446744073709551615\nbest=18446744073709551615\n",
+        )
+        .unwrap();
+        let wallet = load_from(&path);
+        assert_eq!(wallet.balance, MAX_MONEY);
+        assert_eq!(wallet.best, MAX_MONEY);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

@@ -17,6 +17,9 @@ pub fn music_dir() -> PathBuf {
     {
         return dir;
     }
+    if let Some(dir) = crate::storage::xdg_user_dir("XDG_MUSIC_DIR") {
+        return dir;
+    }
     let home = crate::storage::home_dir();
     let music = home.join("Music");
     if music.is_dir() {

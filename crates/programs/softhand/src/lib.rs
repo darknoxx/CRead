@@ -97,7 +97,10 @@ impl Softhand {
         let mut app = Self::new();
         app.canvas.fill(PAPER);
         app.canvas.copy_from(picture, 0, 0);
-        app.modified = false;
+        // Cropping or padding changed the picture; it is not the file on disk
+        // any more. The shell keeps the original untouched unless the writer
+        // saves this canvas under a name.
+        app.modified = picture.width() != CANVAS_W || picture.height() != CANVAS_H;
         app
     }
 
@@ -227,7 +230,7 @@ impl Program for Softhand {
                 }
             }
             PointerKind::Down(button) if button == BUTTON_LEFT => {
-                if event.y as u32 >= STRIP_TOP {
+                if event.y >= 0 && event.y as u32 >= STRIP_TOP {
                     self.pick_from_strip(event.x);
                     return Outcome::Continue;
                 }
@@ -376,6 +379,7 @@ impl Program for Softhand {
         };
         let current = std::mem::replace(&mut self.canvas, previous);
         self.redo.push(current);
+        self.modified = true;
         true
     }
 
@@ -385,6 +389,7 @@ impl Program for Softhand {
         };
         let current = std::mem::replace(&mut self.canvas, next);
         self.undo.push(current);
+        self.modified = true;
         true
     }
 }
@@ -572,6 +577,7 @@ mod tests {
             Some(7)
         );
         assert_eq!(app.canvas().width(), CANVAS_W);
+        assert!(app.modified(), "a crop is a change, not the saved file");
     }
 
     #[test]

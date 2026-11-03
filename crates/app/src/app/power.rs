@@ -124,8 +124,17 @@ impl App {
             self.poke();
             return;
         }
-        if self.program.is_some() && self.picture_path.is_some() {
-            let _ = self.save_picture(None);
+        if self
+            .program
+            .as_ref()
+            .is_some_and(|program| program.modified())
+            && self.picture_path.is_some()
+            && let Err(e) = self.save_picture(None)
+        {
+            self.mode = prompt.from;
+            self.set_status(e);
+            self.poke();
+            return;
         }
         self.close_program();
 

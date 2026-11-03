@@ -57,21 +57,17 @@ pub fn resolve(vault: &Path, name: &str) -> Result<PathBuf, String> {
         return Err("a picture needs a name".into());
     }
     let path = dir(vault).join(relative);
-    Ok(if path.extension().is_some() {
-        path
-    } else {
-        path.with_extension("png")
+    Ok(match path.extension() {
+        Some(ext) if !ext.is_empty() => path,
+        _ => path.with_extension("png"),
     })
 }
 
 /// Write a surface as a 16-colour PNG.
 pub fn save(path: &Path, raster: &Raster) -> Result<(), String> {
-    if let Some(parent) = path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent)
-    {
-        return Err(format!("cannot create {}: {e}", parent.display()));
-    }
-    write_png(path, raster.width(), raster.height(), &raster.to_rgba())
+    let png = encode_png(raster.width(), raster.height(), &raster.to_rgba())
+        .map_err(|e| format!("cannot encode {}: {e}", path.display()))?;
+    crate::storage::save_bytes_atomic(path, &png)
         .map_err(|e| format!("cannot write {}: {e}", path.display()))
 }
 
@@ -118,6 +114,23 @@ pub fn load(path: &Path) -> Result<Raster, String> {
     Ok(Raster::from_rgba(width, height, &rgba))
 }
 
+/// Encode tightly packed RGBA8 pixels as a PNG in memory.
+pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder
+            .write_header()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        writer
+            .write_image_data(rgba)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+    }
+    Ok(out)
+}
+
 /// Write tightly packed RGBA8 pixels as a PNG.
 pub fn write_png(
     path: impl AsRef<Path>,
@@ -125,17 +138,8 @@ pub fn write_png(
     height: u32,
     rgba: &[u8],
 ) -> std::io::Result<()> {
-    let file = std::fs::File::create(path)?;
-    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width, height);
-    encoder.set_color(png::ColorType::Rgba);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder
-        .write_header()
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    writer
-        .write_image_data(rgba)
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    Ok(())
+    let bytes = encode_png(width, height, rgba)?;
+    crate::storage::save_bytes_atomic(path.as_ref(), &bytes)
 }
 
 #[cfg(test)]
@@ -151,6 +155,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_trailing_dot_still_gets_the_png_extension() {
+        let vault = temp("extension");
+        let path = resolve(&vault, "doodle.").unwrap();
+        assert_eq!(path.file_name().unwrap(), "doodle.png");
+        std::fs::remove_dir_all(&vault).unwrap();
     }
 
     #[test]

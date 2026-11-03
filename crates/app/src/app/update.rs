@@ -141,8 +141,16 @@ impl App {
         }
         // A painting that was never saved keeps no file behind; one that has a
         // path is the writer's and must survive the restart.
-        if self.program.is_some() && self.picture_path.is_some() {
-            let _ = self.save_picture(None);
+        if self
+            .program
+            .as_ref()
+            .is_some_and(|program| program.modified())
+            && self.picture_path.is_some()
+            && let Err(e) = self.save_picture(None)
+        {
+            self.set_status(format!("updated to {version}, but saving failed: {e}"));
+            self.mode = Mode::Setup;
+            return;
         }
         self.close_program();
 

@@ -314,6 +314,8 @@ purpose.
 A new document starts as `untitled.md`, then `untitled-2.md` and so on.
 With `saveas letter` or `saveas invoice` you give it a real name. The
 placeholder file is removed so no pointless duplicates are left behind.
+`saveas` refuses a name that already exists, and `new`/`open` refuse to
+replace a buffer with unsaved changes; save it first.
 
 > **Tip:** You can switch on automatic saving. Type `autosave on`. CRead
 > then writes 1.5 seconds after the last keystroke. While the document is
@@ -471,7 +473,8 @@ colour. Dragging paints a stroke.
 | `saveas name` | Saves under that name in `Pictures`. |
 
 Pictures always live in `Pictures`. Subfolders are allowed:
-`saveas sketch/blue`.
+`saveas sketch/blue`. An existing picture is never overwritten by `saveas`;
+pick another name.
 
 ### More commands
 
@@ -654,8 +657,8 @@ month grid and the list of the selected day.
 | Home | Today. |
 | Tab | Month grid ↔ day list. |
 | Enter | Always a new appointment. |
-| E | Edit the selected appointment. |
-| D | Delete the selected appointment. |
+| E | Edit the selected appointment (list focus). |
+| D, D | Delete the selected appointment (list focus; second press confirms). |
 | Up / Down | Select an appointment in the list. |
 | Space | Toggle Repeat between none and weekly in the form. |
 | Esc | Back to where the calendar was opened from. |
