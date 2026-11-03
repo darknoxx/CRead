@@ -69,10 +69,18 @@ impl App {
             self.render_manual(width);
             let now_local = chrono::Local::now();
             let clock = crate::clock::stamp(&now_local, self.clock_24h, self.date_day_first, false);
+            let selection = self
+                .manual_nav
+                .then(|| self.manual_selection_span())
+                .flatten();
             let view = ui::ManualView {
                 clock: &clock,
                 rows: &self.manual_rows,
                 top: self.manual_top,
+                selection,
+                nav: self.manual_nav,
+                choice: self.manual_choice,
+                choices: self.manual_jumps.len(),
             };
             ui::draw_manual(screen, &self.theme, &view);
             return true;

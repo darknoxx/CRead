@@ -56,6 +56,9 @@ For beginners. No prior knowledge needed.
 - D — Where are my files?
 - E — About this program
 
+> Use Up/Down to choose a point and Enter to jump there. Page Up/Down scrolls
+> freely; Home brings you back to this list.
+
 ---
 
 # Part I — Quick Start
@@ -768,6 +771,10 @@ time. The other screens show only the time.
 | STORAGE | How full the disk is. Enter refreshes it. |
 | NETWORK | Your local IP address. Enter refreshes it. |
 | USER MANUAL | Opens this manual. Nothing in it can be changed. |
+
+In the manual, Up/Down selects a Contents point and Enter jumps to it. The
+appendices are in the same list; Page Up/Down scrolls and Home returns to
+Contents.
 
 ### Using it
 

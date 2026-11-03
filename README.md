@@ -194,8 +194,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.31.5 │
-  │   UPDATE       check github for a new version       0.31.5 │
+  │   INFO         CRead OS and device info             0.31.6 │
+  │   UPDATE       check github for a new version       0.31.6 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -204,8 +204,10 @@ SETTINGS
 ```
 
 `USER MANUAL` opens the manual that ships inside the binary: the same text
-as `crates/app/src/manual.md`, read-only, with a scrollbar on the right. It is
-not an Inspiro document; `Esc` takes you back to SETTINGS.
+as `crates/app/src/manual.md`, read-only, with a scrollbar on the right. Its
+Contents and appendices are a menu: Up/Down selects a point, Enter jumps to it,
+and Page Up/Down scrolls. It is not an Inspiro document; `Esc` takes you back
+to SETTINGS.
 
 WebDAV syncs the *vault* — documents, pictures and ROMs — so it is set up here,
 next to the other switches that belong to the machine. `Enter` acts on the

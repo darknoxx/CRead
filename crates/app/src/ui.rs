@@ -921,6 +921,12 @@ pub struct ManualView<'a> {
     pub clock: &'a str,
     pub rows: &'a [markdown::Rendered],
     pub top: usize,
+    /// Rendered rows of the selected contents entry, as `[start, end)`.
+    pub selection: Option<(usize, usize)>,
+    pub nav: bool,
+    /// Zero-based selected contents entry and how many exist.
+    pub choice: usize,
+    pub choices: usize,
 }
 
 /// The user manual: read-only Markdown in the theme's page, with a scrollbar.
@@ -945,7 +951,16 @@ pub fn draw_manual(screen: &mut Screen, theme: &Theme, view: &ManualView<'_>) {
     let margin = margin as u32;
     let total = view.rows.len();
     let top = view.top.min(total.saturating_sub(1));
-    draw_rendered_rows(screen, theme, view.rows, top, 2, height, margin);
+    draw_rendered_rows(
+        screen,
+        theme,
+        view.rows,
+        top,
+        2,
+        height,
+        margin,
+        view.selection,
+    );
     draw_scrollbar(
         screen,
         theme,
@@ -962,13 +977,25 @@ pub fn draw_manual(screen: &mut Screen, theme: &Theme, view: &ManualView<'_>) {
     let bar = rows.saturating_sub(1);
     let (fg, bg) = (theme.status_fg, theme.status_bg);
     screen.fill_row(bar, Cell::blank(fg, bg));
-    let left = format!(
-        " Esc back  \u{00b7}  {}/{} ",
-        (top + 1).min(total.max(1)),
-        total.max(1)
-    );
+    let left = if view.nav {
+        format!(
+            " Esc back  \u{00b7}  Contents {}/{} ",
+            (view.choice + 1).min(view.choices.max(1)),
+            view.choices.max(1)
+        )
+    } else {
+        format!(
+            " Esc back  \u{00b7}  {}/{} ",
+            (top + 1).min(total.max(1)),
+            total.max(1)
+        )
+    };
     screen.put_str(0, bar, &left, fg, bg);
-    let right = "\u{2191}\u{2193} scroll   Page Up/Down ";
+    let right = if view.nav {
+        "\u{2191}\u{2193} select   Enter go   PgUp/PgDn scroll "
+    } else {
+        "\u{2191}\u{2193} scroll   Home contents   PgUp/PgDn "
+    };
     let x = cols.saturating_sub(right.chars().count() as u32 + 1);
     if x > left.chars().count() as u32 + 1 {
         screen.put_str(x, bar, right, theme.status_dim, bg);
@@ -992,6 +1019,9 @@ pub struct ReaderView<'a> {
 }
 
 /// Paint rendered Markdown rows into the text area.
+// The reader and the manual use the same painter; the manual adds one optional
+// selection span, which is not worth a wrapper struct.
+#[allow(clippy::too_many_arguments)]
 fn draw_rendered_rows(
     screen: &mut Screen,
     theme: &Theme,
@@ -1000,12 +1030,27 @@ fn draw_rendered_rows(
     first_row: u32,
     height: usize,
     margin: u32,
+    selection: Option<(usize, usize)>,
 ) {
     let last = screen.rows().saturating_sub(2);
     for (i, row) in rows.iter().skip(top).take(height).enumerate() {
         let y = first_row + i as u32;
         if y >= last {
             break;
+        }
+        let selected = selection.is_some_and(|(start, end)| {
+            let index = top + i;
+            index >= start && index < end
+        });
+        if selected {
+            screen.hline(
+                1,
+                y,
+                screen.cols().saturating_sub(2),
+                ' ',
+                theme.bg,
+                theme.fg,
+            );
         }
         let mut span_idx = 0;
         for (offset, ch) in row.text.chars().enumerate() {
@@ -1018,7 +1063,11 @@ fn draw_rendered_rows(
                 .filter(|s| offset >= s.start && offset < s.end)
                 .map(|s| s.kind)
                 .unwrap_or(Kind::Normal);
-            let (fg, bg) = style_for(kind, theme);
+            let (fg, bg) = if selected {
+                (theme.bg, theme.fg)
+            } else {
+                style_for(kind, theme)
+            };
             screen.put(margin + offset as u32, y, Cell::new(ch, fg, bg));
         }
     }
@@ -1047,7 +1096,9 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
     let margin = margin as u32;
     let top = view.top.min(view.rows.len().saturating_sub(1));
 
-    draw_rendered_rows(screen, theme, view.rows, top, first_row, height, margin);
+    draw_rendered_rows(
+        screen, theme, view.rows, top, first_row, height, margin, None,
+    );
     draw_scrollbar(
         screen,
         theme,

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.31.6
+
+- **The manual's Contents is a menu.** Up/Down moves a highlighted cursor
+  through quick-start steps, chapters and appendices, skipping the `Part …`
+  headings. Enter jumps to the matching heading; Page Up/Down scrolls and Home
+  returns to Contents. The footer says which keys are live.
+
 ## 0.31.5
 
 A full audit pass: crashes, silent overwrites and sync edge cases.
