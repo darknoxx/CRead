@@ -19,6 +19,7 @@ impl App {
         self.softhand_at = None;
         self.riff_at = None;
         self.poker_at = None;
+        self.scripture_at = None;
 
         if !self.standalone_screen(&mut screen) {
             if self.dialog_open() {
@@ -604,6 +605,28 @@ impl App {
                     title_row,
                     &tagline,
                     "PRESS ENTER TO PLAY",
+                    &self.command,
+                    hint,
+                    error,
+                );
+            } else if self.home == Home::Scripture {
+                let title_row =
+                    match front_door_layout(&self.scripture_logo, max_w, max_h, cols, rows) {
+                        Some((x, y, divisor, img_rows)) => {
+                            self.scripture_at = (!overlay_open).then_some((x, y, divisor));
+                            rows.saturating_sub(img_rows + 1 + 3) / 2 + img_rows + 1
+                        }
+                        None => {
+                            self.scripture_at = None;
+                            rows.saturating_sub(3) / 2
+                        }
+                    };
+                ui::draw_front_door(
+                    screen,
+                    &self.theme,
+                    title_row,
+                    "a quiet place for the Word.",
+                    "PRESS ENTER TO READ",
                     &self.command,
                     hint,
                     error,

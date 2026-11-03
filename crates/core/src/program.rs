@@ -135,6 +135,13 @@ pub trait Program {
         false
     }
 
+    /// Consume Escape before the shell opens its command prompt. A program
+    /// with a modal of its own (the SCRIPTURE chapter grid) returns true when
+    /// it closed that modal.
+    fn escape(&mut self) -> bool {
+        false
+    }
+
     /// Whether this program has an undo/redo to offer. The shell's `undo`
     /// command asks before it says anything.
     fn undo(&mut self) -> bool {

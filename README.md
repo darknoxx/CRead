@@ -75,7 +75,8 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        B: SOFTHAND    16 colors, endless possibilities.
                        C: RIFF        a Soundtrack for your life.
                        D: POCKETBOI   get gaming, my friend!
-                       E: US POKER ten dollars and a dream.
+                       E: US POKER    ten dollars and a dream.
+                       F: SCRIPTURE   a quiet place for the Word.
                        ─────────────────────────────────────────
                        SOFTWARE       install and remove modules
                        THE VAULT      documents, pictures, cartridges, calendar
@@ -86,8 +87,9 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
 The letters are the modules, handed out in the order you installed them: install
 Riff before Softhand and Riff becomes `B`. Below the rule sit the shelf, the
 vault and the settings, which are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
-**Softhand** (paint), **Riff** (music), **Pocketboi** (games) and
-**US Poker** sit in the shelf until you switch them on there. Every module
+**Softhand** (paint), **Riff** (music), **Pocketboi** (games), **US Poker**
+and **SCRIPTURE** (the English Bible) sit in the shelf until you switch them on
+there. Every module
 opens with a fake loading bar before its own front door appears.
 
 ```
@@ -194,8 +196,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.31.6 │
-  │   UPDATE       check github for a new version       0.31.6 │
+  │   INFO         CRead OS and device info             0.32.0 │
+  │   UPDATE       check github for a new version       0.32.0 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -228,7 +230,8 @@ SOFTWARE                                  install and remove modules
   │   SOFTHAND  16 colors, endless possibilities.     install │
   │   RIFF      a Soundtrack for your life.           install │
   │   POCKETBOI get gaming, my friend!                install │
-  │   US POKER ten dollars and a dream.         install │
+  │   US POKER   ten dollars and a dream.             install │
+  │   SCRIPTURE  a quiet place for the Word.          install │
   └──────────────────────────────────────────────────────────┘
 ```
 
@@ -489,6 +492,25 @@ three-note win, the loss buzzer, the card and coin clicks — are generated in
 the program and go through `cread-sound`, like Pocketboi's speaker. `M` or
 `mute` silences them.
 
+## SCRIPTURE
+
+SCRIPTURE is the English Bible reader, installed from the `SOFTWARE` shelf like
+the other modules. Its cover uses the supplied SCRIPTURE logo; `Enter` opens the
+reader. The left column lists all 66 books in their Old and New Testament
+groups, the right side shows the chapter as flowing text with verse numbers in
+the margin, and the right-hand scrollbar is the same one Inspiro uses.
+
+`Tab` switches between the book list and the text, `Up`/`Down` chooses a book
+or scrolls, `Left`/`Right` changes chapter, `Enter` opens the selected book and
+`C` opens a chapter grid for long books such as Psalms. `Esc` opens the command
+line; `exit` returns to the cover first. The reader keeps its place in
+`~/.config/cread/scripture.state`.
+
+There is no separate light/dark or font-size switch: SCRIPTURE follows the
+theme and face selected in SETTINGS. Its text is the public-domain Webster's
+World Bible (1913); the German edition is not included. No Python or Qt code
+from EZScripture is used — only the English text.
+
 ## How the picture is built
 
 The emulated resolution is never scaled fractionally. For a physical surface of
@@ -720,6 +742,7 @@ assets/inspiro…  the same, for Inspiro's front door
 assets/softhand… and for Softhand's
 assets/riff…     and for Riff's
 assets/american… and for US Poker's front door
+assets/scripture… and for SCRIPTURE's cover
 LICENSE          MIT
 THIRD-PARTY.md   what is not ours, and its terms
 ```
@@ -734,9 +757,9 @@ variant from the same pack. `font thin` swaps them at runtime and the choice is
 remembered.
 
 The boot logo (`assets/splash.png`), the Inspiro logo (`assets/inspiro.png`), the
-Softhand logo (`assets/softhand.png`) and the US Poker logo
-(`assets/american_logo.png`) are blitted at their native size in
-emulated pixels, so they keep hard edges
+Softhand logo (`assets/softhand.png`), the US Poker logo
+(`assets/american_logo.png`) and the SCRIPTURE logo (`assets/scripture.png`) are
+blitted at their native size in emulated pixels, so they keep hard edges
 through the CRT upscale. Themes tint them with the text colour: ink on paper,
 light on the dark schemes.
 
@@ -750,7 +773,8 @@ the raw 256 x 16 byte bitmap. The handful of glyphs CP437 never had (`€`, `„
 CRead is MIT — see [`LICENSE`](LICENSE). The pixel art in `assets/` is under the
 same terms.
 
-Two things are not: the bitmap fonts are CC BY-SA 4.0 (VileR's *Ultimate
-Oldschool PC Font Pack*), and the vendored emulator `vendor/mizu-core` is MIT
-with CRead's patches on top. [`THIRD-PARTY.md`](THIRD-PARTY.md) has the details
+Not CRead's own work: the bitmap fonts are CC BY-SA 4.0 (VileR's *Ultimate
+Oldschool PC Font Pack*), the vendored emulator `vendor/mizu-core` is MIT with
+CRead's patches on top, and SCRIPTURE's English text is the public-domain
+Webster's World Bible (1913). [`THIRD-PARTY.md`](THIRD-PARTY.md) has the details
 and the full dependency list.

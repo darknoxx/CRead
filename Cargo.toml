@@ -10,10 +10,11 @@ members = [
     "crates/programs/softhand",
     "crates/programs/pocketboi",
     "crates/programs/poker",
+    "crates/programs/scripture",
 ]
 
 [workspace.package]
-version = "0.31.6"
+version = "0.32.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/darknoxx/CRead"
@@ -28,6 +29,7 @@ cread-update = { path = "crates/update" }
 cread-softhand = { path = "crates/programs/softhand" }
 cread-pocketboi = { path = "crates/programs/pocketboi" }
 cread-poker = { path = "crates/programs/poker" }
+cread-scripture = { path = "crates/programs/scripture" }
 
 [profile.release]
 opt-level = 3

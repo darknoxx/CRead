@@ -91,6 +91,10 @@ impl App {
             self.leave_poker();
             return Ok(String::new());
         }
+        if self.program_id == Some("scripture") {
+            self.leave_scripture();
+            return Ok(String::new());
+        }
         // On the boot screen `exit` means what it means everywhere else: stop
         // the program. That is CRead itself.
         if !self.has_document && self.program.is_none() && self.home == Home::Boot {

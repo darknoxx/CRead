@@ -1,9 +1,10 @@
 # Third-party notices
 
 CRead itself is MIT; see [`LICENSE`](LICENSE). The pixel art in `assets/`
-(splash, Inspiro, Softhand and Riff logos) ships under the same terms.
+(splash, Inspiro, Softhand, Riff, US Poker and SCRIPTURE logos) ships under the
+same terms.
 
-Three things in this repository are not CRead's own work.
+Four things in this repository are not CRead's own work.
 
 ## mizu-core 1.3.0 — MIT, vendored and patched
 
@@ -24,6 +25,15 @@ data extracted from VileR's *The Ultimate Oldschool PC Font Pack v2.2*
 The share-alike applies to those font files, not to the program that renders
 them. [`assets/fonts/README.md`](assets/fonts/README.md) records the source and
 the extraction step.
+
+## English Bible text — public domain
+
+`crates/programs/scripture/data/` contains the 66 books of the **Webster's
+World Bible (1913)**, copied from the `bible_en/` folder of the author's
+EZScripture project. The text is public domain. The Rust reader is an
+independent implementation; the EZScripture Python/Qt code is not included.
+[`crates/programs/scripture/data/README.md`](crates/programs/scripture/data/README.md)
+records the source and the small typographic normalisation.
 
 ## crates.io dependencies
 

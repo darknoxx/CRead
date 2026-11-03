@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.32.0
+
+- **SCRIPTURE**, an English Bible reader, is available from SOFTWARE. It is
+  compiled in but stays off the boot screen until installed, like the other
+  modules. The supplied logo is its cover.
+- The reader contains all 66 books of the public-domain Webster's World Bible
+  (1913), with an Old/New Testament book list, flowing chapter text, verse
+  numbers, a chapter grid and the same scrollbar as Inspiro. It remembers the
+  book, chapter and scroll position in `~/.config/cread/scripture.state`.
+- There is no separate light/dark or font-size setting: SCRIPTURE uses the
+  active CRead theme and face. The German Bible is not included.
+- The scrollbar renderer now lives in `cread-core`, so the shell and programs
+  share one implementation.
+- `--show scripture` shows the cover and `--show scriptureread` the reader,
+  both useful for screenshots.
+
 ## 0.31.6
 
 - **The manual's Contents is a menu.** Up/Down moves a highlighted cursor

@@ -300,6 +300,8 @@ enum Home {
     Riff,
     /// American Poker's front door.
     Poker,
+    /// SCRIPTURE's front door: a quiet cover before the reader opens.
+    Scripture,
 }
 
 /// What happens when the loading bar finishes.
@@ -399,6 +401,11 @@ pub const PROGRAMS: &[ProgramInfo] = &[
         entry: "US POKER",
         tagline: "ten dollars and a dream.",
     },
+    ProgramInfo {
+        id: "scripture",
+        entry: "SCRIPTURE",
+        tagline: "a quiet place for the Word.",
+    },
 ];
 
 /// The home screen a program opens onto.
@@ -407,6 +414,7 @@ fn program_home(index: usize) -> Home {
         Some("softhand") => Home::SoftHand,
         Some("riff") => Home::Riff,
         Some("poker") => Home::Poker,
+        Some("scripture") => Home::Scripture,
         _ => Home::Boot,
     }
 }
@@ -524,6 +532,8 @@ struct App {
     riff_at: Option<(i32, i32, u32)>,
     poker_logo: Option<Splash>,
     poker_at: Option<(i32, i32, u32)>,
+    scripture_logo: Option<Splash>,
+    scripture_at: Option<(i32, i32, u32)>,
     /// The screensaver is switched on in SETTINGS.
     screensaver_on: bool,
     /// Minutes of silence before it starts.
@@ -736,6 +746,10 @@ impl App {
                 .map_err(|e| eprintln!("cread: poker logo: {e}"))
                 .ok(),
             poker_at: None,
+            scripture_logo: Splash::from_png(include_bytes!("../../../assets/scripture.png"))
+                .map_err(|e| eprintln!("cread: scripture logo: {e}"))
+                .ok(),
+            scripture_at: None,
             screensaver_on,
             screensaver_minutes,
             clock_24h,
@@ -1020,6 +1034,12 @@ impl App {
                 self.fb.draw_splash(logo, x, y, divisor, &style);
             }
             if let (Some(logo), Some((x, y, divisor))) = (self.poker_logo.as_ref(), self.poker_at) {
+                let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
+                self.fb.draw_splash(logo, x, y, divisor, &style);
+            }
+            if let (Some(logo), Some((x, y, divisor))) =
+                (self.scripture_logo.as_ref(), self.scripture_at)
+            {
                 let style = SplashStyle::Ink(self.theme.color(self.theme.fg));
                 self.fb.draw_splash(logo, x, y, divisor, &style);
             }
@@ -1818,6 +1838,14 @@ impl App {
         }
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
+                let consumed = self
+                    .program
+                    .as_mut()
+                    .is_some_and(|program| program.escape());
+                if consumed {
+                    self.poke();
+                    return;
+                }
                 self.program_prompt = true;
                 self.command.clear();
                 self.command_error.clear();
@@ -1834,6 +1862,8 @@ impl App {
                 if done {
                     if self.program_id == Some("poker") {
                         self.leave_poker();
+                    } else if self.program_id == Some("scripture") {
+                        self.leave_scripture();
                     } else {
                         self.leave_to_boot();
                     }
@@ -2017,6 +2047,8 @@ impl App {
                     self.to_write();
                 } else if self.home == Home::Poker {
                     self.start_poker();
+                } else if self.home == Home::Scripture {
+                    self.start_scripture();
                 } else {
                     self.boot_activate();
                 }
@@ -2785,6 +2817,39 @@ impl App {
         self.picture_path = None;
         self.program_prompt = false;
         self.program_point = (-1, -1);
+        self.mode = Mode::Action;
+        self.command.clear();
+        self.command_error.clear();
+        self.dirty = true;
+    }
+
+    /// Open the Bible reader from its cover.
+    fn start_scripture(&mut self) {
+        let scripture = if self.persist && self.opts.screenshot.is_none() {
+            cread_scripture::Scripture::new()
+        } else {
+            let path = std::env::temp_dir()
+                .join(format!("cread-scripture-app-{}.state", std::process::id()));
+            cread_scripture::Scripture::new_at(path, false)
+        };
+        self.program = Some(Box::new(scripture));
+        self.program_id = Some("scripture");
+        self.home = Home::Scripture;
+        self.mode = Mode::Program;
+        self.program_prompt = false;
+        self.command.clear();
+        self.command_error.clear();
+        self.dirty = true;
+    }
+
+    /// Leaving the reader returns to its cover, where the logo and the reading
+    /// position are the next thing one expects to see.
+    fn leave_scripture(&mut self) {
+        self.close_program();
+        self.picture_path = None;
+        self.program_prompt = false;
+        self.program_point = (-1, -1);
+        self.home = Home::Scripture;
         self.mode = Mode::Action;
         self.command.clear();
         self.command_error.clear();
@@ -4023,6 +4088,17 @@ impl ApplicationHandler for App {
                 self.home = Home::Poker;
                 self.mode = Mode::Action;
             }
+            "scripture" => {
+                self.home = Home::Scripture;
+                self.mode = Mode::Action;
+            }
+            "scriptureread" => self.start_scripture(),
+            "scripturegrid" => {
+                self.start_scripture();
+                if let Some(program) = self.program.as_mut() {
+                    program.key(KeyPress::Char('c'));
+                }
+            }
             "pokerplay" => self.start_poker(),
             "pokerhand" => self.show_poker(cread_poker::Poker::demo_hand()),
             "pokerrisk" => self.show_poker(cread_poker::Poker::demo_risk()),
@@ -5080,6 +5156,52 @@ mod tests {
     }
 
     #[test]
+    fn scripture_is_installable_and_opens_from_its_cover() {
+        let dir = vault("scripture-front");
+        let mut app = app_in(&dir);
+        let index = PROGRAMS
+            .iter()
+            .position(|program| program.id == "scripture")
+            .expect("the scripture module");
+        let row = app
+            .software_rows()
+            .into_iter()
+            .find(|row| row.name == "SCRIPTURE")
+            .expect("SCRIPTURE on the shelf");
+        assert_eq!(row.value, "install");
+        app.prefs.installed.push("scripture".into());
+        assert!(
+            app.boot_items()
+                .iter()
+                .any(|item| matches!(item, BootItem::Program(i) if *i == index)),
+            "the installed module appears on the boot screen"
+        );
+
+        app.pending = Some(Pending::Program(index));
+        app.finish_loading();
+        assert_eq!(app.home, Home::Scripture);
+        assert_eq!(app.mode, Mode::Action, "the logo is the front door");
+
+        app.compose();
+        assert!(app.scripture_at.is_some(), "the cover logo is placed");
+        assert!(rows_as_text(&app.screen).contains("PRESS ENTER TO READ"));
+
+        app.start_scripture();
+        assert_eq!(app.program_id, Some("scripture"));
+        assert_eq!(app.mode, Mode::Program);
+        app.compose();
+        let text = rows_as_text(&app.screen);
+        assert!(text.contains("SCRIPTURE"));
+        assert!(text.contains("GENESIS 1/50"));
+
+        app.leave_scripture();
+        assert!(app.program.is_none());
+        assert_eq!(app.home, Home::Scripture);
+        assert_eq!(app.mode, Mode::Action);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_software_screen_lists_the_system_and_the_modules() {
         let dir = vault("software-rows");
         let mut app = app_in(&dir);
@@ -5693,8 +5815,8 @@ mod tests {
         let jumps = manual_jumps();
         assert_eq!(
             jumps.len(),
-            26,
-            "8 quick-start steps, 13 chapters, 5 appendices"
+            27,
+            "8 quick-start steps, 14 chapters, 5 appendices"
         );
         assert_eq!(jumps[0].label, "1. Starting");
         assert!(jumps.iter().all(|jump| !jump.label.starts_with("Part")));

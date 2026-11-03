@@ -6,6 +6,7 @@
 use cread_core::{
     Cell, Screen, Span, Stats, Theme, VisualRow,
     markdown::{self, Kind},
+    scrollbar::{self, Scroll},
 };
 
 /// Rows reserved above and below the text area: a title bar, a blank line, the
@@ -27,18 +28,7 @@ pub fn text_height(rows: u32) -> usize {
     rows.saturating_sub(CHROME_ROWS).max(1) as usize
 }
 
-/// Where a scrollable screen is: the first visible row and how many there are.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Scroll {
-    pub first: usize,
-    pub visible: usize,
-    pub total: usize,
-}
-
-/// A one-column scrollbar: a track and a thumb that follows the view.
-///
-/// Drawn at `x` between `top` and `bottom` (inclusive). Nothing appears when
-/// the whole content fits, so a short document has no furniture.
+/// Draw the shared scrollbar in the current theme's colours.
 pub fn draw_scrollbar(
     screen: &mut Screen,
     theme: &Theme,
@@ -47,28 +37,16 @@ pub fn draw_scrollbar(
     bottom: u32,
     scroll: Scroll,
 ) {
-    let Scroll {
-        first,
-        visible,
-        total,
-    } = scroll;
-    if total <= visible || visible == 0 || bottom < top {
-        return;
-    }
-    let height = (bottom - top + 1) as usize;
-    let thumb = ((visible * height) / total).max(1).min(height);
-    let travel = height - thumb;
-    let max_first = total - visible;
-    let offset = first.min(max_first) * travel / max_first;
-    for row in 0..height {
-        let in_thumb = row >= offset && row < offset + thumb;
-        let (ch, colour) = if in_thumb {
-            ('\u{2588}', theme.accent)
-        } else {
-            ('\u{2502}', theme.dim)
-        };
-        screen.put(x, top + row as u32, Cell::new(ch, colour, theme.bg));
-    }
+    scrollbar::draw_scrollbar(
+        screen,
+        x,
+        top,
+        bottom,
+        scroll,
+        theme.dim,
+        theme.accent,
+        theme.bg,
+    );
 }
 
 /// What occupies the bottom line.

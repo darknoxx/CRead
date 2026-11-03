@@ -42,11 +42,12 @@ For beginners. No prior knowledge needed.
 6. Riff — listening to music
 7. Pocketboi — games
 8. US Poker — the machine
-9. Calendar — appointments
-10. The settings
-11. The screensaver
-12. Backing up with WebDAV
-13. Updates
+9. SCRIPTURE — the Bible
+10. Calendar — appointments
+11. The settings
+12. The screensaver
+13. Backing up with WebDAV
+14. Updates
 
 **Appendices**
 
@@ -640,7 +641,38 @@ buzzes, and the deal, hold and cash-out click. `M` or `mute` silences them.
 
 ---
 
-## Chapter 9: Calendar — appointments
+## Chapter 9: SCRIPTURE — the Bible
+
+SCRIPTURE is the English Bible reader. Install it through **SOFTWARE** like
+the other modules. Its cover shows the SCRIPTURE logo and the reading position
+from your last visit; press **Enter** to open the text.
+
+The left column lists all 66 books, separated into the Old and New Testament.
+The right side shows the chapter as flowing text, with the verse numbers in
+the margin. The scrollbar on the right is the same one Inspiro uses: it appears
+only when the chapter is longer than the screen.
+
+| Key | Effect |
+| --- | --- |
+| Tab | Move between the book list and the text. |
+| Up / Down | Choose a book, or scroll the text. |
+| Left / Right | Previous or next chapter. |
+| Enter | Open the selected book. |
+| C | Open the chapter grid. |
+| Page Up / Down | Scroll a screen at a time. |
+| Esc | The command line (`exit`). |
+
+The chapter grid is useful for long books such as Psalms; use the arrows to
+choose a chapter and `Enter` to open it, or `Esc` to close the grid without
+changing chapter. The reader keeps its own place in
+`~/.config/cread/scripture.state`, so the next visit continues where you
+stopped.
+
+SCRIPTURE uses the theme you chose in SETTINGS; there is no separate light or
+dark switch in the module. Its English text is the public-domain Webster's
+World Bible (1913); the German edition is not included.
+
+## Chapter 10: Calendar — appointments
 
 The calendar is a system screen: open it from **CALENDAR** on the start
 screen, or type `calendar` at any prompt. It uses the files in the
@@ -724,7 +756,7 @@ bringing a deleted appointment back from the server. Conflict copies
 
 ---
 
-## Chapter 10: The settings
+## Chapter 11: The settings
 
 You reach **SETTINGS** from the start screen. The rows are sorted into
 groups.
@@ -784,7 +816,7 @@ Contents.
 
 ---
 
-## Chapter 11: The screensaver
+## Chapter 12: The screensaver
 
 If you do nothing for a while, the screen turns black. A large clock with
 hour, minute and second hands appears in the middle.
@@ -809,7 +841,7 @@ minutes.
 
 ---
 
-## Chapter 12: Backing up with WebDAV
+## Chapter 13: Backing up with WebDAV
 
 CRead can back up your files to a server automatically. That is
 voluntary. Without settings, nothing happens.
@@ -875,7 +907,7 @@ SYNC TO SERVER?
 
 ---
 
-## Chapter 13: Updates
+## Chapter 14: Updates
 
 CRead can update itself. That is voluntary and only happens when you
 start it.
