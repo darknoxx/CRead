@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.31.3
+
+- **Unsaved calendar changes are protected.** The form's top bar shows
+  `UNSAVED` as soon as a field changes; `Esc` then asks before discarding.
+  Only `SAVE` writes the Markdown file, and leaving the month view never
+  touches saved entries. This addresses entries disappearing after an
+  accidental `Esc` in the form.
+- **Saving was already reliable once `SAVE` ran**; the tests write and reload
+  the file. The local dev vault contained no `Calendar/` folder before this
+  change, so nothing had been written there.
+
 ## 0.31.2
 
 - **The form cursor is visible.** The caret was drawn black on the black field;

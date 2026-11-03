@@ -63,6 +63,8 @@ pub(super) struct EventForm {
     pub(super) repeat: String,
     pub(super) field: usize,
     pub(super) editing: bool,
+    pub(super) dirty: bool,
+    pub(super) confirm_discard: bool,
     pub(super) error: String,
 }
 
@@ -78,6 +80,8 @@ impl EventForm {
             repeat: "none".into(),
             field: 0,
             editing: false,
+            dirty: false,
+            confirm_discard: false,
             error: String::new(),
         }
     }
@@ -101,6 +105,8 @@ impl EventForm {
             repeat: entry.event.repeat.as_str().into(),
             field: 0,
             editing: false,
+            dirty: false,
+            confirm_discard: false,
             error: String::new(),
         }
     }
@@ -473,10 +479,33 @@ impl App {
         let Some(form) = self.calendar_form.as_mut() else {
             return;
         };
+        if form.confirm_discard {
+            match &event.logical_key {
+                Key::Character(text) if text.eq_ignore_ascii_case("y") => {
+                    self.calendar_form = None;
+                    self.mode = Mode::Calendar;
+                    self.dirty = true;
+                }
+                Key::Character(text) if text.eq_ignore_ascii_case("n") => {
+                    form.confirm_discard = false;
+                    self.poke();
+                }
+                Key::Named(NamedKey::Escape) => {
+                    form.confirm_discard = false;
+                    self.poke();
+                }
+                _ => {}
+            }
+            return;
+        }
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
-                self.calendar_form = None;
-                self.mode = Mode::Calendar;
+                if form.dirty {
+                    form.confirm_discard = true;
+                } else {
+                    self.calendar_form = None;
+                    self.mode = Mode::Calendar;
+                }
                 self.dirty = true;
             }
             Key::Named(NamedKey::Enter) => {
@@ -504,6 +533,7 @@ impl App {
             Key::Named(NamedKey::Backspace) => {
                 if form.editing {
                     form.active_value_mut().pop();
+                    form.dirty = true;
                 }
                 self.poke();
             }
@@ -515,8 +545,10 @@ impl App {
                         "weekly".into()
                     };
                     form.editing = true;
+                    form.dirty = true;
                 } else if form.editing {
                     form.active_value_mut().push(' ');
+                    form.dirty = true;
                 }
                 self.poke();
             }
@@ -527,6 +559,7 @@ impl App {
                 for ch in text.chars().filter(|ch| !ch.is_control()) {
                     form.active_value_mut().push(ch);
                 }
+                form.dirty = true;
                 self.poke();
             }
             _ => {}
@@ -864,13 +897,18 @@ impl App {
         } else {
             "NEW EVENT"
         };
+        let title = if form.dirty {
+            format!("{title} · UNSAVED")
+        } else {
+            title.to_string()
+        };
         screen.fill(Cell::blank(self.theme.fg, self.theme.bg));
         ui::draw_top_bar(
             screen,
             &self.theme,
             &ui::TopBar {
                 title: "CALENDAR",
-                state: title,
+                state: &title,
                 clock: &clock,
                 location: "Calendar",
             },
@@ -907,7 +945,7 @@ impl App {
                 Cell::new('\u{2551}', self.theme.fg, self.theme.bg),
             );
         }
-        screen.put_str(left + 3, top + 1, title, self.theme.accent, self.theme.bg);
+        screen.put_str(left + 3, top + 1, &title, self.theme.accent, self.theme.bg);
         let values = form.values();
         for (index, (label, value)) in values.iter().enumerate() {
             let y = top + 3 + index as u32 * 2;
@@ -1004,5 +1042,14 @@ impl App {
             self.theme.dim,
             self.theme.bg,
         );
+        if form.confirm_discard {
+            ui::draw_confirm(
+                screen,
+                &self.theme,
+                "DISCARD EVENT?",
+                "Changes have not been saved.",
+                false,
+            );
+        }
     }
 }

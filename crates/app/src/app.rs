@@ -4505,6 +4505,25 @@ mod tests {
     }
 
     #[test]
+    fn an_unsaved_calendar_form_is_marked_and_warns_before_discarding() {
+        let dir = vault("calendar-unsaved");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        app.new_event_form();
+        {
+            let form = app.calendar_form.as_mut().unwrap();
+            form.title = "Draft".into();
+            form.dirty = true;
+        }
+        app.compose();
+        assert!(rows_as_text(&app.screen).contains("UNSAVED"));
+        app.calendar_form.as_mut().unwrap().confirm_discard = true;
+        app.compose();
+        assert!(rows_as_text(&app.screen).contains("DISCARD EVENT?"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn calendar_edit_shows_a_visible_cursor() {
         let dir = vault("calendar-cursor");
         let mut app = app_in(&dir);

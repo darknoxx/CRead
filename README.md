@@ -193,8 +193,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.31.2 │
-  │   UPDATE       check github for a new version       0.31.2 │
+  │   INFO         CRead OS and device info             0.31.3 │
+  │   UPDATE       check github for a new version       0.31.3 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -322,7 +322,9 @@ shows a cursor; `Enter` again confirms and moves to the next field. `Tab` still
 moves between fields, the last row is `SAVE`, and `Enter` on it writes the file.
 Space toggles `Repeat` between `none` and `weekly`; in every other field it is an
 ordinary space. Leave `Remind` empty for no alarm (an all-day event has none
-either). Titles and notes may contain spaces.
+either). Titles and notes may contain spaces. Only `SAVE` writes the file; while
+there are unsaved changes the top bar says `UNSAVED`, and `Esc` asks before
+discarding them.
 
 A due reminder double-beeps and puts a small window in front: `Enter` opens the
 calendar on that appointment, `Esc` closes it. If the screensaver was running,

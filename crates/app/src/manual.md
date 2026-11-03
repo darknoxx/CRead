@@ -675,7 +675,9 @@ The form opens with the first field selected. `Enter` selects it and shows a
 cursor; `Enter` again confirms and moves to the next field. `Tab` still moves
 between fields, the last row is `SAVE`, and `Enter` on it saves. `Esc` cancels.
 Space toggles Repeat between `none` and `weekly`; in other fields it is a normal
-space. Leave Remind empty for no alarm.
+space. Leave Remind empty for no alarm. Only `SAVE` writes the file; the top bar
+says `UNSAVED` while there are unsaved changes, and `Esc` asks before discarding
+them.
 
 Files look like this:
 
