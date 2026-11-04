@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.32.1
+
+- **SCRIPTURE's scrollbar now uses the active theme's dim and accent colours**,
+  exactly like Inspiro's. Programs receive those two semantic slots through the
+  new `Program::chrome` hook, so a module's own chrome no longer has to guess
+  from page and ink alone.
+
 ## 0.32.0
 
 - **SCRIPTURE**, an English Bible reader, is available from SOFTWARE. It is

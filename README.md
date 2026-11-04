@@ -196,8 +196,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.32.0 │
-  │   UPDATE       check github for a new version       0.32.0 │
+  │   INFO         CRead OS and device info             0.32.1 │
+  │   UPDATE       check github for a new version       0.32.1 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │

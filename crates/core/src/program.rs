@@ -128,6 +128,13 @@ pub trait Program {
         let _ = (background, ink);
     }
 
+    /// The shell's dim and accent slots. Programs with chrome of their own —
+    /// a scrollbar, a heading, a selected row — use these so they stay in the
+    /// same palette as the rest of CRead.
+    fn chrome(&mut self, dim: u8, accent: u8) {
+        let _ = (dim, accent);
+    }
+
     /// Step back one level inside the program. `exit` asks this first: a
     /// cartridge returns to its shelf, and only the next `exit` leaves the
     /// program. `false` means "nothing left to close, take the screen".

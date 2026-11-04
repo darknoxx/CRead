@@ -78,6 +78,8 @@ pub struct Scripture {
     cache: Option<(usize, Vec<Vec<Verse>>)>,
     paper: u8,
     ink: u8,
+    dim: u8,
+    accent: u8,
     state_path: PathBuf,
     persist: bool,
 }
@@ -119,6 +121,8 @@ impl Scripture {
             cache: None,
             paper: 15,
             ink: 0,
+            dim: 8,
+            accent: 11,
             state_path,
             persist,
         };
@@ -301,7 +305,14 @@ impl Scripture {
             .cols()
             .saturating_sub(right.chars().count() as u32 + 2);
         screen.put_str(x, 0, &right, self.ink, self.paper);
-        screen.hline(1, 1, screen.cols().saturating_sub(2), '─', 8, self.paper);
+        screen.hline(
+            1,
+            1,
+            screen.cols().saturating_sub(2),
+            '─',
+            self.dim,
+            self.paper,
+        );
     }
 
     fn draw_sidebar(&mut self, screen: &mut Screen) {
@@ -316,7 +327,7 @@ impl Scripture {
             let y = 2 + row as u32;
             match item {
                 SidebarLine::Group(name) => {
-                    screen.put_str(SIDEBAR_X, y, name, 8, self.paper);
+                    screen.put_str(SIDEBAR_X, y, name, self.dim, self.paper);
                 }
                 SidebarLine::Book(index) => {
                     let book = &BOOKS[*index];
@@ -340,7 +351,7 @@ impl Scripture {
                 }
             }
         }
-        screen.hline(DIVIDER_X, 2, SIDEBAR_ROWS as u32, '│', 8, self.paper);
+        screen.hline(DIVIDER_X, 2, SIDEBAR_ROWS as u32, '│', self.dim, self.paper);
     }
 
     fn draw_text(&self, screen: &mut Screen) {
@@ -360,7 +371,7 @@ impl Scripture {
             }
             if let Some(number) = row.number {
                 let prefix = format!("{number:>3}  ");
-                screen.put_str(TEXT_X, y, &prefix, 8, self.paper);
+                screen.put_str(TEXT_X, y, &prefix, self.dim, self.paper);
             }
             screen.put_str_ellipsis(
                 TEXT_X + 5,
@@ -381,19 +392,26 @@ impl Scripture {
                 visible: TEXT_ROWS,
                 total: self.rows.len(),
             },
-            8,
-            self.ink,
+            self.dim,
+            self.accent,
             self.paper,
         );
     }
 
     fn draw_footer(&self, screen: &mut Screen) {
-        screen.fill_row(23, Cell::blank(8, self.paper));
+        screen.fill_row(23, Cell::blank(self.dim, self.paper));
         let hint = match self.focus {
             Focus::Books => "↑↓ book   ←→ chapter   Enter read   C chapters   Tab text",
             Focus::Text => "↑↓ scroll   ←→ chapter   Tab books   C chapters",
         };
-        screen.put_str_ellipsis(1, 23, hint, screen.cols().saturating_sub(2), 8, self.paper);
+        screen.put_str_ellipsis(
+            1,
+            23,
+            hint,
+            screen.cols().saturating_sub(2),
+            self.dim,
+            self.paper,
+        );
     }
 
     fn draw_grid(&self, screen: &mut Screen, selected: usize) {
@@ -404,7 +422,14 @@ impl Scripture {
             .cols()
             .saturating_sub(title.chars().count() as u32 + 2);
         screen.put_str(x, 0, &title, self.ink, self.paper);
-        screen.hline(1, 1, screen.cols().saturating_sub(2), '─', 8, self.paper);
+        screen.hline(
+            1,
+            1,
+            screen.cols().saturating_sub(2),
+            '─',
+            self.dim,
+            self.paper,
+        );
         let chapters = BOOKS[self.book].chapters.max(1) as usize;
         for chapter in 1..=chapters {
             let index = chapter - 1;
@@ -423,13 +448,13 @@ impl Scripture {
             }
             screen.put_str(x, y, &format!("{chapter:>3}"), fg, bg);
         }
-        screen.fill_row(23, Cell::blank(8, self.paper));
+        screen.fill_row(23, Cell::blank(self.dim, self.paper));
         screen.put_str_ellipsis(
             1,
             23,
             "↑↓←→ choose   PgUp/PgDn jump   Enter open   Esc back",
             screen.cols().saturating_sub(2),
-            8,
+            self.dim,
             self.paper,
         );
     }
@@ -500,6 +525,11 @@ impl Program for Scripture {
     fn palette(&mut self, background: u8, ink: u8) {
         self.paper = background;
         self.ink = ink;
+    }
+
+    fn chrome(&mut self, dim: u8, accent: u8) {
+        self.dim = dim;
+        self.accent = accent;
     }
 
     fn status(&self) -> String {

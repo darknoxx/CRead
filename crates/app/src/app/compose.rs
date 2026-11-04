@@ -385,6 +385,7 @@ impl App {
             stage.fill(cread_core::Cell::TRANSPARENT);
             if let Some(program) = self.program.as_mut() {
                 program.palette(Raster::nearest(self.theme.background()), ink);
+                program.chrome(self.theme.dim, self.theme.accent);
                 program.draw(&mut stage, &mut raster);
             }
             self.raster = raster;
