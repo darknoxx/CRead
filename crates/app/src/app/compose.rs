@@ -7,6 +7,21 @@
 
 use super::*;
 
+/// Copy an 80x25 screen into the middle of a larger grid. Calendar screens
+/// use the same stage as programs, instead of pinning their fixed coordinates
+/// to the top-left corner of a big display.
+fn blit_centered(screen: &mut Screen, stage: &Screen) {
+    let x = screen.cols().saturating_sub(stage.cols()) / 2;
+    let y = screen.rows().saturating_sub(stage.rows()) / 2;
+    for sy in 0..stage.rows() {
+        for sx in 0..stage.cols() {
+            if let Some(cell) = stage.get(sx, sy) {
+                screen.put(x + sx, y + sy, *cell);
+            }
+        }
+    }
+}
+
 impl App {
     /// Compose the next frame into `self.screen`.
     pub(super) fn compose(&mut self) {
@@ -87,11 +102,17 @@ impl App {
             return true;
         }
         if self.mode == Mode::Calendar {
-            self.draw_calendar(screen);
+            let mut stage = Screen::new(STAGE_COLS, STAGE_ROWS);
+            self.draw_calendar(&mut stage);
+            screen.fill(cread_core::Cell::blank(self.theme.fg, self.theme.bg));
+            blit_centered(screen, &stage);
             return true;
         }
         if self.mode == Mode::CalendarEdit {
-            self.draw_calendar_form(screen);
+            let mut stage = Screen::new(STAGE_COLS, STAGE_ROWS);
+            self.draw_calendar_form(&mut stage);
+            screen.fill(cread_core::Cell::blank(self.theme.fg, self.theme.bg));
+            blit_centered(screen, &stage);
             return true;
         }
         if self.mode == Mode::Software {

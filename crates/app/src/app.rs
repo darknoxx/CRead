@@ -4885,6 +4885,31 @@ mod tests {
     }
 
     #[test]
+    fn the_calendar_is_centred_on_a_large_grid() {
+        let dir = vault("calendar-centre");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        app.screen = Screen::new(160, 50);
+        app.compose();
+        assert_eq!(app.screen.get(0, 0).unwrap().ch, ' ');
+        assert_eq!(
+            app.screen.get(41, 12).unwrap().ch,
+            'C',
+            "the stage starts at (40, 12)"
+        );
+
+        app.new_event_form();
+        app.screen = Screen::new(160, 50);
+        app.compose();
+        assert_eq!(
+            app.screen.get(41, 12).unwrap().ch,
+            'C',
+            "the form uses the same centred stage"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn calendar_loads_the_month_and_the_day_list() {
         let dir = vault("calendar");
         let cal_dir = storage::calendar_in(&dir);

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.32.2
+
+- **The calendar is centred on large displays.** Month grid, day list and the
+  event form now use the same centred 80x25 stage as the modules instead of
+  sitting in the top-left corner of the virtual screen.
+
 ## 0.32.1
 
 - **SCRIPTURE's scrollbar now uses the active theme's dim and accent colours**,
