@@ -69,6 +69,8 @@ pub enum Command {
     Manual,
     /// Open the calendar.
     Calendar,
+    /// Open a quick note over the current screen.
+    Note,
     /// The clock screensaver: start it, switch it on/off, or set the idle time.
     Screensaver(ScreensaverAction),
     About,
@@ -374,6 +376,13 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
     },
     Spec {
+        name: "note",
+        aliases: &["memo"],
+        argument: "",
+        summary: "open a quick note (Esc saves it)",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
+    Spec {
         name: "manual",
         aliases: &["handbook"],
         argument: "",
@@ -536,6 +545,7 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
         "update" => Command::Update,
         "manual" => Command::Manual,
         "calendar" => Command::Calendar,
+        "note" => Command::Note,
         "screensaver" => match rest.to_ascii_lowercase().as_str() {
             "" => Command::Screensaver(ScreensaverAction::Start),
             "on" => Command::Screensaver(ScreensaverAction::Enabled(true)),
@@ -766,6 +776,8 @@ mod tests {
         assert_eq!(parse("update"), Ok(Command::Update));
         assert_eq!(parse("manual"), Ok(Command::Manual));
         assert_eq!(parse("calendar"), Ok(Command::Calendar));
+        assert_eq!(parse("note"), Ok(Command::Note));
+        assert_eq!(parse("memo"), Ok(Command::Note));
         assert_eq!(parse("shutdown"), Ok(Command::Shutdown));
         assert_eq!(parse("poweroff"), Ok(Command::Shutdown));
         assert_eq!(parse("reboot"), Ok(Command::Reboot));

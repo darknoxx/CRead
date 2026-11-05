@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.33.0
+
+- **Quick notes.** `note` (alias `memo`) opens a small floating sheet over the
+  current screen, so a phone number can be typed without leaving the document,
+  game or menu in front. `Esc` writes it immediately to a new `Notes/` vault
+  room and closes the sheet; an empty sheet leaves no file. Notes are ordinary
+  Markdown and sync with the rest of the vault.
+- The vault now has five rooms: `Documents/`, `Pictures/`, `Roms/`, `Calendar/`
+  and `Notes/`.
+
 ## 0.32.3
 
 - **SCRIPTURE exits to the CRead welcome screen**, like the other modules. The

@@ -326,6 +326,16 @@ replace a buffer with unsaved changes; save it first.
 > clean, the top bar says `autosave on` instead of `saved`. By default
 > autosave is off, though.
 
+### Quick notes
+
+Type `note` (or `memo`) at any prompt. A small sheet opens over the current
+screen; the work behind it stays visible. You can type immediately. `Esc` saves
+the text in `Notes/` and closes the sheet. An empty sheet leaves no file.
+
+Notes are ordinary Markdown files. They appear in `THE VAULT` and can be opened
+with Inspiro later. This is the quick path for a phone number or a short thought
+without leaving the current document, game or screen.
+
 ### Renaming and deleting
 
 | Command | Effect |
@@ -969,6 +979,7 @@ The most important commands. Upper and lower case do not matter.
 | `help [all]` | `?`, `h` | Shows the commands. |
 | `manual` | `handbook` | Shows this manual. |
 | `calendar` | `cal` | Appointments, reminders and the month. |
+| `note` | `memo` | Opens a quick note; `Esc` saves it in `Notes/`. |
 | `mute` | `silence` | Silences the running program. |
 | `new` | `n` | New document. |
 | `open [name]` | `o`, `e` | Shows the vault or opens a name. |
@@ -1171,6 +1182,8 @@ cread --vault /path/to/folder
 | Texts | `Documents/` in the vault |
 | Pictures | `Pictures/` in the vault |
 | Games | `Roms/` in the vault |
+| Appointments | `Calendar/` in the vault |
+| Quick notes | `Notes/` in the vault |
 | Music | `~/Musik` or `~/Music` |
 | Settings | `~/.config/cread/` |
 | WebDAV backup | `~/.config/cread/sync.json` |

@@ -134,6 +134,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | `rename <name>` | `mv`, `rn` | rename the current document |
 | `delete` | `rm`, `del` | delete it, after a `y/n` |
 | `find [text]` | `search` | search the document (`Ctrl+F`) |
+| `note` | `memo` | open a quick note; `Esc` saves it in `Notes/` |
 | `view` | `read` | reading mode: markup stripped, nothing to edit |
 | `exit` | `welcome`, `home` | back to the boot screen |
 | `software` | `install`, `modules` | install or remove modules |
@@ -196,8 +197,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.32.3 │
-  │   UPDATE       check github for a new version       0.32.3 │
+  │   INFO         CRead OS and device info             0.33.0 │
+  │   UPDATE       check github for a new version       0.33.0 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -260,6 +261,7 @@ THE VAULT                                documents, pictures, cartridges, calend
   │   Pictures/                                               │
   │   Roms/                                                   │
   │   Calendar/                                               │
+  │   Notes/                                                  │
   └──────────────────────────────────────────────────────────┘
 ```
 
@@ -269,7 +271,7 @@ and `.markdown` in Inspiro, `.png` in Softhand, `.gb`/`.gbc` in Pocketboi.
 Folders first, then files; a file nothing here can open is simply not listed,
 because this is a shelf and not a file manager.
 
-Four folders are the shelf:
+Five folders are the shelf:
 
 | Folder | Holds | Written by |
 | --- | --- | --- |
@@ -277,11 +279,20 @@ Four folders are the shelf:
 | `Pictures/` | 16-colour PNGs | Softhand |
 | `Roms/` | `.gb` and `.gbc` cartridges | you, or a sync from another machine |
 | `Calendar/` | one Markdown file per appointment | the calendar, or an editor |
+| `Notes/` | quick notes as Markdown | the `note` action |
 
 Every program opens in its own room: `open` in Inspiro lists `Documents/`,
 `open` in Softhand lists `Pictures/`, and `THE VAULT` on the boot screen is the
 whole shelf. A room only lists what its program can do something with — a text
 file in `Pictures/` is not a painting and is not shown.
+
+### Quick notes
+
+`note` (or `memo`) at any prompt opens a small floating sheet over the current
+screen. The screen behind it stays visible, so a phone number can be caught
+without leaving what you were doing. Type immediately; `Esc` writes the text to
+`Notes/` and closes the sheet. An empty sheet leaves no file. Notes are ordinary
+Markdown, so `THE VAULT` and Inspiro can open them later.
 
 `saveas` has a fixed home: documents always land in `Documents/`, pictures
 always in `Pictures/`. It refuses a name that already exists; an existing

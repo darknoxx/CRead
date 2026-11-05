@@ -11,6 +11,7 @@ mod calendar;
 mod commands;
 mod compose;
 mod machine;
+mod note;
 mod power;
 mod sync;
 mod update;
@@ -523,6 +524,8 @@ struct App {
     /// Which home screen to show while nothing is open.
     home: Home,
     pending: Option<Pending>,
+    /// The floating quick note, if one is open.
+    note: Option<note::QuickNote>,
     loading_started: Instant,
     inspiro_logo: Option<Splash>,
     softhand_logo: Option<Splash>,
@@ -730,6 +733,7 @@ impl App {
             has_document,
             home: Home::Boot,
             pending: None,
+            note: None,
             loading_started: Instant::now(),
             inspiro_logo: Splash::from_png(include_bytes!("../../../assets/inspiro.png"))
                 .map_err(|e| eprintln!("cread: inspiro logo: {e}"))
@@ -1301,6 +1305,7 @@ impl App {
             storage::pictures_in(&vault),
             storage::roms_in(&vault),
             storage::calendar_in(&vault),
+            storage::notes_in(&vault),
         ] {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -1521,6 +1526,10 @@ impl App {
             return;
         }
         self.last_input = Instant::now();
+        if self.note.is_some() {
+            self.on_key_note(event);
+            return;
+        }
         if self.boot_at.take().is_some() {
             // Impatient: skip straight to the picture, and swallow the key.
             self.next_frame = Instant::now();
@@ -2098,6 +2107,7 @@ impl App {
     /// Has the machine been quiet long enough to rest?
     fn screensaver_due(&self) -> bool {
         self.screensaver_on
+            && self.note.is_none()
             && !matches!(self.mode, Mode::Screensaver | Mode::Reminder)
             && self.boot_at.is_none()
             && !matches!(self.mode, Mode::Loading | Mode::Checking)
@@ -4055,6 +4065,9 @@ impl ApplicationHandler for App {
             }
             "manual" => self.open_manual(self.mode),
             "calendar" => self.open_calendar(),
+            "note" => {
+                let _ = self.open_note();
+            }
             "calendaredit" => {
                 self.open_calendar();
                 self.new_event_form();
@@ -4173,6 +4186,13 @@ impl ApplicationHandler for App {
                 // while it is up means "leave now", exactly as documented.
                 if self.mode == Mode::Quit {
                     el.exit();
+                    return;
+                }
+                if self.note.is_some()
+                    && let Err(e) = self.save_note()
+                {
+                    self.set_status(e);
+                    self.poke();
                     return;
                 }
                 // The event form has its own save path; never throw it away
@@ -4310,6 +4330,9 @@ impl ApplicationHandler for App {
     fn exiting(&mut self, _el: &ActiveEventLoop) {
         self.quit = None;
         // Never lose the last keystrokes on quit.
+        if self.note.is_some() {
+            let _ = self.save_note();
+        }
         if self.doc.editor.modified() {
             let _ = self.save();
         }
@@ -5240,6 +5263,41 @@ mod tests {
         assert!(app.program.is_none());
         assert_eq!(app.home, Home::Boot, "exit goes to the welcome screen");
         assert_eq!(app.mode, Mode::Action);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_quick_note_is_saved_in_the_notes_room() {
+        let dir = vault("note-save");
+        let mut app = app_in(&dir);
+        app.open_note().unwrap();
+        app.note
+            .as_mut()
+            .unwrap()
+            .editor
+            .insert_text("Call 555-0123");
+        app.save_note().unwrap();
+        assert!(app.note.is_none());
+        assert!(app.unsynced);
+        let notes = storage::notes_in(&dir);
+        let files: Vec<_> = std::fs::read_dir(&notes)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .collect();
+        assert_eq!(files.len(), 1);
+        assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), "Call 555-0123");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_empty_note_is_discarded_without_a_file() {
+        let dir = vault("note-empty");
+        let mut app = app_in(&dir);
+        app.open_note().unwrap();
+        app.save_note().unwrap();
+        assert!(app.note.is_none());
+        assert!(!storage::notes_in(&dir).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

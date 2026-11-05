@@ -45,6 +45,7 @@ impl App {
             Command::Update => self.cmd_update(),
             Command::Manual => self.cmd_manual(),
             Command::Calendar => self.cmd_calendar(),
+            Command::Note => self.open_note(),
             Command::Screensaver(action) => self.cmd_screensaver(action),
             Command::Help(argument) => self.cmd_help(argument),
             Command::About => self.cmd_about(),

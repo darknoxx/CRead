@@ -30,8 +30,8 @@ OPTIONS:
         --kiosk             Hand the update restart to the service manager
         --show VIEW         Start in a view: editor | welcome | action | search |
                             view | inspiro | softhand | riff | picture |
-                            software | poker | scripture | calendar | palette |
-                            settings | help; scriptureread/grid for screenshots
+                            software | poker | scripture | calendar | note |
+                            palette | settings | help; scriptureread/grid for screenshots
         --command TEXT      Prefill the action prompt (handy for demos)
         --screenshot-delay MS  Wait before capturing (lets background work finish)
         --screenshot PATH   Render one frame to PATH (PNG) and exit
@@ -191,6 +191,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                     "scriptureread",
                     "scripturegrid",
                     "calendar",
+                    "note",
                     "calendaredit",
                     "reminder",
                     "palette",

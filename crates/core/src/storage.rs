@@ -190,6 +190,11 @@ pub fn calendar_in(vault: &Path) -> PathBuf {
     vault.join("Calendar")
 }
 
+/// Quick notes live in `<vault>/Notes`.
+pub fn notes_in(vault: &Path) -> PathBuf {
+    vault.join("Notes")
+}
+
 /// Every file under `root`, recursively, sorted by path. Dotfiles and hidden
 /// folders are skipped: they are the app's own, never the writer's.
 pub fn walk_files(root: &Path) -> Vec<PathBuf> {

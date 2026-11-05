@@ -48,6 +48,18 @@ impl App {
             }
             self.overlay(&mut screen);
         }
+        if self.note.is_some() {
+            // Logos are blitted into the framebuffer after the cell grid. The
+            // note's sheet must cover them, not let the boot/cover art shine
+            // through its text area.
+            self.splash_at = None;
+            self.inspiro_at = None;
+            self.softhand_at = None;
+            self.riff_at = None;
+            self.poker_at = None;
+            self.scripture_at = None;
+        }
+        self.draw_note(&mut screen);
         self.screen = screen;
     }
 

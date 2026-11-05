@@ -192,10 +192,10 @@ so the CRT pass stays the same for text and pictures.
 the owning process; `arboard::Clipboard` is kept in `App` for exactly that
 reason. Creating one per operation silently loses the text.
 
-**The vault has four rooms.** `Documents/` for text, `Pictures/` for PNGs,
-`Roms/` for cartridges and `Calendar/` for appointments; the vault root is only
-the shelf, and `saveas` cannot leave its room (`..` and absolute names are
-folded away). `THE VAULT` on the boot screen is a folder browser that opens each
+**The vault has five rooms.** `Documents/` for text, `Pictures/` for PNGs,
+`Roms/` for cartridges, `Calendar/` for appointments and `Notes/` for quick
+notes; the vault root is only the shelf, and `saveas` cannot leave its room
+(`..` and absolute names are folded away). `THE VAULT` on the boot screen is a folder browser that opens each
 file with the program that owns it; each program's own `open` starts in its room
 (`Documents/` for Inspiro, `Pictures/` for Softhand, the music folder for Riff)
 and only lists what that program can use. Loose documents from an older vault
@@ -227,7 +227,7 @@ with the local placeholder. A draft that outlives the session is promoted back
 to an ordinary document at startup, so nothing the writer typed is thrown away.
 
 **Sync mirrors the vault, not the documents.** Everything under the vault root
-goes up — `Roms`, `Pictures`, `Calendar`, folders you make yourself — with the
+goes up — `Roms`, `Pictures`, `Calendar`, `Notes`, folders you make yourself — with the
 tree recreated on the server; only hidden entries (the sync index lives in
 `.cread-sync`) stay local. Downloads are written byte for byte
 (`storage::save_bytes_atomic`), because a cartridge is not UTF-8.
