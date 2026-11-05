@@ -196,8 +196,8 @@ SETTINGS
   │   TIME         clock format                       24 hours │
   │   DATE         date format                        DD.MM.YY │
   │ ────────────────────────────────────────────────────────── │
-  │   INFO         CRead OS and device info             0.32.2 │
-  │   UPDATE       check github for a new version       0.32.2 │
+  │   INFO         CRead OS and device info             0.32.3 │
+  │   UPDATE       check github for a new version       0.32.3 │
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
@@ -302,7 +302,8 @@ line says so.
 type `calendar` at any prompt. The month grid starts on Monday; arrows move by
 day or week, `PgUp`/`PgDn` by month, `Home` returns to today. `Tab` switches
 between the grid and the selected day's list; the day heading shows `[GRID]` or
-`[LIST]`, and in the list the up/down arrows select an appointment. `Enter`
+`[LIST]`, and the active panel is outlined with a thin frame. In the list the
+up/down arrows select an appointment. `Enter`
 always makes a new appointment; in list focus `E` edits the selected one and
 `D` twice deletes it. `Esc` goes back to where you came from.
 
@@ -503,7 +504,9 @@ the margin, and the right-hand scrollbar is the same one Inspiro uses.
 `Tab` switches between the book list and the text, `Up`/`Down` chooses a book
 or scrolls, `Left`/`Right` changes chapter, `Enter` opens the selected book and
 `C` opens a chapter grid for long books such as Psalms. `Esc` opens the command
-line; `exit` returns to the cover first. The reader keeps its place in
+line; `Tab` moves focus between the book list and the text, and the active
+panel gets a thin frame. `exit` returns to the CRead welcome screen, like the
+other modules. The reader keeps its place in
 `~/.config/cread/scripture.state`.
 
 There is no separate light/dark or font-size switch: SCRIPTURE follows the

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.32.3
+
+- **SCRIPTURE exits to the CRead welcome screen**, like the other modules. The
+  logo cover is only the way in, not the way out.
+- **Tab focus is visible.** The Calendar outlines the active month grid or day
+  list with a thin frame, and SCRIPTURE does the same for the book list or the
+  reading pane.
+
 ## 0.32.2
 
 - **The calendar is centred on large displays.** Month grid, day list and the

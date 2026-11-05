@@ -798,6 +798,46 @@ impl App {
         );
     }
 
+    fn draw_calendar_panel(
+        &self,
+        screen: &mut Screen,
+        x0: u32,
+        x1: u32,
+        y0: u32,
+        y1: u32,
+        active: bool,
+    ) {
+        let colour = if active {
+            self.theme.accent
+        } else {
+            self.theme.dim
+        };
+        screen.put(x0, y0, Cell::new('\u{250c}', colour, self.theme.bg));
+        screen.put(x1, y0, Cell::new('\u{2510}', colour, self.theme.bg));
+        screen.put(x0, y1, Cell::new('\u{2514}', colour, self.theme.bg));
+        screen.put(x1, y1, Cell::new('\u{2518}', colour, self.theme.bg));
+        screen.hline(
+            x0 + 1,
+            y0,
+            x1.saturating_sub(x0 + 1),
+            '\u{2500}',
+            colour,
+            self.theme.bg,
+        );
+        screen.hline(
+            x0 + 1,
+            y1,
+            x1.saturating_sub(x0 + 1),
+            '\u{2500}',
+            colour,
+            self.theme.bg,
+        );
+        for y in y0 + 1..y1 {
+            screen.put(x0, y, Cell::new('\u{2502}', colour, self.theme.bg));
+            screen.put(x1, y, Cell::new('\u{2502}', colour, self.theme.bg));
+        }
+    }
+
     pub(super) fn draw_calendar(&mut self, screen: &mut Screen) {
         let now = Local::now();
         let clock = crate::clock::stamp(&now, self.clock_24h, self.date_day_first, false);
@@ -826,11 +866,28 @@ impl App {
             },
         );
 
+        self.draw_calendar_panel(
+            screen,
+            0,
+            screen.cols().saturating_sub(1),
+            1,
+            9,
+            self.calendar.focus == CalendarFocus::Grid,
+        );
+        self.draw_calendar_panel(
+            screen,
+            0,
+            screen.cols().saturating_sub(1),
+            11,
+            21,
+            self.calendar.focus == CalendarFocus::List,
+        );
+
         let x0 = 4u32;
         for (col, label) in cal::weekday_labels().iter().enumerate() {
             screen.put_str(
                 x0 + col as u32 * 10 + 3,
-                1,
+                2,
                 label,
                 self.theme.dim,
                 self.theme.bg,
@@ -843,7 +900,7 @@ impl App {
                     continue;
                 };
                 let x = x0 + col as u32 * 10;
-                let y = 2 + row as u32;
+                let y = 3 + row as u32;
                 let selected = *date == self.calendar.selected;
                 let is_today = *date == today;
                 let count = self
@@ -889,13 +946,13 @@ impl App {
                 "LIST"
             }
         );
-        screen.put_str(2, 9, &heading, self.theme.accent, self.theme.bg);
+        screen.put_str(2, 10, &heading, self.theme.accent, self.theme.bg);
         let events = self.calendar.selected_events();
         if events.is_empty() {
-            screen.put_str(2, 11, "no appointments", self.theme.dim, self.theme.bg);
+            screen.put_str(2, 12, "no appointments", self.theme.dim, self.theme.bg);
         } else {
             for (index, entry) in events.iter().take(9).enumerate() {
-                let y = 10 + index as u32;
+                let y = 12 + index as u32;
                 let selected = self.calendar.focus == CalendarFocus::List
                     && index == self.calendar.selected_event;
                 let (fg, bg) = if selected {
@@ -915,17 +972,11 @@ impl App {
             }
         }
 
-        screen.put_str(
-            1,
-            21,
-            "Tab grid/list   Enter new   Up/Down list   Home today",
-            self.theme.dim,
-            self.theme.bg,
-        );
-        screen.put_str(
+        screen.put_str_ellipsis(
             1,
             22,
-            "E edit   D delete x2   PgUp/PgDn month   Esc back",
+            "Tab focus   Enter new   E edit   D delete x2   PgUp/PgDn month   Esc back",
+            screen.cols().saturating_sub(2),
             self.theme.dim,
             self.theme.bg,
         );

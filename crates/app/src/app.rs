@@ -2842,14 +2842,14 @@ impl App {
         self.dirty = true;
     }
 
-    /// Leaving the reader returns to its cover, where the logo and the reading
-    /// position are the next thing one expects to see.
+    /// Leaving the reader returns to the CRead welcome screen, like every other
+    /// module. The cover is only the way in, never the way out.
     fn leave_scripture(&mut self) {
         self.close_program();
         self.picture_path = None;
         self.program_prompt = false;
         self.program_point = (-1, -1);
-        self.home = Home::Scripture;
+        self.home = Home::Boot;
         self.mode = Mode::Action;
         self.command.clear();
         self.command_error.clear();
@@ -4910,6 +4910,23 @@ mod tests {
     }
 
     #[test]
+    fn the_calendar_outlines_the_focused_panel() {
+        let dir = vault("calendar-focus-frame");
+        let mut app = app_in(&dir);
+        app.open_calendar();
+        app.screen = Screen::new(80, 25);
+        app.compose();
+        assert_eq!(app.screen.get(0, 1).unwrap().fg, app.theme.accent);
+        assert_eq!(app.screen.get(0, 11).unwrap().fg, app.theme.dim);
+
+        app.calendar.focus = super::calendar::CalendarFocus::List;
+        app.compose();
+        assert_eq!(app.screen.get(0, 1).unwrap().fg, app.theme.dim);
+        assert_eq!(app.screen.get(0, 11).unwrap().fg, app.theme.accent);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn calendar_loads_the_month_and_the_day_list() {
         let dir = vault("calendar");
         let cal_dir = storage::calendar_in(&dir);
@@ -5221,7 +5238,7 @@ mod tests {
 
         app.leave_scripture();
         assert!(app.program.is_none());
-        assert_eq!(app.home, Home::Scripture);
+        assert_eq!(app.home, Home::Boot, "exit goes to the welcome screen");
         assert_eq!(app.mode, Mode::Action);
         let _ = std::fs::remove_dir_all(&dir);
     }

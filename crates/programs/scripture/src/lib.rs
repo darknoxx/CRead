@@ -22,8 +22,8 @@ const SIDEBAR_W: u32 = 19;
 const DIVIDER_X: u32 = 20;
 const TEXT_X: u32 = 22;
 const TEXT_W: u32 = 56;
-const TEXT_ROWS: usize = 20;
-const SIDEBAR_ROWS: usize = 21;
+const TEXT_ROWS: usize = 19;
+const SIDEBAR_ROWS: usize = 20;
 const SCROLLBAR_X: u32 = 79;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -315,6 +315,36 @@ impl Scripture {
         );
     }
 
+    fn draw_panel(&self, screen: &mut Screen, x0: u32, x1: u32, y0: u32, y1: u32, active: bool) {
+        let colour = if active { self.accent } else { self.dim };
+        screen.put(x0, y0, Cell::new('\u{250c}', colour, self.paper));
+        screen.put(x1, y0, Cell::new('\u{2510}', colour, self.paper));
+        screen.put(x0, y1, Cell::new('\u{2514}', colour, self.paper));
+        screen.put(x1, y1, Cell::new('\u{2518}', colour, self.paper));
+        screen.hline(
+            x0 + 1,
+            y0,
+            x1.saturating_sub(x0 + 1),
+            '\u{2500}',
+            colour,
+            self.paper,
+        );
+        screen.hline(
+            x0 + 1,
+            y1,
+            x1.saturating_sub(x0 + 1),
+            '\u{2500}',
+            colour,
+            self.paper,
+        );
+        screen.hline(x0, y0 + 1, 1, '\u{2502}', colour, self.paper);
+        screen.hline(x1, y0 + 1, 1, '\u{2502}', colour, self.paper);
+        for y in y0 + 1..y1 {
+            screen.put(x0, y, Cell::new('\u{2502}', colour, self.paper));
+            screen.put(x1, y, Cell::new('\u{2502}', colour, self.paper));
+        }
+    }
+
     fn draw_sidebar(&mut self, screen: &mut Screen) {
         self.ensure_book_visible();
         let items = Self::sidebar_items();
@@ -351,13 +381,12 @@ impl Scripture {
                 }
             }
         }
-        screen.hline(DIVIDER_X, 2, SIDEBAR_ROWS as u32, '│', self.dim, self.paper);
     }
 
     fn draw_text(&self, screen: &mut Screen) {
         let heading = format!("{} {}", BOOKS[self.book].name, self.chapter);
         screen.put_str(TEXT_X, 2, &heading, self.ink, self.paper);
-        let last = 23u32;
+        let last = 22u32;
         for (index, row) in self
             .rows
             .iter()
@@ -517,6 +546,15 @@ impl Program for Scripture {
             return;
         }
         self.draw_header(screen);
+        self.draw_panel(screen, 0, DIVIDER_X, 1, 22, self.focus == Focus::Books);
+        self.draw_panel(
+            screen,
+            DIVIDER_X + 1,
+            SCROLLBAR_X - 1,
+            1,
+            22,
+            self.focus == Focus::Text,
+        );
         self.draw_sidebar(screen);
         self.draw_text(screen);
         self.draw_footer(screen);
@@ -721,6 +759,21 @@ mod tests {
         assert!(text.contains("GENESIS"));
         assert!(text.contains("OLD TESTAMENT"));
         assert!(text.contains("In the beginning"));
+    }
+
+    #[test]
+    fn tab_focus_outlines_the_active_panel() {
+        let mut reader = reader();
+        let mut screen = Screen::new(80, 25);
+        let mut raster = Raster::new(640, 368);
+        reader.draw(&mut screen, &mut raster);
+        assert_eq!(screen.get(0, 1).unwrap().fg, reader.accent);
+        assert_eq!(screen.get(21, 1).unwrap().fg, reader.dim);
+
+        reader.focus = Focus::Text;
+        reader.draw(&mut screen, &mut raster);
+        assert_eq!(screen.get(0, 1).unwrap().fg, reader.dim);
+        assert_eq!(screen.get(21, 1).unwrap().fg, reader.accent);
     }
 
     #[test]

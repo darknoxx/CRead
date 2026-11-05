@@ -662,6 +662,9 @@ only when the chapter is longer than the screen.
 | Page Up / Down | Scroll a screen at a time. |
 | Esc | The command line (`exit`). |
 
+`Tab` moves focus between the book list and the text; the active panel gets a
+thin frame. `exit` returns to the CRead start screen, not to the cover.
+
 The chapter grid is useful for long books such as Psalms; use the arrows to
 choose a chapter and `Enter` to open it, or `Esc` to close the grid without
 changing chapter. The reader keeps its own place in
@@ -683,7 +686,8 @@ Inspiro can open it too.
 
 The week starts on Monday. The arrows move by day or week, `PgUp` and
 `PgDn` by month, and `Home` returns to today. `Tab` switches between the
-month grid and the list of the selected day.
+month grid and the list of the selected day; the active panel is outlined with
+a thin frame.
 
 | Key | Effect |
 | --- | --- |
