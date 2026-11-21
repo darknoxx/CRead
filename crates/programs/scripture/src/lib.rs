@@ -579,10 +579,7 @@ impl Program for Scripture {
     }
 
     fn escape(&mut self) -> bool {
-        if self.grid.take().is_some() {
-            return true;
-        }
-        false
+        self.grid.take().is_some()
     }
 
     fn exit(&mut self) -> bool {

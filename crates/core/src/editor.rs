@@ -293,9 +293,9 @@ impl Editor {
                 .collect();
         }
         let mut out: String = self.lines[start.line].chars().skip(start.col).collect();
-        for line in start.line + 1..end.line {
+        for line in &self.lines[start.line + 1..end.line] {
             out.push('\n');
-            out.push_str(&self.lines[line]);
+            out.push_str(line);
         }
         out.push('\n');
         out.extend(self.lines[end.line].chars().take(end.col));
