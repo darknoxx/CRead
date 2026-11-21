@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.33.1
+
+A maintenance release; nothing changes on screen.
+
+- Builds cleanly with Rust 1.100, whose new lints had failed CI.
+- The minimum supported Rust version is now declared as 1.90, which the
+  current dependencies already required, and every crate inherits it.
+
 ## 0.33.0
 
 - **Quick notes.** `note` (alias `memo`) opens a small floating sheet over the
