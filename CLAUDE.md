@@ -21,7 +21,7 @@ and [`CHANGELOG.md`](CHANGELOG.md) is the release history.
 
 ## First 10 minutes
 
-The shipped target is Linux. Rust stable, edition 2024, `rust-version = 1.85`.
+The shipped target is Linux. Rust stable, edition 2024, `rust-version = 1.90`.
 
 Debian/Ubuntu build dependencies (the same list as CI):
 
