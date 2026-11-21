@@ -2,6 +2,8 @@
 
 Notes for anyone (human or agent) changing this repository.
 
+Claude-specific onboarding and working agreement: [`CLAUDE.md`](CLAUDE.md).
+
 ## What this is
 
 CRead is a fullscreen writing terminal that looks like a 1987 DOS machine: one
