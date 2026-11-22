@@ -88,7 +88,13 @@ command state. More dev views: `webdav`, `manual`, `notice`, `quit`,
 
 Key files:
 
-- `crates/app/src/app.rs` — `App`, `Mode`, `Home`, `PROGRAMS`, input, frame loop.
+- `crates/app/src/app.rs` — `App`, `Mode`, `Home`, `PROGRAMS`, startup, the winit
+  handler and the shared helpers (`poke`, `set_status`).
+- `crates/app/src/app/*.rs` — one `impl App` block per concern: `input`,
+  `frame`, `persistence`, `pointer` (mouse and clipboard), `search`, `manual`,
+  `programs`, `riff`, `setup` (SOFTWARE and SETTINGS), `show` (`--show`),
+  `calendar`, `note`, `browser`, `boot`, `power`, `sync`, `update`, `webdav`,
+  `machine`; the app tests live in `app/tests.rs`.
 - `crates/app/src/app/compose.rs` — draws the cell grid and the raster layer.
 - `crates/app/src/app/commands/*` — command implementations.
 - `crates/app/src/ui.rs` — shared shell UI: top bar, prompts, scrollbar, dialogs.

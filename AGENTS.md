@@ -51,7 +51,7 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never on the UI thread |
 | `crates/sound` | which output device the machine opens, for game and music alike | a policy both the shell and a program need, so it belongs to neither |
 | `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | unsigned or unverified bytes are never installed |
-| `crates/app` | winit loop, input, mode machine, cell-grid composition; the screens in `app/{boot,browser,compose,sync,webdav}.rs`, commands in `app/commands/*` | glue; keep logic out of it when it can live in core |
+| `crates/app` | winit loop, input, mode machine, cell-grid composition; `app.rs` holds the state and the winit handler, each concern is an `impl App` block in `app/*.rs` (input, frame, persistence, screens, …), commands in `app/commands/*`, tests in `app/tests.rs` | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
 | `packaging/` | kiosk unit, polkit rule, bootstrap, install and headless-update scripts | the Pi recipe; nothing here is compiled into the binary |
 | `docs/` | the Raspberry Pi recipe | setup, not user documentation; the manual lives in `crates/app/src/manual.md` |
