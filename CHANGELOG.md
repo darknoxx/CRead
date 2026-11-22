@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **Saving keeps a document's permissions.** A file the writer made private
+  (`chmod 600`) stayed readable to others after the next save; the new copy
+  now inherits the old file's mode.
+- **Quick notes show their selection** in inverted colours, so `Ctrl+A` or
+  `Shift`+arrows no longer mark text invisibly before the next key replaces
+  it. `Ctrl+C`, `Ctrl+X` and `Ctrl+V` work in the note.
+- **AltGr works in quick notes.** On German and other layouts `@`, `{`, `[`,
+  `\`, `~` and `€` could not be typed into a note.
+- **Sync leaves hidden server files alone.** Entries such as `.DS_Store` are no
+  longer downloaded, matching the rule that hidden files stay local; a file
+  downloaded for the first time is no longer recorded as deleted.
+- The updater only takes the `cread` binary at the root of a release archive.
+- Calendar file names no longer end in a dash when a long title is cut.
+- `--show` with an unknown name lists every view.
+
 ## 0.33.1
 
 A maintenance release; nothing changes on screen.

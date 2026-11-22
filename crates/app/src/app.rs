@@ -2565,8 +2565,26 @@ impl App {
             .ok_or_else(|| "clipboard is not available".to_string())
     }
 
+    /// The editor that has the keyboard: the quick note while it floats over
+    /// the screen, the document otherwise.
+    fn active_editor(&mut self) -> &mut Editor {
+        match self.note.as_mut() {
+            Some(note) => &mut note.editor,
+            None => &mut self.doc.editor,
+        }
+    }
+
+    /// Record a clipboard edit; only the document keeps an edit clock.
+    fn touch_active(&mut self) {
+        if self.note.is_some() {
+            self.poke();
+        } else {
+            self.touch();
+        }
+    }
+
     fn copy_selection(&mut self) -> Result<String, String> {
-        let text = self.doc.editor.selected_text();
+        let text = self.active_editor().selected_text();
         if text.is_empty() {
             return Err("nothing selected".into());
         }
@@ -2577,17 +2595,18 @@ impl App {
     }
 
     fn cut_selection(&mut self) -> Result<String, String> {
-        let text = self.doc.editor.selected_text();
+        let text = self.active_editor().selected_text();
         if text.is_empty() {
             return Err("nothing selected".into());
         }
         self.clipboard()?
             .set_text(text.clone())
             .map_err(|e| format!("clipboard: {e}"))?;
-        if let Some((start, end)) = self.doc.editor.selection() {
-            self.doc.editor.delete_range(start, end);
+        let editor = self.active_editor();
+        if let Some((start, end)) = editor.selection() {
+            editor.delete_range(start, end);
         }
-        self.touch();
+        self.touch_active();
         Ok(format!("{} chars cut", text.chars().count()))
     }
 
@@ -2601,8 +2620,8 @@ impl App {
         if text.is_empty() {
             return Err("clipboard is empty".into());
         }
-        self.doc.editor.insert_text(&text);
-        self.touch();
+        self.active_editor().insert_text(&text);
+        self.touch_active();
         Ok(format!("{} chars pasted", text.chars().count()))
     }
 
@@ -5287,6 +5306,27 @@ mod tests {
             .collect();
         assert_eq!(files.len(), 1);
         assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), "Call 555-0123");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_selection_in_the_quick_note_is_drawn_inverted() {
+        let dir = vault("note-selection");
+        let mut app = app_in(&dir);
+        app.open_note().unwrap();
+        let note = app.note.as_mut().unwrap();
+        note.editor.insert_text("ab");
+        note.editor.move_left(true);
+
+        let mut screen = Screen::new(80, 25);
+        app.draw_note(&mut screen);
+        // The 42x12 sheet is centred: text starts one cell inside its frame.
+        let (x, y) = ((80 - 42) / 2 + 1, (25 - 12) / 2 + 1);
+        let (paper, ink) = (app.theme.bg, app.theme.fg);
+        let a = screen.get(x, y).unwrap();
+        assert_eq!((a.ch, a.fg, a.bg), ('a', ink, paper), "unselected");
+        let b = screen.get(x + 1, y).unwrap();
+        assert_eq!((b.ch, b.fg, b.bg), ('b', paper, ink), "selected");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

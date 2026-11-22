@@ -261,13 +261,14 @@ pub fn event_filename(date: NaiveDate, time: Option<NaiveTime>, title: &str) -> 
             dash = true;
         }
     }
+    // Cut first, then trim: a cut can land right after a dash.
+    slug.truncate(32);
     while slug.ends_with('-') {
         slug.pop();
     }
     if slug.is_empty() {
         slug.push_str("event");
     }
-    slug.truncate(32);
     let clock = time
         .map(|time| time.format("%H%M").to_string())
         .unwrap_or_else(|| "allday".into());
@@ -472,6 +473,14 @@ mod tests {
         assert_eq!(name, "2026-11-05-1030-zahnarzt-kontrolle.md");
         let all_day = event_filename(date("2026-11-05"), None, "Feiertag");
         assert_eq!(all_day, "2026-11-05-allday-feiertag.md");
+        // The 32-character cut lands right after "klassen-"; it must not
+        // leave that dash dangling before ".md".
+        let long = event_filename(
+            date("2026-11-05"),
+            None,
+            "Elternabend Grundschule Klassen 4",
+        );
+        assert_eq!(long, "2026-11-05-allday-elternabend-grundschule-klassen.md");
     }
 
     #[test]

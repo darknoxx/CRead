@@ -31,7 +31,7 @@ OPTIONS:
         --show VIEW         Start in a view: editor | welcome | action | search |
                             view | inspiro | softhand | riff | picture |
                             software | poker | scripture | calendar | note |
-                            palette | settings | help; scriptureread/grid for screenshots
+                            palette | settings | help; an unknown name lists all
         --command TEXT      Prefill the action prompt (handy for demos)
         --screenshot-delay MS  Wait before capturing (lets background work finish)
         --screenshot PATH   Render one frame to PATH (PNG) and exit
@@ -93,6 +93,54 @@ impl Default for Options {
         }
     }
 }
+
+/// Every view `--show` can start in: the everyday screens, plus states that
+/// are otherwise only reachable by typing, for screenshots.
+const VIEWS: &[&str] = &[
+    "editor",
+    "welcome",
+    "action",
+    "search",
+    "view",
+    "inspiro",
+    "softhand",
+    "picture",
+    "pictures",
+    "riff",
+    "riffplay",
+    "riffinsert",
+    "loading",
+    "software",
+    "pocketboi",
+    "poker",
+    "pokerplay",
+    "pokerhand",
+    "pokerrisk",
+    "pokerover",
+    "scripture",
+    "scriptureread",
+    "scripturegrid",
+    "calendar",
+    "note",
+    "calendaredit",
+    "reminder",
+    "palette",
+    "settings",
+    "webdav",
+    "vault",
+    "documents",
+    "screensaver",
+    "about",
+    "updatecheck",
+    "updateprompt",
+    "quit",
+    "shutdown",
+    "reboot",
+    "backtolinux",
+    "help",
+    "manual",
+    "notice",
+];
 
 #[allow(clippy::large_enum_variant)]
 pub enum ParseOutcome {
@@ -166,56 +214,14 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
             }
             "--show" => {
                 let v = args.next().ok_or("--show needs a value")?;
-                let known = [
-                    "editor",
-                    "welcome",
-                    "action",
-                    "search",
-                    "view",
-                    "inspiro",
-                    "softhand",
-                    "picture",
-                    "pictures",
-                    "riff",
-                    "riffplay",
-                    "riffinsert",
-                    "loading",
-                    "software",
-                    "pocketboi",
-                    "poker",
-                    "pokerplay",
-                    "pokerhand",
-                    "pokerrisk",
-                    "pokerover",
-                    "scripture",
-                    "scriptureread",
-                    "scripturegrid",
-                    "calendar",
-                    "note",
-                    "calendaredit",
-                    "reminder",
-                    "palette",
-                    "settings",
-                    "webdav",
-                    "vault",
-                    "documents",
-                    "screensaver",
-                    "about",
-                    "updatecheck",
-                    "updateprompt",
-                    "quit",
-                    "shutdown",
-                    "reboot",
-                    "backtolinux",
-                    "help",
-                    "manual",
-                    "notice",
-                ];
-                if !known.contains(&v.as_str())
+                if !VIEWS.contains(&v.as_str())
                     && !v.starts_with("picture:")
                     && !v.starts_with("pocketboi:")
                 {
-                    return Err(format!("unknown view: {v}"));
+                    return Err(format!(
+                        "unknown view: {v}\nviews: {}, picture:<png>, pocketboi:<rom>",
+                        VIEWS.join(" ")
+                    ));
                 }
                 opts.show = v;
             }

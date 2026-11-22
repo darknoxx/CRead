@@ -157,7 +157,13 @@ pub fn unpack(tarball: &[u8]) -> Result<Vec<u8>, String> {
         let path = entry
             .path()
             .map_err(|e| format!("unreadable archive entry: {e}"))?;
-        if path.file_name().and_then(|name| name.to_str()) != Some("cread") {
+        // Only the binary at the root counts; a `cread` in a subfolder (a
+        // script under `packaging/`, say) is not what the release ships.
+        let at_root: PathBuf = path
+            .components()
+            .filter(|part| !matches!(part, std::path::Component::CurDir))
+            .collect();
+        if at_root != Path::new("cread") {
             continue;
         }
         if !entry.header().entry_type().is_file() {
@@ -324,6 +330,10 @@ trusted comment: timestamp:1793539427\tfile:message.bin\tprehashed
 ";
 
     fn tarball_with(binary: &[u8]) -> Vec<u8> {
+        tarball_at("./cread", binary)
+    }
+
+    fn tarball_at(path: &str, binary: &[u8]) -> Vec<u8> {
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         {
             let mut tar = tar::Builder::new(&mut gz);
@@ -331,7 +341,7 @@ trusted comment: timestamp:1793539427\tfile:message.bin\tprehashed
             header.set_size(binary.len() as u64);
             header.set_mode(0o755);
             header.set_cksum();
-            tar.append_data(&mut header, "./cread", binary).unwrap();
+            tar.append_data(&mut header, path, binary).unwrap();
             tar.finish().unwrap();
         }
         gz.finish().unwrap()
@@ -435,6 +445,15 @@ trusted comment: timestamp:1793539427\tfile:message.bin\tprehashed
 
         let empty_binary = tarball_with(b"");
         assert!(unpack(&empty_binary).unwrap_err().contains("empty"));
+
+        let bare = tarball_at("cread", b"\x7fELF bare");
+        assert_eq!(unpack(&bare).unwrap(), b"\x7fELF bare");
+
+        let nested = tarball_at("./packaging/cread", b"#!/bin/sh");
+        assert!(
+            unpack(&nested).unwrap_err().contains("no cread"),
+            "only the root binary counts"
+        );
     }
 
     fn tarball_with_other_only() -> Vec<u8> {

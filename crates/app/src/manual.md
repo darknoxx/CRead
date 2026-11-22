@@ -332,6 +332,9 @@ Type `note` (or `memo`) at any prompt. A small sheet opens over the current
 screen; the work behind it stays visible. You can type immediately. `Esc` saves
 the text in `Notes/` and closes the sheet. An empty sheet leaves no file.
 
+Inside the sheet, `Ctrl+A` selects everything, `Ctrl+C`, `Ctrl+X` and `Ctrl+V`
+use the clipboard, and `Ctrl+Z` undoes, exactly as in Inspiro.
+
 Notes are ordinary Markdown files. They appear in `THE VAULT` and can be opened
 with Inspiro later. This is the quick path for a phone number or a short thought
 without leaving the current document, game or screen.

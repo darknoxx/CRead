@@ -598,11 +598,7 @@ pub async fn sync_once(vault: &Path, cfg: &Config) -> Result<Report, String> {
         }
     }
 
-    // Keep a tombstone for a document deleted locally. The server copy stays,
-    // but forgetting the entry would make the next round download it again.
-    for (name, entry) in &mut index.files {
-        entry.deleted = !local_exists(&tree, name);
-    }
+    mark_tombstones(&mut index, vault);
     index
         .save(vault)
         .map_err(|e| format!("cannot write sync index: {e}"))?;
@@ -698,9 +694,10 @@ fn list_into<'a>(
                 ListEntity::File(file) => (name_of_href(&file.href), Some(file)),
                 ListEntity::Folder(folder) => (name_of_href(&folder.href), None),
             };
-            if !safe_name(&name) {
-                // Never turn an untrusted href into a local path. Skipping the
-                // entry keeps the rest of the vault syncable.
+            if !safe_name(&name) || !mirrored(&name) {
+                // Never turn an untrusted href into a local path, and never
+                // let the server write the app's own hidden files. Skipping
+                // the entry keeps the rest of the vault syncable.
                 continue;
             }
             let relative = if prefix.is_empty() {
@@ -749,6 +746,23 @@ async fn download(client: &Client, path: &str, name: &str) -> Result<Vec<u8>, St
         .await
         .map_err(|e| format!("reading {name} failed: {e}"))?;
     Ok(body.to_vec())
+}
+
+/// Keep a tombstone for a document deleted locally. The server copy stays,
+/// but forgetting the entry would make the next round download it again.
+///
+/// This asks the disk, not the walk taken at the start of the round: a file
+/// that round just downloaded exists, and must not be marked as deleted.
+fn mark_tombstones(index: &mut Index, vault: &Path) {
+    for (name, entry) in &mut index.files {
+        entry.deleted = !vault.join(name).is_file();
+    }
+}
+
+/// Hidden entries are the app's own on both sides: the walk never uploads
+/// them, so a listing never brings one down either.
+fn mirrored(name: &str) -> bool {
+    !name.starts_with('.')
 }
 
 fn set_hash(index: &mut Index, name: &str, hash: String) {
@@ -839,6 +853,33 @@ mod tests {
         assert!(index.save(&vault).unwrap(), "a changed index writes");
 
         let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn tombstones_follow_the_disk_not_the_walk() {
+        let vault = std::env::temp_dir().join(format!("cread-tomb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&vault);
+        std::fs::create_dir_all(vault.join("Notes")).unwrap();
+        // Downloaded during the round, after the walk was taken.
+        std::fs::write(vault.join("Notes/fresh.md"), "neu").unwrap();
+
+        let mut index = Index::default();
+        for name in ["Notes/fresh.md", "gone.md"] {
+            index.files.insert(name.into(), Entry::default());
+        }
+        mark_tombstones(&mut index, &vault);
+        assert!(!index.files["Notes/fresh.md"].deleted, "a fresh download");
+        assert!(index.files["gone.md"].deleted, "deleted locally");
+
+        let _ = std::fs::remove_dir_all(&vault);
+    }
+
+    #[test]
+    fn hidden_server_entries_are_not_mirrored() {
+        assert!(!mirrored(".cread-sync"));
+        assert!(!mirrored(".DS_Store"));
+        assert!(mirrored("Documents"));
+        assert!(mirrored("letter.v2.md"));
     }
 
     #[test]

@@ -6,7 +6,7 @@
 
 use super::*;
 use chrono::Local;
-use cread_core::{Cell, Editor};
+use cread_core::{Cell, Editor, Position};
 
 /// The box is compact on purpose: a phone number or an address, not a letter.
 const NOTE_W: u32 = 42;
@@ -86,12 +86,26 @@ impl App {
 
         let width = self.note_width();
         let shift = self.mods.shift_key();
-        let ctrl = self.mods.control_key() || self.mods.super_key();
-        let Some(note) = self.note.as_mut() else {
-            return;
-        };
+        // AltGr arrives as Ctrl+Alt on many layouts; on a German keyboard that
+        // is `@`, `{`, `[` and `€`, which a note must be able to type.
+        let altgr = self.mods.alt_key() && self.mods.control_key();
+        let ctrl = (self.mods.control_key() || self.mods.super_key()) && !altgr;
 
         if ctrl {
+            let result = match event.physical_key {
+                PhysicalKey::Code(KeyCode::KeyC) => Some(self.copy_selection()),
+                PhysicalKey::Code(KeyCode::KeyX) => Some(self.cut_selection()),
+                PhysicalKey::Code(KeyCode::KeyV) => Some(self.paste()),
+                _ => None,
+            };
+            if let Some(result) = result {
+                self.report(result);
+                self.poke();
+                return;
+            }
+            let Some(note) = self.note.as_mut() else {
+                return;
+            };
             match event.physical_key {
                 PhysicalKey::Code(KeyCode::KeyZ) => {
                     if shift {
@@ -110,6 +124,11 @@ impl App {
             return;
         }
 
+        let alt = self.mods.alt_key() && !altgr;
+        let Some(note) = self.note.as_mut() else {
+            return;
+        };
+
         match &event.logical_key {
             Key::Named(NamedKey::Enter) => note.editor.insert_newline(),
             Key::Named(NamedKey::Backspace) => note.editor.backspace(),
@@ -122,9 +141,7 @@ impl App {
             Key::Named(NamedKey::ArrowDown) => note.editor.move_down(width, shift),
             Key::Named(NamedKey::Home) => note.editor.move_home(shift),
             Key::Named(NamedKey::End) => note.editor.move_end(shift),
-            Key::Character(text)
-                if !self.mods.alt_key() && text.chars().any(|ch| !ch.is_control()) =>
-            {
+            Key::Character(text) if !alt && text.chars().any(|ch| !ch.is_control()) => {
                 note.editor.insert_text(text);
             }
             _ => {}
@@ -182,9 +199,24 @@ impl App {
         note.editor.scroll_to_cursor(text_width, text_height, None);
         let rows = note.editor.visible_rows(text_width, text_height);
         let cursor = note.editor.cursor();
+        let selection = note.editor.selection();
         let mut cursor_cell = None;
         for (index, row) in rows.iter().enumerate() {
-            screen.put_str(text_x, text_y + index as u32, &row.text, ink, paper);
+            // Selected text is inverted, as in the editor: what the next key
+            // replaces must be visible.
+            for (offset, ch) in row.text.chars().enumerate() {
+                let pos = Position {
+                    line: row.line,
+                    col: row.start + offset,
+                };
+                let selected = selection.is_some_and(|(start, end)| pos >= start && pos < end);
+                let (fg, bg) = if selected { (paper, ink) } else { (ink, paper) };
+                screen.put(
+                    text_x + offset as u32,
+                    text_y + index as u32,
+                    Cell::new(ch, fg, bg),
+                );
+            }
             if row.contains(cursor) {
                 cursor_cell = Some((index, cursor.col - row.start));
             }

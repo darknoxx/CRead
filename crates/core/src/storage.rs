@@ -66,6 +66,14 @@ fn save_bytes_atomic_with_mode(path: &Path, bytes: &[u8], mode: Option<u32>) -> 
             options.mode(mode);
         }
         let mut file = options.open(&tmp)?;
+        // Replacing a file must not loosen it: a document the writer made
+        // private stays private after the rename.
+        #[cfg(unix)]
+        if mode.is_none()
+            && let Ok(meta) = fs::metadata(path)
+        {
+            file.set_permissions(meta.permissions())?;
+        }
         file.write_all(bytes)?;
         file.sync_all()?;
         Ok(())
@@ -255,7 +263,7 @@ pub fn migrate_documents(vault: &Path) -> Migration {
     if files.is_empty() {
         return out;
     }
-    if let Err(e) = fs::create_dir_all(&target_dir) {
+    if fs::create_dir_all(&target_dir).is_err() {
         out.kept = files
             .iter()
             .map(|p| {
@@ -265,7 +273,6 @@ pub fn migrate_documents(vault: &Path) -> Migration {
                     .into_owned()
             })
             .collect();
-        let _ = e;
         return out;
     }
     for source in files {
@@ -332,6 +339,23 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_keeps_the_permissions_of_the_file_it_replaces() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tmpdir("mode");
+        let path = dir.join("private.md");
+        fs::write(&path, "geheim").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        save_atomic(&path, "noch geheimer").unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "a private document stays private");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "noch geheimer");
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

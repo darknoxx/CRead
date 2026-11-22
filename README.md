@@ -144,6 +144,7 @@ help screen the arrow keys walk it while the status line explains each row.
 | `sync` | | push the vault to WebDAV now |
 | `theme [+\|-\|name]` | | next/previous, or black, dos-blue, amber, green, paper |
 | `scanlines [on\|off] [-r]` | `scan`, `sl` | switch scanlines on; `-r` adds a slow downward drift |
+| `roll [on\|off]` | `drift` | let the scanline pattern drift downwards |
 | `bloom [on\|off]` | | phosphor glow |
 | `typewriter [on\|off]` | `tw` | keep the current line in place |
 | `fullscreen` / `windowed` | `fs` | |
