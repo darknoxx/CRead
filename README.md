@@ -139,6 +139,8 @@ help screen the arrow keys walk it while the status line explains each row.
 | `exit` | `welcome`, `home` | back to the boot screen |
 | `software` | `install`, `modules` | install or remove modules |
 | `riff <command>` | `music` | the music player: play, stop, next, volume, … |
+| `print` | `lp` | send the document (or Softhand's picture) to the printer |
+| `backup` | `usb` | copy the vault onto a USB stick |
 | `beep [on\|off]` | `bell` | the startup beep; bare `beep` toggles |
 | `font [classic\|thin]` | `weight` | typeface; bare `font` cycles |
 | `sync` | | push the vault to WebDAV now |
@@ -204,6 +206,8 @@ SETTINGS
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
   │   WLAN         scan and connect                  Home-WLAN │
+  │   PRINTER      where print sends a page      Samsung_M2070 │
+  │   USB BACKUP   copy the vault onto a stick                 │
   │   USER MANUAL  read the manual                             │
   └────────────────────────────────────────────────────────────┘
 ```
@@ -221,6 +225,18 @@ scans again, `Del` forgets a saved network. It drives NetworkManager through
 its command line. Networks with a user name (WPA-Enterprise) are not supported
 yet. While the machine is online, the top bar ends in a small mark: a Wi-Fi fan
 with one to three arcs, or a plug for a cable.
+
+`PRINTER` lists the printers CUPS knows and picks the one `print` uses
+(`lpoptions -d`, a user setting). CRead does not set printers up: `cups-browsed`
+adds driverless network printers (IPP Everywhere, AirPrint) by itself. `print`
+sends the document as plain text without its Markdown marks, or Softhand's
+picture scaled to the page.
+
+`USB BACKUP` (also `backup`) finds removable USB drives with `lsblk` — never the
+SD card — mounts the chosen one with `udisksctl`, copies the vault into a new
+`CRead-Backup-<date>` folder with a progress bar, then unmounts and powers it
+off. Hidden files stay local, an existing backup is never overwritten, and
+names a FAT stick refuses are listed instead of stopping the copy.
 
 WebDAV syncs the *vault* — documents, pictures and ROMs — so it is set up here,
 next to the other switches that belong to the machine. `Enter` acts on the
@@ -759,6 +775,7 @@ crates/render    emulated framebuffer, bitmap font, wgpu CRT pass
 crates/sync      WebDAV client, conflict policy, background worker
 crates/sound     which output device the machine opens
 crates/wifi      NetworkManager through nmcli: scan, connect, link state
+crates/peripherals  printing through CUPS, backups onto USB sticks
 crates/app       window, input, frame loop, UI composition
 crates/programs/ modules: one crate per program, compiled in
 assets/          bitmap faces, boot logo

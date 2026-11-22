@@ -597,6 +597,7 @@ dependencies = [
  "arboard",
  "chrono",
  "cread-core",
+ "cread-peripherals",
  "cread-pocketboi",
  "cread-poker",
  "cread-render",
@@ -621,6 +622,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cread-peripherals"
+version = "0.36.0"
+dependencies = [
+ "cread-core",
+ "serde_json",
 ]
 
 [[package]]

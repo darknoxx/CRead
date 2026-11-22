@@ -56,6 +56,8 @@ impl App {
             Command::BackToLinux => self.cmd_backtolinux(),
 
             Command::Riff(action) => self.cmd_riff(action),
+            Command::Print => self.cmd_print(),
+            Command::Backup => self.cmd_backup(),
             Command::Tool(_) | Command::Size(_) | Command::Colour(_) | Command::Mute => {
                 self.cmd_program(&command)
             }

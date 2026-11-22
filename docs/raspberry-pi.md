@@ -174,7 +174,7 @@ The script:
 - installs the binary to `/opt/cread/cread`, owned by your user, so
   `SETTINGS → UPDATE` can replace it without root;
 - installs `/etc/systemd/system/cread-kiosk.service` and polkit rules that
-  let `shutdown` and the WLAN screen in SETTINGS work without a password;
+  let `shutdown`, the WLAN screen and USB backups work without a password;
 - turns the journal volatile and disables the swap unit for the next boot;
 - disables `getty@tty1`, installs `/usr/local/sbin/cread-update`, and
   starts/restarts the kiosk.
@@ -213,6 +213,29 @@ curl -fL https://raw.githubusercontent.com/darknoxx/CRead/main/packaging/50-crea
   | sed 's|@USER@|creaduser|g' \
   | sudo tee /etc/polkit-1/rules.d/50-cread-network.rules >/dev/null
 ```
+
+### Printing and USB backups
+
+`print` goes through CUPS, and `USB BACKUP` through udisks2. The quick install
+brings `cups`, `cups-browsed`, `avahi-daemon`, `libnss-mdns` and `udisks2`;
+`cups-browsed` adds network printers that print without a driver (AirPrint,
+IPP Everywhere) by itself, so there is nothing to set up for most printers.
+The installer also writes `/etc/polkit-1/rules.d/50-cread-usb.rules`, which lets
+the kiosk user mount, unmount and power off USB sticks and nothing else.
+
+On a Pi installed before 0.37.0, add both once (replace `creaduser` with the
+kiosk user):
+
+```sh
+sudo apt install -y cups cups-browsed avahi-daemon libnss-mdns udisks2
+curl -fL https://raw.githubusercontent.com/darknoxx/CRead/main/packaging/50-cread-usb.rules.in \
+  | sed 's|@USER@|creaduser|g' \
+  | sudo tee /etc/polkit-1/rules.d/50-cread-usb.rules >/dev/null
+```
+
+A printer that needs a driver is set up with CUPS itself (`lpadmin`, or the web
+page on port 631 after `sudo cupsctl --remote-admin`); CRead then lists it like
+any other.
 
 ## 6. WebDAV, storage and the kiosk commands
 

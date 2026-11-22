@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **Printing.** `print` sends the document to the printer as plain text in a
+  typewriter face, without its Markdown marks; in Softhand it prints the
+  picture. `SETTINGS → PRINTER` lists the printers CUPS knows and picks the one
+  to use. Network printers that print without a driver (AirPrint, IPP
+  Everywhere) appear by themselves.
+- **USB backup.** `SETTINGS → USB BACKUP` (or `backup`) copies the vault onto a
+  USB stick, into a new `CRead-Backup-<date>` folder, with a progress bar, then
+  switches the stick off so it can be pulled out. Only USB drives are offered,
+  never the SD card, and an older backup is never overwritten.
+- The Pi installer adds CUPS, cups-browsed, Avahi and udisks2, and a polkit rule
+  that lets the kiosk user mount and power off USB sticks.
+- SETTINGS starts one row higher when its list would otherwise run into the
+  bottom bar.
+
 ## 0.36.0
 
 - **WLAN in SETTINGS.** A new row lists the Wi-Fi networks in range, strongest

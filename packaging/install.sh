@@ -166,7 +166,8 @@ apt-get update
 echo "==> installing packages"
 apt-get install -y --no-install-recommends \
     cage ca-certificates curl xwayland minisign \
-    mesa-vulkan-drivers libvulkan1
+    mesa-vulkan-drivers libvulkan1 \
+    cups cups-browsed avahi-daemon libnss-mdns udisks2
 
 TMP=""
 cleanup() {

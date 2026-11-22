@@ -73,6 +73,34 @@ impl App {
                 self.reminder_back = self.mode;
                 self.mode = Mode::Reminder;
             }
+            "printer" => self.open_printer(),
+            "backup" => self.open_backup(),
+            "backuprun" | "backupdone" => {
+                // No real lookup: its answer would replace the demo.
+                self.backup = peripherals::BackupState {
+                    from: Some(Mode::Action),
+                    ..Default::default()
+                };
+                self.mode = Mode::Backup;
+                let stick = cread_peripherals::usb::Stick {
+                    device: "/dev/sda1".into(),
+                    disk: "/dev/sda".into(),
+                    label: "KINGSTON".into(),
+                    size: "14.6G".into(),
+                    fstype: "vfat".into(),
+                    mountpoint: None,
+                };
+                self.backup.sticks = vec![stick];
+                self.backup.target = "KINGSTON".into();
+                if self.opts.show == "backuprun" {
+                    self.backup.phase = peripherals::BackupPhase::Running;
+                    self.backup.progress = (87, 240);
+                } else {
+                    self.backup.phase = peripherals::BackupPhase::Done;
+                    self.backup.note =
+                        "240 files in CRead-Backup-2026-11-22 - the stick can come out".into();
+                }
+            }
             "wlan" => self.open_wifi(),
             "wlandemo" => {
                 self.open_wifi();

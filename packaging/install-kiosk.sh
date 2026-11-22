@@ -63,6 +63,8 @@ sed -e "s|@USER@|$USER_NAME|g" \
     "$HERE/50-cread-poweroff.rules.in" >/etc/polkit-1/rules.d/50-cread-poweroff.rules
 sed -e "s|@USER@|$USER_NAME|g" \
     "$HERE/50-cread-network.rules.in" >/etc/polkit-1/rules.d/50-cread-network.rules
+sed -e "s|@USER@|$USER_NAME|g" \
+    "$HERE/50-cread-usb.rules.in" >/etc/polkit-1/rules.d/50-cread-usb.rules
 
 # `backtolinux` stops the kiosk and starts a login on tty1. The command runs
 # as the kiosk user; the unit and its helper do the privileged part.

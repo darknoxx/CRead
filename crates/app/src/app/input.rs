@@ -52,6 +52,8 @@ impl App {
             Mode::Software => self.on_key_software(event),
             Mode::Setup => self.on_key_setup(event),
             Mode::Wifi => self.on_key_wifi(event),
+            Mode::Printer => self.on_key_printer(event),
+            Mode::Backup => self.on_key_backup(event),
             Mode::Quit => self.on_key_quit(el, event),
             Mode::Power => self.on_key_power(el, event),
             Mode::Checking => self.on_key_checking(event),

@@ -1,0 +1,15 @@
+// Let the kiosk user back the vault up onto a USB stick without a password:
+// mount and unmount removable filesystems and power the stick off. Nothing
+// else of udisks (formatting, internal disks, encryption) is opened up.
+polkit.addRule(function (action, subject) {
+    if ((action.id == "org.freedesktop.udisks2.filesystem-mount" ||
+         action.id == "org.freedesktop.udisks2.filesystem-mount-other-seat" ||
+         action.id == "org.freedesktop.udisks2.filesystem-unmount-others" ||
+         action.id == "org.freedesktop.udisks2.power-off-drive" ||
+         action.id == "org.freedesktop.udisks2.power-off-drive-other-seat" ||
+         action.id == "org.freedesktop.udisks2.eject-media" ||
+         action.id == "org.freedesktop.udisks2.eject-media-other-seat") &&
+        subject.user == "@USER@") {
+        return polkit.Result.YES;
+    }
+});

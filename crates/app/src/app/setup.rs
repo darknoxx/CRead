@@ -153,6 +153,14 @@ impl App {
                 Some(Action::Wifi),
             ),
             (
+                ui::MenuItem::row("PRINTER", "where print sends a page", self.printer_label()),
+                Some(Action::Printer),
+            ),
+            (
+                ui::MenuItem::row("USB BACKUP", "copy the vault onto a stick", ""),
+                Some(Action::Backup),
+            ),
+            (
                 ui::MenuItem::row("USER MANUAL", "read the manual", ""),
                 Some(Action::Manual),
             ),
@@ -194,6 +202,11 @@ impl App {
     pub(super) fn open_setup(&mut self) {
         self.refresh_space();
         self.refresh_machine();
+        // The PRINTER row names the default; asking CUPS takes a moment, so
+        // it happens on a job thread. Tests never ask.
+        if self.persist {
+            self.load_printers();
+        }
         self.mode = Mode::Setup;
         let entries = self.setup_entries();
         if self.setup_selected >= entries.len() || entries[self.setup_selected].1.is_none() {
@@ -307,6 +320,8 @@ impl App {
                 self.dirty = true;
             }
             SetupAction::Wifi => self.open_wifi(),
+            SetupAction::Printer => self.open_printer(),
+            SetupAction::Backup => self.open_backup(),
             SetupAction::Manual => self.open_manual(Mode::Setup),
         }
     }

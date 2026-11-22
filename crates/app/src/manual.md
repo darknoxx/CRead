@@ -820,6 +820,8 @@ time. The other screens show only the time.
 | STORAGE | How full the disk is. Enter refreshes it. |
 | NETWORK | Your local IP address. Enter refreshes it. |
 | WLAN | The Wi-Fi you are on. Enter opens the list of networks. |
+| PRINTER | The printer `print` uses. Enter opens the list of printers. |
+| USB BACKUP | Copies the vault onto a USB stick. |
 | USER MANUAL | Opens this manual. Nothing in it can be changed. |
 
 ### WLAN
@@ -843,6 +845,30 @@ well (in offices and universities) cannot be joined from here yet.
 While the machine is online, a small mark sits at the right end of the top
 bar: a Wi-Fi fan with one to three arcs for the signal, or a plug when it is
 on a cable. Offline, the place stays empty.
+
+### Printing
+
+`print` sends what is in front of you to the printer: in Inspiro the document,
+without its Markdown marks, in a typewriter face with wide margins; in Softhand
+the picture, scaled to the page. The status line says when the page is on its
+way.
+
+**PRINTER** lists the printers the machine knows. Network printers that print
+without a driver (most printers of the last ten years, everything with AirPrint)
+appear by themselves after a moment. **Enter** makes the chosen one the
+printer `print` uses; **R** asks again.
+
+### USB backup
+
+**USB BACKUP** (or `backup` from any prompt) copies the whole vault onto a USB
+stick. Plug the stick in, press **R** if it is not listed yet, choose it and
+press **Enter**. A bar shows the progress. Every backup gets a folder of its
+own, `CRead-Backup-` and the date, so an older backup is never overwritten.
+When the bar is full the stick is switched off and can be pulled out.
+
+Save the open document first: the backup copies what is on disk. Hidden files
+stay behind, as with WebDAV. A few file names are not allowed on most sticks
+(for example with `:` in them); those are listed when the backup is done.
 
 In the manual, Up/Down selects a Contents point and Enter jumps to it. The
 appendices are in the same list; Page Up/Down scrolls and Home returns to
@@ -994,6 +1020,7 @@ The most important commands. Upper and lower case do not matter.
 | `about` | `version` | Shows the version and acknowledgements. |
 | `autosave [on\|off]` | `aw` | Saves while you type. |
 | `beep [on\|off]` | `bell` | The beep at startup. |
+| `backup` | `usb` | Copies the vault onto a USB stick. |
 | `bloom [on\|off]` | | The glow around the letters. |
 | `colour [0-15]` | `color`, `ink` | Colour in Softhand. |
 | `delete` | `rm`, `del` | Deletes the document. |
@@ -1009,6 +1036,7 @@ The most important commands. Upper and lower case do not matter.
 | `mute` | `silence` | Silences the running program. |
 | `new` | `n` | New document. |
 | `open [name]` | `o`, `e` | Shows the vault or opens a name. |
+| `print` | `lp` | Sends the document or picture to the printer. |
 | `redo` | | Redo. |
 | `rename name` | `mv`, `rn` | Renames the document. |
 | `riff [command]` | `music` | The music player. |

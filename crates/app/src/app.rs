@@ -15,6 +15,7 @@ mod input;
 mod machine;
 mod manual;
 mod note;
+mod peripherals;
 mod persistence;
 mod pointer;
 mod power;
@@ -303,6 +304,10 @@ enum Mode {
     Notice,
     /// Wi-Fi networks in range, from SETTINGS.
     Wifi,
+    /// The printers CUPS knows; Enter picks the default.
+    Printer,
+    /// Copying the vault onto a USB stick.
+    Backup,
     /// The clock, after a while without input.
     Screensaver,
 }
@@ -371,6 +376,8 @@ enum SetupAction {
     Storage,
     Network,
     Wifi,
+    Printer,
+    Backup,
     Manual,
 }
 
@@ -524,6 +531,11 @@ struct App {
     /// How the machine is online, for the top bar's mark.
     wifi_link: cread_wifi::Link,
     wifi_ui: wifi::WifiState,
+    /// Background jobs (printing, backups) report here.
+    jobs_tx: std::sync::mpsc::Sender<peripherals::Job>,
+    jobs_rx: std::sync::mpsc::Receiver<peripherals::Job>,
+    printer: peripherals::PrinterState,
+    backup: peripherals::BackupState,
     /// Pixel layer handed to programs.
     raster: Raster,
     /// File the current picture came from or was last saved to.
@@ -589,6 +601,7 @@ struct App {
 
 impl App {
     fn new(opts: Options) -> Self {
+        let (jobs_tx, jobs_rx) = std::sync::mpsc::channel();
         let prefs = Prefs::load();
         // Command line wins over saved preferences, which win over defaults.
         let mut crt = if opts.crt_explicit {
@@ -731,6 +744,10 @@ impl App {
             wifi: None,
             wifi_link: cread_wifi::Link::Offline,
             wifi_ui: wifi::WifiState::default(),
+            jobs_tx,
+            jobs_rx,
+            printer: peripherals::PrinterState::default(),
+            backup: peripherals::BackupState::default(),
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
             picture_path: None,
             program_prompt: false,
@@ -934,6 +951,7 @@ impl ApplicationHandler for App {
     /// A program's worker has something new: pick it up and draw.
     fn user_event(&mut self, _el: &ActiveEventLoop, _event: ()) {
         self.poll_wifi();
+        self.poll_jobs();
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {

@@ -69,7 +69,8 @@ command state. More dev views: `webdav`, `manual`, `notice`, `quit`,
 `shutdown`, `reboot`, `backtolinux`, `software`, `pictures`, `riffplay`,
 `riffinsert`, `pocketboi[:<rom>]`, `poker`, `pokerplay`, `pokerhand`,
 `pokerrisk`, `pokerover`, `calendar`, `calendaredit`, `reminder`,
-`picture[:<png>]`, `wlan`, `wlandemo` (a filled list), `wlanpassword`. An unknown `--show` value prints the exact list.
+`picture[:<png>]`, `wlan`, `wlandemo` (a filled list), `wlanpassword`,
+`printer`, `backup`, `backuprun`, `backupdone`. An unknown `--show` value prints the exact list.
 
 ## Architecture map
 
@@ -80,6 +81,7 @@ command state. More dev views: `webdav`, `manual`, `notice`, `quit`,
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never the UI thread |
 | `crates/sound` | which audio output device the machine opens | policy shared by the shell and programs |
 | `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | never install unsigned or unverified bytes |
+| `crates/peripherals` | printing through CUPS, USB stick backups | blocking; called from job threads, never the UI thread |
 | `crates/wifi` | NetworkManager via `nmcli`: WLAN scan/connect, link state for the top bar | worker thread; passwords on stdin, never argv |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition, screens | glue; keep logic in core when it can live there |
 | `crates/programs/*` | one crate per module (`softhand`, `pocketboi`, `poker`, `scripture`) | a program owns its surface and gestures, never the prompt or files |
@@ -95,7 +97,7 @@ Key files:
   `frame`, `persistence`, `pointer` (mouse and clipboard), `search`, `manual`,
   `programs`, `riff`, `setup` (SOFTWARE and SETTINGS), `show` (`--show`),
   `calendar`, `note`, `browser`, `boot`, `power`, `sync`, `update`, `webdav`,
-  `wifi`, `machine`; the app tests live in `app/tests.rs`.
+  `wifi`, `peripherals` (printer and USB backup), `machine`; the app tests live in `app/tests.rs`.
 - `crates/app/src/app/compose.rs` — draws the cell grid and the raster layer.
 - `crates/app/src/app/commands/*` — command implementations.
 - `crates/app/src/ui.rs` — shared shell UI: top bar, prompts, scrollbar, dialogs.

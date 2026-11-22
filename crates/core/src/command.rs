@@ -44,6 +44,10 @@ pub enum Command {
     Colour(Option<u8>),
     /// Silence the running program's sound.
     Mute,
+    /// Send the document (or Softhand's picture) to the printer.
+    Print,
+    /// Copy the vault onto a USB stick.
+    Backup,
     /// Toggle reader mode.
     View,
     /// Open the install screen.
@@ -341,6 +345,20 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Program],
     },
     Spec {
+        name: "print",
+        aliases: &["lp"],
+        argument: "",
+        summary: "send it to the printer",
+        scopes: &[Scope::Editor, Scope::Program],
+    },
+    Spec {
+        name: "backup",
+        aliases: &["usb"],
+        argument: "",
+        summary: "copy the vault onto a USB stick",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
+    Spec {
         name: "software",
         aliases: &["install", "modules"],
         argument: "",
@@ -569,6 +587,8 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
             })?),
         }),
         "mute" => Command::Mute,
+        "print" => Command::Print,
+        "backup" => Command::Backup,
         "colour" => Command::Colour(match optional(rest) {
             None => None,
             Some(text) => Some(text.parse().map_err(|_| CommandError::BadValue {
@@ -989,5 +1009,13 @@ mod tests {
     fn help_has_a_row_for_every_command() {
         assert!(SPECS.len() >= 15);
         assert!(SPECS.iter().all(|s| !s.summary.is_empty()));
+    }
+
+    #[test]
+    fn print_and_backup_parse() {
+        assert_eq!(parse("print"), Ok(Command::Print));
+        assert_eq!(parse("lp"), Ok(Command::Print));
+        assert_eq!(parse("backup"), Ok(Command::Backup));
+        assert_eq!(parse("usb"), Ok(Command::Backup));
     }
 }

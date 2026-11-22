@@ -156,6 +156,14 @@ impl App {
             self.draw_wifi(screen);
             return true;
         }
+        if self.mode == Mode::Printer {
+            self.draw_printer(screen);
+            return true;
+        }
+        if self.mode == Mode::Backup {
+            self.draw_backup(screen);
+            return true;
+        }
         if self.mode == Mode::RiffInsert {
             if let Some(browser) = self.riff.explorer.as_ref() {
                 let entries: Vec<(String, bool)> = browser
@@ -564,6 +572,8 @@ impl App {
                     | Mode::Software
                     | Mode::Setup
                     | Mode::Wifi
+                    | Mode::Printer
+                    | Mode::Backup
                     | Mode::Help
             );
             if self.home == Home::Inspiro {

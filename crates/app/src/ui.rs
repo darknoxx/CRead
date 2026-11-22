@@ -594,8 +594,10 @@ pub fn draw_menu(
     let inner = cols.saturating_sub(6).min(66);
     let x0 = (cols - inner) / 2;
     let bg = theme.bg;
-    let first = 3;
     let height = items.len() as u32 + 2;
+    // One row of air above the box, unless the list would then run into the
+    // bottom bar (SETTINGS on the 25-row screen).
+    let first = if 3 + height < rows { 3 } else { 2 };
     frame(screen, theme, x0, first - 1, inner, height + 1);
 
     for (index, item) in items.iter().enumerate() {

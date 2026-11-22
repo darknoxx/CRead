@@ -1301,8 +1301,11 @@ fn the_settings_show_the_disk_and_keep_the_manual_last() {
         .position(|row| row.name == "NETWORK")
         .expect("the network row");
     assert_eq!(storage + 1, network, "network follows storage");
-    assert_eq!(rows[network + 1].name, "WLAN", "wlan follows network");
-    assert_eq!(network + 2, rows.len() - 1, "just before the manual");
+    let after: Vec<&str> = rows[network + 1..]
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect();
+    assert_eq!(after, ["WLAN", "PRINTER", "USB BACKUP", "USER MANUAL"]);
     assert_eq!(rows.last().unwrap().name, "USER MANUAL");
     assert!(app.space.is_some(), "the vault's filesystem is readable");
 
@@ -2302,4 +2305,67 @@ fn a_removed_module_in_the_preferences_is_ignored() {
         })
         .collect();
     assert_eq!(modules, vec![riff]);
+}
+
+#[test]
+fn print_needs_something_to_print() {
+    let dir = vault("print-nothing");
+    let mut app = app_in(&dir);
+    // The boot screen: no document, no picture. Nothing reaches `lp`.
+    let error = app.cmd_print().unwrap_err();
+    assert!(error.contains("document"), "{error}");
+}
+
+#[test]
+fn the_printer_screen_names_the_default() {
+    let dir = vault("printer-screen");
+    let mut app = app_in(&dir);
+    assert_eq!(app.printer_label(), "", "not asked yet");
+    app.job_done(peripherals::Job::Printers(Ok(
+        cread_peripherals::printer::Printers {
+            names: vec!["Samsung_M2070".into(), "PDF".into()],
+            default: None,
+        },
+    )));
+    assert_eq!(app.printer_label(), "not chosen");
+    app.job_done(peripherals::Job::DefaultSet(Ok("Samsung_M2070".into())));
+    assert_eq!(app.printer_label(), "Samsung_M2070");
+    app.mode = Mode::Printer;
+    app.screen = Screen::new(80, 25);
+    app.compose();
+    let text = rows_as_text(&app.screen);
+    assert!(
+        text.contains("Samsung_M2070") && text.contains("default"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_backup_reports_how_it_went() {
+    let dir = vault("backup-screen");
+    let mut app = app_in(&dir);
+    app.mode = Mode::Backup;
+    app.backup.from = Some(Mode::Setup);
+    app.job_done(peripherals::Job::Sticks(Ok(vec![])));
+    app.screen = Screen::new(80, 25);
+    app.compose();
+    assert!(rows_as_text(&app.screen).contains("insert a USB stick"));
+
+    app.backup.phase = peripherals::BackupPhase::Running;
+    app.job_done(peripherals::Job::Progress(3, 4));
+    assert_eq!(app.backup.progress, (3, 4));
+    app.job_done(peripherals::Job::BackedUp(Ok(
+        cread_peripherals::usb::Report {
+            folder: PathBuf::from("/media/u/STICK/CRead-Backup-2026-11-22"),
+            copied: 3,
+            skipped: vec!["Notes/a:b.md".into()],
+        },
+    )));
+    assert_eq!(app.backup.phase, peripherals::BackupPhase::Done);
+    assert!(
+        app.backup
+            .note
+            .contains("3 files in CRead-Backup-2026-11-22")
+    );
+    assert!(app.backup.note.contains("1 not copied"));
 }

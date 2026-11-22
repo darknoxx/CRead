@@ -41,7 +41,8 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 `poker` (front door), `pokerplay` (the machine), `pokerhand` (a dealt hand),
 `pokerrisk` (the ladder) and `pokerover` (the lose screen), `calendar` (month),
 `calendaredit` (the event form) and `reminder` (the modal), `picture[:<png>]`,
-`wlan`, `wlandemo` (a filled network list) and `wlanpassword`.
+`wlan`, `wlandemo` (a filled network list), `wlanpassword`, `printer`,
+`backup`, `backuprun` (the progress bar) and `backupdone`.
 
 ## Layout
 
@@ -52,6 +53,7 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never on the UI thread |
 | `crates/sound` | which output device the machine opens, for game and music alike | a policy both the shell and a program need, so it belongs to neither |
 | `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | unsigned or unverified bytes are never installed |
+| `crates/peripherals` | printing through CUPS (`lp`, `lpstat`, `lpoptions`), backups onto USB sticks (`lsblk`, `udisksctl`, file copy) | blocking; the app runs each job on a short-lived thread that reports through `App::jobs` and rings the waker. Only USB drives are offered, never the SD card; a backup never overwrites |
 | `crates/wifi` | NetworkManager through `nmcli`: scan, connect, forget, link state | worker thread only; passwords go to `nmcli` on stdin, never in argv |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition; `app.rs` holds the state and the winit handler, each concern is an `impl App` block in `app/*.rs` (input, frame, persistence, screens, …), commands in `app/commands/*`, tests in `app/tests.rs` | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
