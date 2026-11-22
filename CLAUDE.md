@@ -12,10 +12,10 @@ and [`CHANGELOG.md`](CHANGELOG.md) is the release history.
 
 ## Current state (check before trusting)
 
-- Version: **0.37.0** (`Cargo.toml`, `ui::VERSION`).
+- Version: **0.37.1** (`Cargo.toml`, `ui::VERSION`).
 - `main` is the only branch. The old `experimental/*` branches were fully
   merged into `main` and deleted on 2026-11-21.
-- The latest release is `v0.37.0`; tags and release assets are on GitHub.
+- The latest release is `v0.37.1`; tags and release assets are on GitHub.
 - Run `git status`, `git log -1` and `git describe --tags` before a task that
   depends on the current state.
 

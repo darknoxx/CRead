@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.37.1
 
 - **Printing works with a printer CUPS has only discovered.** On the Pi the
   network printer appears without a queue, and CUPS keeps no default for such a
