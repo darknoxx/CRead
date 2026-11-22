@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.35.0
+
+- **Wanderlust has an address bar** in the frame's top edge: `◄` back, `►`
+  forward, `☼` reload and the address. Click it, or press `Ctrl+L` / `F6`, to
+  type; `Enter` goes, `Esc` puts it away.
+- **Full screen stays in the frame.** A video that went full screen used to
+  grow to Chromium's own 800x600 screen and slide into the top-left corner; it
+  now fills the page. `Esc` leaves full screen before it opens the prompt.
+- **Smoother video on the Pi.** Pages stream at 30 frames a second instead of
+  60, and video sites are steered to H.264 when the browser can play it: VP9
+  and AV1 are decoded in software on a Raspberry Pi.
+- `sudo cread-browser-setup` installs Chromium from the system, switches on
+  automatic security updates, and adds a Chromium policy with uBlock Origin
+  Lite, no password store, and camera, microphone and location blocked. The
+  kiosk installer runs it (skip with `CREAD_BROWSER=0`).
+
 ## 0.34.0
 
 - **Wanderlust, a web browser in CRead's clothes.** A new module on the
