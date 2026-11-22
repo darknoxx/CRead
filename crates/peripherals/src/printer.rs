@@ -1,9 +1,10 @@
 //! Printing through CUPS: the printers it knows, the default, and a job.
 //!
-//! CRead does not set printers up. `cups-browsed` adds network printers that
-//! print without a driver (IPP Everywhere, AirPrint) by itself; CRead lists
-//! them and remembers the writer's choice with `lpoptions -d`, which is a user
-//! setting and needs no administrator.
+//! CRead does not set printers up. CUPS lists network printers that print
+//! without a driver (IPP Everywhere, AirPrint) by itself, and `lp -d NAME`
+//! prints on one even before a queue exists. The writer's choice is kept in
+//! CRead's preferences and named on every job: CUPS does not store a default
+//! for a printer it has only discovered.
 
 use std::path::Path;
 
@@ -26,10 +27,6 @@ pub fn list() -> Result<Printers, String> {
         .ok()
         .and_then(|out| parse_default(&out));
     Ok(Printers { names, default })
-}
-
-pub fn set_default(name: &str) -> Result<(), String> {
-    run("lpoptions", &["-d", name], None).map(|_| ())
 }
 
 /// Print a document's text: one typewriter face, wide margins.
@@ -70,6 +67,18 @@ pub fn print_file(printer: Option<&str>, title: &str, path: &Path) -> Result<Str
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let out = run("lp", &args, None)?;
     Ok(job_id(&out))
+}
+
+/// Which printer a job goes to: the chosen one, else the only one there is,
+/// else CUPS's own default (`None`).
+pub fn resolve(chosen: Option<&str>, known: &[String]) -> Option<String> {
+    if let Some(name) = chosen {
+        return Some(name.to_string());
+    }
+    match known {
+        [only] => Some(only.clone()),
+        _ => None,
+    }
 }
 
 fn destination(printer: Option<&str>) -> Vec<String> {
@@ -154,5 +163,14 @@ mod tests {
         assert!(text.starts_with("Title\n"), "{text}");
         assert!(text.lines().all(|l| l.chars().count() <= PAGE_COLUMNS));
         assert!(text.contains("bold") && !text.contains("**"));
+    }
+
+    #[test]
+    fn the_choice_wins_then_the_only_printer() {
+        let two = ["A".to_string(), "B".to_string()];
+        assert_eq!(resolve(Some("B"), &two), Some("B".into()));
+        assert_eq!(resolve(None, &two[..1]), Some("A".into()));
+        assert_eq!(resolve(None, &two), None);
+        assert_eq!(resolve(None, &[]), None);
     }
 }

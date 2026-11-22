@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Printing works with a printer CUPS has only discovered.** On the Pi the
+  network printer appears without a queue, and CUPS keeps no default for such a
+  printer, so the choice in `SETTINGS → PRINTER` was lost and `print` had
+  nowhere to go. CRead now keeps the chosen printer in its own preferences and
+  names it on every job; with only one printer around, that one is used. The
+  status line says which printer the page went to.
+
 ## 0.37.0
 
 - **Printing.** `print` sends the document to the printer as plain text in a

@@ -42,6 +42,10 @@ pub struct Prefs {
     pub clock_24h: bool,
     /// German date order (`07.11.26`); off means `11/07/26`.
     pub date_day_first: bool,
+    /// The printer `print` uses, as CUPS names it. Kept here rather than as a
+    /// CUPS default: CUPS does not store a default for a network printer it
+    /// has only discovered and not set up.
+    pub printer: Option<String>,
 }
 
 impl Default for Prefs {
@@ -64,6 +68,7 @@ impl Default for Prefs {
             screensaver_minutes: 5,
             clock_24h: true,
             date_day_first: true,
+            printer: None,
         }
     }
 }
@@ -162,6 +167,7 @@ mod tests {
             screensaver_minutes: 15,
             clock_24h: false,
             date_day_first: false,
+            printer: Some("Samsung_M2070".into()),
         };
         saved.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), saved);

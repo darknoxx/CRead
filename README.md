@@ -226,9 +226,10 @@ its command line. Networks with a user name (WPA-Enterprise) are not supported
 yet. While the machine is online, the top bar ends in a small mark: a Wi-Fi fan
 with one to three arcs, or a plug for a cable.
 
-`PRINTER` lists the printers CUPS knows and picks the one `print` uses
-(`lpoptions -d`, a user setting). CRead does not set printers up: `cups-browsed`
-adds driverless network printers (IPP Everywhere, AirPrint) by itself. `print`
+`PRINTER` lists the printers CUPS knows and picks the one `print` uses; the
+choice is kept in CRead's preferences and named on every job (`lp -d`), and a
+single printer is used without choosing. CRead does not set printers up: CUPS
+finds driverless network printers (IPP Everywhere, AirPrint) by itself. `print`
 sends the document as plain text without its Markdown marks, or Softhand's
 picture scaled to the page.
 

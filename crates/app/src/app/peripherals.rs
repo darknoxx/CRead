@@ -13,8 +13,8 @@ use cread_peripherals::usb::{self, Report, Stick};
 /// What a background job reports.
 pub(super) enum Job {
     Printers(Result<Printers, String>),
-    DefaultSet(Result<String, String>),
-    Printed(Result<String, String>),
+    /// The printer it went to (if one was named) and the job id.
+    Printed(Option<String>, Result<String, String>),
     Sticks(Result<Vec<Stick>, String>),
     Progress(usize, usize),
     BackedUp(Result<Report, String>),
@@ -93,17 +93,15 @@ impl App {
                 self.printer.loaded = true;
                 self.printer.note = e;
             }
-            Job::DefaultSet(Ok(name)) => {
-                self.printer.printers.default = Some(name.clone());
-                self.printer.note = format!("{name} is the printer now");
+            Job::Printed(printer, Ok(id)) => {
+                let on = printer.map(|p| format!(" on {p}")).unwrap_or_default();
+                self.set_status(if id.is_empty() {
+                    format!("printed{on}")
+                } else {
+                    format!("printed{on} ({id})")
+                });
             }
-            Job::DefaultSet(Err(e)) => self.printer.note = e,
-            Job::Printed(Ok(id)) => self.set_status(if id.is_empty() {
-                "sent to the printer".to_string()
-            } else {
-                format!("sent to the printer ({id})")
-            }),
-            Job::Printed(Err(e)) => self.set_status(format!("cannot print: {e}")),
+            Job::Printed(_, Err(e)) => self.set_status(format!("cannot print: {e}")),
             Job::Sticks(result) => {
                 self.backup.phase = BackupPhase::Choose;
                 match result {
@@ -165,10 +163,12 @@ impl App {
                 .and_then(|p| p.file_name())
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "picture".into());
+            let chosen = self.prefs.printer.clone();
             self.spawn_job(move |emit| {
-                let result = printer::print_file(None, &title, &path);
+                let target = destination(chosen);
+                let result = printer::print_file(target.as_deref(), &title, &path);
                 let _ = std::fs::remove_file(&path);
-                emit(Job::Printed(result));
+                emit(Job::Printed(target, result));
             });
             return Ok("printing ...".into());
         }
@@ -177,7 +177,12 @@ impl App {
         }
         let text = printer::page_text(self.doc.editor.lines());
         let title = self.doc.title();
-        self.spawn_job(move |emit| emit(Job::Printed(printer::print_text(None, &title, &text))));
+        let chosen = self.prefs.printer.clone();
+        self.spawn_job(move |emit| {
+            let target = destination(chosen);
+            let result = printer::print_text(target.as_deref(), &title, &text);
+            emit(Job::Printed(target, result));
+        });
         Ok("printing ...".into())
     }
 
@@ -192,10 +197,16 @@ impl App {
         self.poke();
     }
 
+    /// The printer jobs go to, as far as the screen knows: the chosen one,
+    /// or the only one there is.
+    fn printer_in_use(&self) -> Option<String> {
+        printer::resolve(self.prefs.printer.as_deref(), &self.printer.printers.names)
+    }
+
     /// The SETTINGS row's value.
     pub(super) fn printer_label(&self) -> String {
-        match (&self.printer.printers.default, self.printer.loaded) {
-            (Some(name), _) => name.clone(),
+        match (self.printer_in_use(), self.printer.loaded) {
+            (Some(name), _) => name,
             (None, false) => String::new(),
             (None, true) if self.printer.printers.names.is_empty() => "none".into(),
             (None, true) => "not chosen".into(),
@@ -213,14 +224,16 @@ impl App {
                 self.printer.selected = (self.printer.selected + 1).min(last);
             }
             Key::Named(NamedKey::Enter) => {
-                if let Some(name) = self.printer.printers.names.get(self.printer.selected) {
-                    let name = name.clone();
-                    self.printer.note = format!("choosing {name} ...");
-                    self.spawn_job(move |emit| {
-                        emit(Job::DefaultSet(
-                            printer::set_default(&name).map(|()| name.clone()),
-                        ))
-                    });
+                if let Some(name) = self
+                    .printer
+                    .printers
+                    .names
+                    .get(self.printer.selected)
+                    .cloned()
+                {
+                    self.prefs.printer = Some(name.clone());
+                    self.save_prefs();
+                    self.printer.note = format!("print now goes to {name}");
                 }
             }
             Key::Character(text) if text.eq_ignore_ascii_case("r") => {
@@ -246,8 +259,8 @@ impl App {
                 .names
                 .iter()
                 .map(|name| {
-                    let value = if self.printer.printers.default.as_deref() == Some(name) {
-                        "default"
+                    let value = if self.printer_in_use().as_deref() == Some(name.as_str()) {
+                        "in use"
                     } else {
                         ""
                     };
@@ -412,4 +425,14 @@ impl App {
             screen.put_str_ellipsis(4, y, &note, width, self.theme.dim, self.theme.bg);
         }
     }
+}
+
+/// The printer for a job, decided on the job's thread: asking CUPS for the
+/// list takes a moment, and is only needed when nothing was chosen.
+fn destination(chosen: Option<String>) -> Option<String> {
+    if chosen.is_some() {
+        return chosen;
+    }
+    let known = printer::list().map(|p| p.names).unwrap_or_default();
+    printer::resolve(None, &known)
 }

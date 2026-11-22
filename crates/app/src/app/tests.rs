@@ -2328,14 +2328,15 @@ fn the_printer_screen_names_the_default() {
         },
     )));
     assert_eq!(app.printer_label(), "not chosen");
-    app.job_done(peripherals::Job::DefaultSet(Ok("Samsung_M2070".into())));
+    // Enter on the first row keeps the choice in CRead's own preferences.
+    app.prefs.printer = Some("Samsung_M2070".into());
     assert_eq!(app.printer_label(), "Samsung_M2070");
     app.mode = Mode::Printer;
     app.screen = Screen::new(80, 25);
     app.compose();
     let text = rows_as_text(&app.screen);
     assert!(
-        text.contains("Samsung_M2070") && text.contains("default"),
+        text.contains("Samsung_M2070") && text.contains("in use"),
         "{text}"
     );
 }
@@ -2368,4 +2369,39 @@ fn a_backup_reports_how_it_went() {
             .contains("3 files in CRead-Backup-2026-11-22")
     );
     assert!(app.backup.note.contains("1 not copied"));
+}
+
+#[test]
+fn a_print_result_reaches_the_writing_screen() {
+    let dir = vault("print-status");
+    let mut app = app_in(&dir);
+    app.new_document().unwrap();
+    app.doc.editor.insert_text("Hallo");
+    app.mode = Mode::Write;
+    app.job_done(peripherals::Job::Printed(
+        None,
+        Err("no default destination".into()),
+    ));
+    app.screen = Screen::new(80, 25);
+    app.compose();
+    let text = rows_as_text(&app.screen);
+    assert!(text.contains("cannot print"), "{text}");
+}
+
+#[test]
+fn the_only_printer_is_used_without_choosing() {
+    let dir = vault("only-printer");
+    let mut app = app_in(&dir);
+    app.job_done(peripherals::Job::Printers(Ok(
+        cread_peripherals::printer::Printers {
+            names: vec!["Samsung_M2070".into()],
+            default: None,
+        },
+    )));
+    assert_eq!(app.printer_label(), "Samsung_M2070");
+    app.job_done(peripherals::Job::Printed(
+        Some("Samsung_M2070".into()),
+        Ok("Samsung_M2070-4".into()),
+    ));
+    assert_eq!(app.status, "printed on Samsung_M2070 (Samsung_M2070-4)");
 }

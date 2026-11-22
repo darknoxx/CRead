@@ -856,7 +856,9 @@ way.
 **PRINTER** lists the printers the machine knows. Network printers that print
 without a driver (most printers of the last ten years, everything with AirPrint)
 appear by themselves after a moment. **Enter** makes the chosen one the
-printer `print` uses; **R** asks again.
+printer `print` uses, and CRead remembers it; with only one printer around,
+it is used without asking. **R** asks again. The status line names the printer
+the page went to.
 
 ### USB backup
 

@@ -218,8 +218,9 @@ curl -fL https://raw.githubusercontent.com/darknoxx/CRead/main/packaging/50-crea
 
 `print` goes through CUPS, and `USB BACKUP` through udisks2. The quick install
 brings `cups`, `cups-browsed`, `avahi-daemon`, `libnss-mdns` and `udisks2`;
-`cups-browsed` adds network printers that print without a driver (AirPrint,
-IPP Everywhere) by itself, so there is nothing to set up for most printers.
+CUPS finds network printers that print without a driver (AirPrint, IPP
+Everywhere) by itself, and CRead prints on them by name, so there is nothing
+to set up for most printers.
 The installer also writes `/etc/polkit-1/rules.d/50-cread-usb.rules`, which lets
 the kiosk user mount, unmount and power off USB sticks and nothing else.
 
