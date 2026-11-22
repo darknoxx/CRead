@@ -1301,7 +1301,8 @@ fn the_settings_show_the_disk_and_keep_the_manual_last() {
         .position(|row| row.name == "NETWORK")
         .expect("the network row");
     assert_eq!(storage + 1, network, "network follows storage");
-    assert_eq!(network + 1, rows.len() - 1, "just before the manual");
+    assert_eq!(rows[network + 1].name, "WLAN", "wlan follows network");
+    assert_eq!(network + 2, rows.len() - 1, "just before the manual");
     assert_eq!(rows.last().unwrap().name, "USER MANUAL");
     assert!(app.space.is_some(), "the vault's filesystem is readable");
 
@@ -2277,4 +2278,65 @@ fn wanderlust_sits_under_the_top_bar_and_names_its_trouble() {
     app.cmd_web(Some("example.com".into())).unwrap();
     assert_eq!(app.program_id, Some("wanderlust"));
     assert!(app.cmd_browse(&Command::Reload).is_ok());
+}
+
+#[test]
+fn the_wifi_screen_lists_networks_and_asks_for_a_password() {
+    let dir = vault("wifi-screen");
+    let mut app = app_in(&dir);
+    // No worker in a test: the events are handed in directly.
+    app.open_wifi();
+    assert_eq!(app.mode, Mode::Wifi);
+    let net = |ssid: &str, signal, security: &str, in_use, saved| cread_wifi::Network {
+        ssid: ssid.into(),
+        signal,
+        security: security.into(),
+        in_use,
+        saved,
+    };
+    app.wifi_event(cread_wifi::Event::Networks(vec![
+        net("Home", 80, "WPA2", true, true),
+        net("Cafe", 40, "", false, false),
+    ]));
+    app.wifi_event(cread_wifi::Event::Link(cread_wifi::Link::Wifi {
+        ssid: "Home".into(),
+        signal: 80,
+    }));
+    assert_eq!(app.wifi_label(), "Home");
+    assert_eq!(app.net_mark(), Some(cread_render::font::NET_WIFI[2]));
+
+    app.screen = Screen::new(80, 25);
+    app.compose();
+    let text = rows_as_text(&app.screen);
+    assert!(
+        text.contains("Home") && text.contains("connected"),
+        "{text}"
+    );
+    assert!(text.contains("Cafe") && text.contains("open"), "{text}");
+
+    app.wifi_event(cread_wifi::Event::Link(cread_wifi::Link::Offline));
+    assert_eq!(app.net_mark(), None, "offline: no mark");
+    assert_eq!(app.wifi_label(), "not connected");
+    app.wifi_event(cread_wifi::Event::Link(cread_wifi::Link::Wired));
+    assert_eq!(app.net_mark(), Some(cread_render::font::NET_WIRED));
+}
+
+#[test]
+fn the_top_bar_carries_the_network_mark() {
+    let mut screen = Screen::new(80, 25);
+    ui::draw_top_bar(
+        &mut screen,
+        &Theme::BLACK,
+        &ui::TopBar {
+            title: "doc.md",
+            state: "saved",
+            clock: "12:00",
+            location: "~/Documents",
+            net: Some(cread_render::font::NET_WIFI[1]),
+        },
+    );
+    let bar = rows_as_text(&screen).lines().next().unwrap().to_string();
+    let chars: Vec<char> = bar.chars().collect();
+    assert_eq!(chars[78], cread_render::font::NET_WIFI[1]);
+    assert!(bar.contains("~/Documents \u{e002}"), "{bar:?}");
 }

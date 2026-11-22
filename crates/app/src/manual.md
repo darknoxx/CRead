@@ -691,9 +691,10 @@ World Bible (1913); the German edition is not included.
 
 ## Chapter 10: Wanderlust — the web
 
-Wanderlust is a real web browser in CRead's clothes. Underneath runs
-**Chromium**: pages run their scripts, videos play with sound, and you can log
-in and fill in forms. What you see is CRead: the page is drawn at the
+Wanderlust is a real web browser in CRead's clothes, made for looking things
+up while you write: an encyclopaedia, documentation, an article. Underneath
+runs **Chromium**: pages run their scripts, and you can log in and fill in
+forms. What you see is CRead: the page is drawn at the
 machine's resolution with the scanlines over it, the top bar shows the page
 title, the clock and where the page really comes from, and the command line
 is the usual one.
@@ -750,6 +751,15 @@ second; a still page costs nothing. On the Raspberry Pi, video sites are asked
 for H.264, which the Pi decodes with much less effort than the newer formats.
 uBlock Origin Lite blocks most advertising once the Pi's browser is set up
 (`sudo cread-browser-setup`).
+
+### What it is not
+
+Wanderlust is not a television. Video plays, but on a Raspberry Pi 4 it is
+choppy: the Pi draws the whole page without its graphics chip. **YouTube** in
+particular stops playing after about a minute with "an error occurred",
+because it refuses browsers that are steered by another program — which is
+what Wanderlust is. That happens on fast machines too, and CRead does not try
+to trick it.
 
 ### Where things are kept
 
@@ -889,7 +899,30 @@ time. The other screens show only the time.
 | SOFTWARE | The software shelf. |
 | STORAGE | How full the disk is. Enter refreshes it. |
 | NETWORK | Your local IP address. Enter refreshes it. |
+| WLAN | The Wi-Fi you are on. Enter opens the list of networks. |
 | USER MANUAL | Opens this manual. Nothing in it can be changed. |
+
+### WLAN
+
+**WLAN** lists the Wi-Fi networks in range, strongest first, with their signal
+as four small squares and what they are: `connected`, `saved` (known, no
+password needed), `open` or `locked`.
+
+| Key | Effect |
+| --- | --- |
+| Up / Down | Choose a network. |
+| Enter | Connect. A locked network asks for its password once. |
+| R | Look for networks again. |
+| Del | Forget a saved network. |
+| Esc | Back to SETTINGS. |
+
+The password is shown as stars and remembered by the system, so the machine
+finds the network again after a restart. Networks that need a user name as
+well (in offices and universities) cannot be joined from here yet.
+
+While the machine is online, a small mark sits at the right end of the top
+bar: a Wi-Fi fan with one to three arcs for the signal, or a plug when it is
+on a cable. Offline, the place stays empty.
 
 In the manual, Up/Down selects a Contents point and Enter jumps to it. The
 appendices are in the same list; Page Up/Down scrolls and Home returns to

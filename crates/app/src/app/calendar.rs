@@ -846,6 +846,7 @@ impl App {
             screen,
             &self.theme,
             &ui::TopBar {
+                net: self.net_mark(),
                 title: "CALENDAR",
                 state: &month,
                 clock: &clock,
@@ -859,6 +860,7 @@ impl App {
             screen,
             &self.theme,
             &ui::TopBar {
+                net: self.net_mark(),
                 title: "CALENDAR",
                 state: &month,
                 clock: &clock,
@@ -1016,6 +1018,7 @@ impl App {
             screen,
             &self.theme,
             &ui::TopBar {
+                net: self.net_mark(),
                 title: "CALENDAR",
                 state: &title,
                 clock: &clock,

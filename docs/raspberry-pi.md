@@ -173,8 +173,8 @@ The script:
 
 - installs the binary to `/opt/cread/cread`, owned by your user, so
   `SETTINGS → UPDATE` can replace it without root;
-- installs `/etc/systemd/system/cread-kiosk.service` and a polkit rule that
-  lets `shutdown` work without a password;
+- installs `/etc/systemd/system/cread-kiosk.service` and polkit rules that
+  let `shutdown` and the WLAN screen in SETTINGS work without a password;
 - turns the journal volatile and disables the swap unit for the next boot;
 - disables `getty@tty1`, installs `/usr/local/sbin/cread-update`, and
   starts/restarts the kiosk;
@@ -200,6 +200,21 @@ journalctl -u cread-kiosk -b --no-pager | tail -40
 ```
 
 If the screen stays on a bare cursor or the Linux console, see Troubleshooting.
+
+### Wi-Fi from SETTINGS
+
+`SETTINGS → WLAN` scans and joins Wi-Fi networks through NetworkManager, which
+Raspberry Pi OS uses since Bookworm. The kiosk user needs a polkit rule for it;
+the installer writes `/etc/polkit-1/rules.d/50-cread-network.rules`. It allows
+scanning, connecting and saving or forgetting networks, and nothing else of
+NetworkManager. On a Pi installed before 0.36.0, add it once (replace
+`creaduser` with the kiosk user):
+
+```sh
+curl -fL https://raw.githubusercontent.com/darknoxx/CRead/main/packaging/50-cread-network.rules.in \
+  | sed 's|@USER@|creaduser|g' \
+  | sudo tee /etc/polkit-1/rules.d/50-cread-network.rules >/dev/null
+```
 
 ### The browser
 

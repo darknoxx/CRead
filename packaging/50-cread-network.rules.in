@@ -1,0 +1,13 @@
+// Let the kiosk user use the WLAN screen in CRead's SETTINGS without a
+// password: scan, connect, save and forget Wi-Fi networks. Nothing else of
+// NetworkManager (hostname, sleep, reloading) is opened up.
+polkit.addRule(function (action, subject) {
+    if ((action.id == "org.freedesktop.NetworkManager.network-control" ||
+         action.id == "org.freedesktop.NetworkManager.wifi.scan" ||
+         action.id == "org.freedesktop.NetworkManager.enable-disable-wifi" ||
+         action.id == "org.freedesktop.NetworkManager.settings.modify.system" ||
+         action.id == "org.freedesktop.NetworkManager.settings.modify.own") &&
+        subject.user == "@USER@") {
+        return polkit.Result.YES;
+    }
+});

@@ -64,6 +64,8 @@ pub enum Bottom<'a> {
 }
 
 pub struct DocumentView<'a> {
+    /// The network mark for the top bar.
+    pub net: Option<char>,
     /// The bar clock, already formatted for the chosen convention.
     pub clock: &'a str,
     pub title: &'a str,
@@ -108,6 +110,7 @@ pub fn draw_document(screen: &mut Screen, theme: &Theme, view: &DocumentView<'_>
             state: view.state,
             clock: view.clock,
             location: view.location,
+            net: view.net,
         },
     );
     draw_text(screen, theme, view);
@@ -147,6 +150,9 @@ pub struct TopBar<'a> {
     /// Already formatted (date and/or time); empty means no clock.
     pub clock: &'a str,
     pub location: &'a str,
+    /// The network mark (Wi-Fi strength or cable), right of the location.
+    /// `None` when the machine is offline: no mark, no fuss.
+    pub net: Option<char>,
 }
 
 pub fn draw_top_bar(screen: &mut Screen, theme: &Theme, bar: &TopBar<'_>) {
@@ -160,7 +166,8 @@ pub fn draw_top_bar(screen: &mut Screen, theme: &Theme, bar: &TopBar<'_>) {
         format!("{} ", bar.location)
     };
     let location_width = location.chars().count() as u32;
-    let right_start = cols.saturating_sub(location_width);
+    let mark_width = if bar.net.is_some() { 2 } else { 0 };
+    let right_start = cols.saturating_sub(location_width + mark_width);
 
     let left = match (bar.title.is_empty(), bar.state.is_empty()) {
         (true, _) => String::new(),
@@ -189,6 +196,11 @@ pub fn draw_top_bar(screen: &mut Screen, theme: &Theme, bar: &TopBar<'_>) {
     }
     if location_width > 0 && location_width < cols / 2 {
         screen.put_str(right_start, 0, &location, theme.status_dim, bg);
+    }
+    if let Some(mark) = bar.net
+        && cols >= 2
+    {
+        screen.put(cols - 2, 0, Cell::new(mark, fg, bg));
     }
 }
 
@@ -896,6 +908,8 @@ pub fn draw_loading(
 // ── manual ──────────────────────────────────────────────────────────────────
 
 pub struct ManualView<'a> {
+    /// The network mark for the top bar.
+    pub net: Option<char>,
     pub clock: &'a str,
     pub rows: &'a [markdown::Rendered],
     pub top: usize,
@@ -921,6 +935,7 @@ pub fn draw_manual(screen: &mut Screen, theme: &Theme, view: &ManualView<'_>) {
             state: "",
             clock: view.clock,
             location: "USER MANUAL",
+            net: view.net,
         },
     );
 
@@ -983,6 +998,8 @@ pub fn draw_manual(screen: &mut Screen, theme: &Theme, view: &ManualView<'_>) {
 // ── reader (view mode) ──────────────────────────────────────────────────────
 
 pub struct ReaderView<'a> {
+    /// The network mark for the top bar.
+    pub net: Option<char>,
     /// The bar clock, already formatted for the chosen convention.
     pub clock: &'a str,
     pub title: &'a str,
@@ -1065,6 +1082,7 @@ pub fn draw_reader(screen: &mut Screen, theme: &Theme, view: &ReaderView<'_>) {
             state: view.state,
             clock: view.clock,
             location: view.location,
+            net: view.net,
         },
     );
 
@@ -1170,6 +1188,8 @@ impl BootItem {
 }
 
 pub struct WelcomeView<'a> {
+    /// The network mark for the top bar.
+    pub net: Option<char>,
     /// The bar clock: date and time on the boot screen.
     pub clock: &'a str,
     pub show_prompt: bool,
@@ -1198,6 +1218,7 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
             state: "",
             clock: view.clock,
             location: "",
+            net: view.net,
         },
     );
 
@@ -1292,7 +1313,7 @@ pub fn draw_welcome(screen: &mut Screen, theme: &Theme, view: &WelcomeView<'_>) 
     }
 }
 
-fn put_centered(screen: &mut Screen, y: u32, text: &str, fg: u8, bg: u8) {
+pub fn put_centered(screen: &mut Screen, y: u32, text: &str, fg: u8, bg: u8) {
     let width = text.chars().count() as u32;
     let x = screen.cols().saturating_sub(width) / 2;
     screen.put_str(x, y, text, fg, bg);
@@ -1711,6 +1732,7 @@ mod tests {
         input: (&'a str, &'a str),
     ) -> DocumentView<'a> {
         DocumentView {
+            net: None,
             clock: "14:07",
             scroll: (0, 1),
             title: "note.md",
@@ -1931,6 +1953,7 @@ mod tests {
                 state: "modified",
                 clock: "19:25",
                 location: "~/Dokumente/CRead/Pictures",
+                net: None,
             },
         );
         let bar = rows_as_text(&screen).lines().next().unwrap().to_string();
@@ -1948,6 +1971,7 @@ mod tests {
                 state: "",
                 clock: "01.11.26 - 19:25",
                 location: "",
+                net: None,
             },
         );
         let bar = rows_as_text(&screen).lines().next().unwrap().to_string();
@@ -2009,6 +2033,7 @@ mod tests {
             &mut screen,
             &Theme::BLACK,
             &WelcomeView {
+                net: None,
                 clock: "07.11.26 - 14:07",
                 show_prompt: true,
                 title_row: 4,

@@ -207,6 +207,7 @@ SETTINGS
   │   SOFTWARE     install and remove modules                  │
   │   STORAGE      12.4/29.7 GB                 ██████░░░░ 62% │
   │   NETWORK      local address                  192.168.1.42 │
+  │   WLAN         scan and connect                  Home-WLAN │
   │   USER MANUAL  read the manual                             │
   └────────────────────────────────────────────────────────────┘
 ```
@@ -216,6 +217,14 @@ as `crates/app/src/manual.md`, read-only, with a scrollbar on the right. Its
 Contents and appendices are a menu: Up/Down selects a point, Enter jumps to it,
 and Page Up/Down scrolls. It is not an Inspiro document; `Esc` takes you back
 to SETTINGS.
+
+`WLAN` lists the Wi-Fi networks in range (strongest first, `connected`,
+`saved`, `open` or `locked`); `Enter` connects and asks for a password once, `R`
+scans again, `Del` forgets a saved network. It drives NetworkManager through
+`nmcli` on a worker thread, and the password goes to `nmcli` on stdin, never on
+its command line. Networks with a user name (WPA-Enterprise) are not supported
+yet. While the machine is online, the top bar ends in a small mark: a Wi-Fi fan
+with one to three arcs, or a plug for a cable.
 
 WebDAV syncs the *vault* — documents, pictures and ROMs — so it is set up here,
 next to the other switches that belong to the machine. `Enter` acts on the
@@ -533,7 +542,9 @@ from EZScripture is used — only the English text.
 
 ## Wanderlust
 
-Wanderlust is a real browser in CRead's clothes. A headless **Chromium** renders
+Wanderlust is a real browser in CRead's clothes, meant for looking things up
+while writing — an encyclopaedia, documentation, an article — not for
+streaming. A headless **Chromium** renders
 the page, runs its scripts and plays its videos; CRead shows the result as a
 picture at emulated resolution, under the CRT pass, with its own top bar
 (page title, clock, `https://host`) and its own prompt. Chromium's window and
@@ -550,7 +561,9 @@ page; `Ctrl+V` pastes CRead's clipboard. `Esc` leaves a full-screen video first
 One page at a time: links that want a new window open in the same one. Only
 `http` and `https` are opened from the prompt.
 
-Pictures stream at 30 frames a second. Video sites are steered to H.264 when
+Video plays but is choppy on a Raspberry Pi 4, and YouTube stops after about a
+minute for any remotely steered Chromium (tested with and without headless
+mode); CRead does not try to evade that. Pictures stream at 30 frames a second. Video sites are steered to H.264 when
 the browser can play it, because VP9 and AV1 are decoded in software on a
 Raspberry Pi.
 
@@ -787,6 +800,7 @@ crates/render    emulated framebuffer, bitmap font, wgpu CRT pass
 crates/sync      WebDAV client, conflict policy, background worker
 crates/sound     which output device the machine opens
 crates/web       headless Chromium over a pipe: frames, input, navigation
+crates/wifi      NetworkManager through nmcli: scan, connect, link state
 crates/app       window, input, frame loop, UI composition
 crates/programs/ modules: one crate per program, compiled in
 assets/          bitmap faces, boot logo

@@ -616,6 +616,7 @@ dependencies = [
  "cread-sync",
  "cread-update",
  "cread-wanderlust",
+ "cread-wifi",
  "pollster",
  "rodio",
  "wgpu",
@@ -730,6 +731,13 @@ dependencies = [
  "serde_json",
  "zune-core",
  "zune-jpeg",
+]
+
+[[package]]
+name = "cread-wifi"
+version = "0.35.0"
+dependencies = [
+ "cread-core",
 ]
 
 [[package]]

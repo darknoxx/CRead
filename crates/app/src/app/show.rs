@@ -73,6 +73,38 @@ impl App {
                 self.reminder_back = self.mode;
                 self.mode = Mode::Reminder;
             }
+            "wlan" => self.open_wifi(),
+            "wlandemo" => {
+                self.open_wifi();
+                let net = |ssid: &str, signal, security: &str, in_use, saved| cread_wifi::Network {
+                    ssid: ssid.into(),
+                    signal,
+                    security: security.into(),
+                    in_use,
+                    saved,
+                };
+                self.wifi = None;
+                self.wifi_ui.busy = None;
+                self.wifi_ui.networks = vec![
+                    net("FRITZ!Box 7590", 82, "WPA2", true, true),
+                    net("Nachbar-WLAN", 46, "WPA1 WPA2", false, false),
+                    net("Cafe Gast", 31, "", false, false),
+                    net("Buero", 12, "WPA2 802.1X", false, false),
+                ];
+                self.wifi_ui.selected = 1;
+                self.wifi_ui.note = "connected to FRITZ!Box 7590".into();
+            }
+            "wlanpassword" => {
+                self.open_wifi();
+                let demo = cread_wifi::Network {
+                    ssid: "FRITZ!Box 7590".into(),
+                    signal: 82,
+                    security: "WPA2".into(),
+                    in_use: false,
+                    saved: false,
+                };
+                self.wifi_ui.password = Some((demo, "geheim".into()));
+            }
             "notice" => {
                 self.open_webdav();
                 self.open_notice("SYNC ON", Mode::Webdav);

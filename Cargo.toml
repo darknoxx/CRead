@@ -7,6 +7,7 @@ members = [
     "crates/sound",
     "crates/update",
     "crates/web",
+    "crates/wifi",
     "crates/app",
     "crates/programs/softhand",
     "crates/programs/pocketboi",
@@ -29,6 +30,7 @@ cread-sync = { path = "crates/sync" }
 cread-sound = { path = "crates/sound" }
 cread-update = { path = "crates/update" }
 cread-web = { path = "crates/web" }
+cread-wifi = { path = "crates/wifi" }
 cread-softhand = { path = "crates/programs/softhand" }
 cread-pocketboi = { path = "crates/programs/pocketboi" }
 cread-poker = { path = "crates/programs/poker" }

@@ -53,6 +53,7 @@ page has loaded).
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never on the UI thread |
 | `crates/sound` | which output device the machine opens, for game and music alike | a policy both the shell and a program need, so it belongs to neither |
 | `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | unsigned or unverified bytes are never installed |
+| `crates/wifi` | NetworkManager through `nmcli`: scan, connect, forget, link state | worker thread only; passwords go to `nmcli` on stdin, never in argv |
 | `crates/web` | Wanderlust's engine: headless Chromium over `--remote-debugging-pipe`, frames, input, navigation | worker threads only; see *The browser is Chromium behind a pipe* |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition; `app.rs` holds the state and the winit handler, each concern is an `impl App` block in `app/*.rs` (input, frame, persistence, screens, …), commands in `app/commands/*`, tests in `app/tests.rs` | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
@@ -126,7 +127,11 @@ There is no plugin directory and no file to copy.
 the left, a centred clock, the location on the right. The boot screen shows
 date and time, the editor and Softhand only the time; the formats come from
 `clock_24h` / `date_day_first` in the preferences (`crate::clock` is the only
-place that formats them). Programs draw on the classic 80x25 stage; the shell centres it in the current
+place that formats them). The bar ends in a network mark (`TopBar::net`): a
+Wi-Fi fan with one to three arcs or a plug, hand-drawn glyphs at private-use
+code points `U+E001`–`U+E004` in `font.rs`; offline, nothing. The link comes
+from `cread-wifi`'s worker, which checks every 30 seconds and wakes the loop
+only on a change. Programs draw on the classic 80x25 stage; the shell centres it in the current
 grid (Softhand's 24 rows sit below the bar) and blits the pixel layer at that
 same origin — `raster_point` subtracts it, otherwise the brush lands off the
 cursor.

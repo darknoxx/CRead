@@ -149,6 +149,10 @@ impl App {
                 Some(Action::Network),
             ),
             (
+                ui::MenuItem::row("WLAN", "scan and connect", self.wifi_label()),
+                Some(Action::Wifi),
+            ),
+            (
                 ui::MenuItem::row("USER MANUAL", "read the manual", ""),
                 Some(Action::Manual),
             ),
@@ -302,6 +306,7 @@ impl App {
                 self.refresh_machine();
                 self.dirty = true;
             }
+            SetupAction::Wifi => self.open_wifi(),
             SetupAction::Manual => self.open_manual(Mode::Setup),
         }
     }

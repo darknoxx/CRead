@@ -102,6 +102,7 @@ impl App {
                 .then(|| self.manual_selection_span())
                 .flatten();
             let view = ui::ManualView {
+                net: self.net_mark(),
                 clock: &clock,
                 rows: &self.manual_rows,
                 top: self.manual_top,
@@ -149,6 +150,10 @@ impl App {
                 &rows,
                 self.setup_selected,
             );
+            return true;
+        }
+        if self.mode == Mode::Wifi {
+            self.draw_wifi(screen);
             return true;
         }
         if self.mode == Mode::RiffInsert {
@@ -461,6 +466,7 @@ impl App {
                     screen,
                     &self.theme,
                     &ui::TopBar {
+                        net: self.net_mark(),
                         title: &name,
                         state,
                         clock: &clock,
@@ -491,6 +497,7 @@ impl App {
                         screen,
                         &self.theme,
                         &ui::TopBar {
+                            net: self.net_mark(),
                             title: &title,
                             state: &bar.state,
                             clock: &clock,
@@ -558,6 +565,7 @@ impl App {
             let title = self.doc.title();
             let location = self.location();
             let view = ui::ReaderView {
+                net: self.net_mark(),
                 clock: &clock,
                 title: &title,
                 state,
@@ -584,6 +592,7 @@ impl App {
                     | Mode::Quit
                     | Mode::Software
                     | Mode::Setup
+                    | Mode::Wifi
                     | Mode::Help
             );
             if self.home == Home::Inspiro {
@@ -726,6 +735,7 @@ impl App {
                 });
 
                 let view = ui::WelcomeView {
+                    net: self.net_mark(),
                     clock: &stamp,
                     show_prompt,
                     title_row,
@@ -833,6 +843,7 @@ impl App {
             let now = self.now_playing();
             let scroll = self.doc.editor.scroll_metrics(text_width);
             let view = ui::DocumentView {
+                net: self.net_mark(),
                 clock: &clock,
                 title: &title,
                 state,

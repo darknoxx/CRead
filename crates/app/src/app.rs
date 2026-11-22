@@ -26,6 +26,7 @@ mod show;
 mod sync;
 mod update;
 mod webdav;
+mod wifi;
 
 use manual::ManualJump;
 
@@ -302,6 +303,8 @@ enum Mode {
     Reminder,
     /// A small box confirming one thing, e.g. the sync switch.
     Notice,
+    /// Wi-Fi networks in range, from SETTINGS.
+    Wifi,
     /// The clock, after a while without input.
     Screensaver,
 }
@@ -374,6 +377,7 @@ enum SetupAction {
     Software,
     Storage,
     Network,
+    Wifi,
     Manual,
 }
 
@@ -522,6 +526,11 @@ struct App {
     /// Wakes the event loop from a program's worker thread (the browser).
     /// `None` in tests, where there is no loop to wake.
     waker: Option<cread_core::Waker>,
+    /// NetworkManager's worker; `None` until the window is up, and in tests.
+    wifi: Option<cread_wifi::Worker>,
+    /// How the machine is online, for the top bar's mark.
+    wifi_link: cread_wifi::Link,
+    wifi_ui: wifi::WifiState,
     /// Pixel layer handed to programs.
     raster: Raster,
     /// File the current picture came from or was last saved to.
@@ -726,6 +735,9 @@ impl App {
             program: None,
             program_id: None,
             waker: None,
+            wifi: None,
+            wifi_link: cread_wifi::Link::Offline,
+            wifi_ui: wifi::WifiState::default(),
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
             picture_path: None,
             program_prompt: false,
@@ -920,6 +932,8 @@ impl ApplicationHandler for App {
             self.start_worker();
             self.request_sync();
         }
+        // The top bar's network mark; the worker answers within a moment.
+        self.start_wifi();
 
         self.apply_show();
     }
@@ -927,6 +941,7 @@ impl ApplicationHandler for App {
     /// A program's worker has something new: pick it up and draw.
     fn user_event(&mut self, _el: &ActiveEventLoop, _event: ()) {
         self.poll_program();
+        self.poll_wifi();
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
