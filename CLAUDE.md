@@ -69,7 +69,7 @@ command state. More dev views: `webdav`, `manual`, `notice`, `quit`,
 `shutdown`, `reboot`, `backtolinux`, `software`, `pictures`, `riffplay`,
 `riffinsert`, `pocketboi[:<rom>]`, `poker`, `pokerplay`, `pokerhand`,
 `pokerrisk`, `pokerover`, `calendar`, `calendaredit`, `reminder`,
-`picture[:<png>]`. See `cread --help` for the exact list.
+`picture[:<png>]`. An unknown `--show` value prints the exact list.
 
 ## Architecture map
 
@@ -115,8 +115,9 @@ The full list is in `AGENTS.md`; these are the ones most likely to be broken:
 2. **Text is drawn at emulated resolution.** The compositor writes glyph bits
    into the framebuffer; the GPU only adds scanlines, bloom and a vignette.
 3. **Nothing animates by accident.** There is no general frame clock. The shell
-   clocks are scanline drift, the fake loading bar, the launch bar (`boot_at`)
-   and the music clock; a program may ask for frames through
+   clocks are scanline drift, the fake loading bar, the launch bar (`boot_at`),
+   the music clock and the screensaver's one-second tick; a program may ask
+   for frames through
    `Program::wants_frames`. The fastest clock wins in `frame()`.
 4. **`dirty = true` alone does not draw.** Input handlers must end in `poke()`
    (or rely on the choke point at the end of `App::on_key`).

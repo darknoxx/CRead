@@ -68,9 +68,9 @@ into a 640x400-ish framebuffer; the GPU only adds scanlines, phosphor bleed and
 a vignette. Do not render UI text at native resolution "for sharpness" — it
 turns the look into a modern UI with a CRT filter.
 
-**Nothing animates.** There is no frame clock. A frame is drawn when something
-is `dirty` and `next_frame` is reached; the only scheduled redraw is the cursor
-blink. Two consequences:
+**Nothing animates by accident.** There is no general frame clock. A frame is
+drawn when something is `dirty` and `next_frame` is reached; on a quiet screen
+the only scheduled redraw is the cursor blink. Two consequences:
 
 - Setting `self.dirty = true` alone does **not** draw anything. Input handlers
   must end up calling `poke()` (or rely on the choke point at the end of
@@ -78,12 +78,13 @@ blink. Two consequences:
   by up to 620 ms — the exact bug that made Up/Down feel unresponsive.
 - Adding an effect that changes every frame (flicker, drift, animation) means
   bringing a frame clock back deliberately, not by accident. There are exactly
-  four shell clocks: scanline drift, the fake loading bar, the launch bar
-  (`boot_at`), and the music clock (`riff_tick`: twice a second while a track
-  plays, which is what starts the next track). A program may ask for frames of
+  five shell clocks: scanline drift, the fake loading bar, the launch bar
+  (`boot_at`), the music clock (`riff_tick`: twice a second while a track
+  plays, which is what starts the next track), and the screensaver's
+  one-second tick (the second hand steps, it does not sweep). A program may ask for frames of
   its own through `Program::wants_frames` — Pocketboi while a cartridge runs,
   US Poker only while the risk ladder is live. That is a program clock,
-  not a fifth shell effect, and it uses `PROGRAM_FRAME` only while it is true.
+  not a sixth shell effect, and it uses `PROGRAM_FRAME` only while it is true.
   A calendar reminder is a **one-shot deadline** (`next_reminder_instant`), not
   another clock: the loop sleeps until the appointment and then wakes once.
   The shell clocks are ordered in `frame()` and the **fastest one wins**: the
@@ -148,7 +149,7 @@ Only a key wakes it (the mouse is ignored); the key that wakes it is swallowed.
 The idle timer counts keyboard *and* pointer activity, so painting with the
 mouse does not summon the clock. A due calendar reminder wakes it into a modal
 window and returns to the clock after `Esc`; the reminder is not a user key.
-`cread_screensaver`'s `IDLE_MINUTES` is the list `SETTINGS` cycles through.
+`screensaver::IDLE_MINUTES` (`crates/app/src/screensaver.rs`) is the list `SETTINGS` cycles through.
 
 **A kiosk update is a session restart, not a process restart.** `--kiosk`
 changes the last step of the updater: after the signed binary is in place it
