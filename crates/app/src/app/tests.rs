@@ -1,4 +1,5 @@
 use super::boot::BootItem;
+use super::manual::{manual_heading, manual_jumps};
 use super::*;
 
 fn app() -> App {
