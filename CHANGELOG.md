@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.33.2
 
 - **Saving keeps a document's permissions.** A file the writer made private
   (`chmod 600`) stayed readable to others after the next save; the new copy
