@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.34.0
 
 - **Wanderlust, a web browser in CRead's clothes.** A new module on the
   `SOFTWARE` shelf. A headless Chromium renders the page, runs its scripts and
   plays its videos with sound; CRead shows it at emulated resolution under the
   CRT pass, with its own top bar (page title, clock, `https://host`) and its
-  own prompt. `web <address>` goes there, `web <words>` searches with
+  own prompt, inside a thin frame whose right edge is the scrollbar.
+  `web <address>` goes there, `web <words>` searches with
   DuckDuckGo, `back`, `forward` and `reload` walk the history; mouse and keys go
   to the page, `Ctrl+V` pastes the clipboard. Chromium comes from the system
   (`sudo apt install chromium`) and is driven over a private pipe, never a
