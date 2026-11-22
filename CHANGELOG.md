@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.33.3
+
+- Internal cleanup: the application shell is split into one module per
+  concern (input, frame loop, persistence, pointer and clipboard, search,
+  manual, programs, Riff, SOFTWARE and SETTINGS, `--show`). Behaviour is
+  unchanged.
+
 ## 0.33.2
 
 - **Saving keeps a document's permissions.** A file the writer made private
