@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.37.0
 
 - **Printing.** `print` sends the document to the printer as plain text in a
   typewriter face, without its Markdown marks; in Softhand it prints the
