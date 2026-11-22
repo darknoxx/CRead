@@ -752,17 +752,7 @@ impl App {
         }
     }
 
-    // ── frame ───────────────────────────────────────────────────────────────
-
-    // ── persistence ─────────────────────────────────────────────────────────
-
-    // ── browser ─────────────────────────────────────────────────────────────
-
-    // ── input ───────────────────────────────────────────────────────────────
-
-    // ── clipboard ───────────────────────────────────────────────────────────
-
-    // ── mouse ───────────────────────────────────────────────────────────────
+    // ── shared helpers ──────────────────────────────────────────────────────
 
     /// Show a command result, or its error, on the status line.
     fn report(&mut self, result: Result<String, String>) {
@@ -785,7 +775,6 @@ impl App {
         self.poke();
     }
 
-    /// Cheap "something changed, redraw soon" for non-document keys.
     /// One PC speaker beep, if the preference is on.
     fn beep(&mut self) {
         if self.beep_on {
@@ -799,19 +788,12 @@ impl App {
         }
     }
 
+    /// Cheap "something changed, redraw soon" for non-document keys.
     fn poke(&mut self) {
         // Render as soon as the event loop comes back around.
         self.next_frame = Instant::now();
         self.dirty = true;
     }
-
-    // ── loading ─────────────────────────────────────────────────────────────
-
-    // ── programs ────────────────────────────────────────────────────────────
-
-    // ── riff ────────────────────────────────────────────────────────────────
-
-    // ── software ────────────────────────────────────────────────────────────
 
     fn cycle_theme(&mut self, delta: isize) -> Result<String, String> {
         let len = Theme::ALL.len() as isize;
