@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "cread"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "arboard",
  "chrono",
@@ -614,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "cread-core"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "chrono",
  "png",
@@ -625,7 +625,7 @@ dependencies = [
 
 [[package]]
 name = "cread-pocketboi"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "cread-core",
  "cread-sound",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "cread-poker"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "cread-core",
  "cread-sound",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "cread-render"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "bytemuck",
  "cread-core",
@@ -657,28 +657,28 @@ dependencies = [
 
 [[package]]
 name = "cread-scripture"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "cread-core",
 ]
 
 [[package]]
 name = "cread-softhand"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "cread-core",
 ]
 
 [[package]]
 name = "cread-sound"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "rodio",
 ]
 
 [[package]]
 name = "cread-sync"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "cread-core",
  "reqwest_dav",
@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "cread-update"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "flate2",
  "minisign-verify",
@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "cread-wifi"
-version = "0.35.0"
+version = "0.36.0"
 dependencies = [
  "cread-core",
 ]

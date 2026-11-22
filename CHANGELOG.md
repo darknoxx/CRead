@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.36.0
 
 - **WLAN in SETTINGS.** A new row lists the Wi-Fi networks in range, strongest
   first; `Enter` connects (asking for a password once), `R` scans again, `Del`
