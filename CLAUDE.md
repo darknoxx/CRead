@@ -69,7 +69,7 @@ command state. More dev views: `webdav`, `manual`, `notice`, `quit`,
 `shutdown`, `reboot`, `backtolinux`, `software`, `pictures`, `riffplay`,
 `riffinsert`, `pocketboi[:<rom>]`, `poker`, `pokerplay`, `pokerhand`,
 `pokerrisk`, `pokerover`, `calendar`, `calendaredit`, `reminder`,
-`picture[:<png>]`. An unknown `--show` value prints the exact list.
+`picture[:<png>]`, `wanderlust[:<address>]` (add `--screenshot-delay 7000`). An unknown `--show` value prints the exact list.
 
 ## Architecture map
 
@@ -80,8 +80,9 @@ command state. More dev views: `webdav`, `manual`, `notice`, `quit`,
 | `crates/sync` | WebDAV client, conflict policy, background worker | blocking calls only, never the UI thread |
 | `crates/sound` | which audio output device the machine opens | policy shared by the shell and programs |
 | `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | never install unsigned or unverified bytes |
+| `crates/web` | Wanderlust's engine: headless Chromium over a pipe, frames, input | pipe never port, sandbox never off, worker threads only |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition, screens | glue; keep logic in core when it can live there |
-| `crates/programs/*` | one crate per module (`softhand`, `pocketboi`, `poker`, `scripture`) | a program owns its surface and gestures, never the prompt or files |
+| `crates/programs/*` | one crate per module (`softhand`, `pocketboi`, `poker`, `scripture`, `wanderlust`) | a program owns its surface and gestures, never the prompt or files |
 | `packaging/` | kiosk unit, polkit rule, bootstrap, install and update scripts | the Pi recipe; nothing here is compiled into the binary |
 | `docs/` | Raspberry Pi recipe | setup, not user documentation |
 | `vendor/mizu-core` | patched Game Boy emulator | re-apply the patches on upgrade; see `vendor/README.md` |
@@ -150,10 +151,12 @@ The full list is in `AGENTS.md`; these are the ones most likely to be broken:
     restarts cage and CRead. Restart with the captured `self_exe`, never
     `current_exe()`.
 14. **Sound and clipboard belong to the shell.** `audio.rs` and the
-    `arboard::Clipboard` handle live in `App`; programs do not own them.
+    `arboard::Clipboard` handle live in `App`; programs do not own them. The
+    one exception is a web page's sound, which Chromium plays itself.
 15. **No `unsafe`.** Keep it that way.
-16. **No async in the UI thread, no web view.** Background work goes through
-    worker threads and channels. CRead is one Linux binary, not a browser host.
+16. **No async in the UI thread.** Background work goes through
+    worker threads and channels; a program's worker wakes the loop with its
+    `Waker` (`App::user_event`), it does not poll.
 17. **Device limits come from the adapter.** `gpu.rs` passes
     `adapter.limits()`; do not go back to `DeviceDescriptor::default()`.
 18. **The CRT uniform layout must match WGSL byte for byte.** `CrtUniforms` is
@@ -165,6 +168,10 @@ The full list is in `AGENTS.md`; these are the ones most likely to be broken:
     `first`/`visible`/`total`.
 21. **Vendored dependencies are patched with a reason.** `vendor/README.md`
     lists every change; re-apply them on upgrade.
+22. **Wanderlust's Chromium sits behind a pipe.** `--remote-debugging-pipe`,
+    never a port; never `--no-sandbox`; profile and downloads outside the vault;
+    only `http(s)` from the prompt; the top bar's location comes from the
+    engine. Chromium comes from the system, not from us. See `AGENTS.md`.
 
 ## How to add a command
 
@@ -252,7 +259,7 @@ explicit instruction.
 - Do not add a dependency without checking its licence against
   `THIRD-PARTY.md`; a GPL dependency linked into the binary would make the MIT
   distribution impossible.
-- Do not add `unsafe`, async in the UI thread, a web view, a runtime plugin
+- Do not add `unsafe`, async in the UI thread, a runtime plugin
   loader, or a fractional scale mode.
 - Work on `main` unless the user names a branch.
 - Before committing: fmt, clippy, tests. Before a release: the full CI list.

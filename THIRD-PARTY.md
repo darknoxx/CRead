@@ -26,6 +26,13 @@ The share-alike applies to those font files, not to the program that renders
 them. [`assets/fonts/README.md`](assets/fonts/README.md) records the source and
 the extraction step.
 
+## Chromium — not included
+
+Wanderlust drives a Chromium that the system provides (`apt install chromium`).
+It is a separate program started as a child process and steered over a pipe;
+nothing of it is linked into or shipped with CRead, and its licences
+(BSD-3-Clause and others) travel with the distribution's package.
+
 ## English Bible text — public domain
 
 `crates/programs/scripture/data/` contains the 66 books of the **Webster's
@@ -45,7 +52,9 @@ The direct dependencies are permissively licensed:
 | Crate | Licence |
 | --- | --- |
 | `arboard` | MIT OR Apache-2.0 |
+| `base64` | MIT OR Apache-2.0 |
 | `bytemuck` | Zlib OR Apache-2.0 OR MIT |
+| `command-fds` | Apache-2.0 |
 | `gilrs` | Apache-2.0 OR MIT |
 | `png` | MIT OR Apache-2.0 |
 | `pollster` | Apache-2.0 OR MIT |
@@ -57,6 +66,7 @@ The direct dependencies are permissively licensed:
 | `unicode-segmentation` | MIT OR Apache-2.0 |
 | `wgpu` | MIT OR Apache-2.0 |
 | `winit` | Apache-2.0 |
+| `zune-core`, `zune-jpeg` | MIT OR Apache-2.0 OR Zlib |
 
 One transitive dependency is under the Mozilla Public License 2.0:
 **symphonia** (the audio decoders behind `rodio`). MPL-2.0 is file-level

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **Wanderlust, a web browser in CRead's clothes.** A new module on the
+  `SOFTWARE` shelf. A headless Chromium renders the page, runs its scripts and
+  plays its videos with sound; CRead shows it at emulated resolution under the
+  CRT pass, with its own top bar (page title, clock, `https://host`) and its
+  own prompt. `web <address>` goes there, `web <words>` searches with
+  DuckDuckGo, `back`, `forward` and `reload` walk the history; mouse and keys go
+  to the page, `Ctrl+V` pastes the clipboard. Chromium comes from the system
+  (`sudo apt install chromium`) and is driven over a private pipe, never a
+  network port, with its sandbox on. Cookies and logins stay in
+  `~/.local/share/cread/browser/`, downloads in `~/Downloads`; neither is synced.
+- Programs can show a true-colour picture under their cells, and a program's
+  worker wakes the shell instead of being polled.
+
 ## 0.33.3
 
 - Internal cleanup: the application shell is split into one module per

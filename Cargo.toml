@@ -6,11 +6,13 @@ members = [
     "crates/sync",
     "crates/sound",
     "crates/update",
+    "crates/web",
     "crates/app",
     "crates/programs/softhand",
     "crates/programs/pocketboi",
     "crates/programs/poker",
     "crates/programs/scripture",
+    "crates/programs/wanderlust",
 ]
 
 [workspace.package]
@@ -26,10 +28,12 @@ cread-render = { path = "crates/render" }
 cread-sync = { path = "crates/sync" }
 cread-sound = { path = "crates/sound" }
 cread-update = { path = "crates/update" }
+cread-web = { path = "crates/web" }
 cread-softhand = { path = "crates/programs/softhand" }
 cread-pocketboi = { path = "crates/programs/pocketboi" }
 cread-poker = { path = "crates/programs/poker" }
 cread-scripture = { path = "crates/programs/scripture" }
+cread-wanderlust = { path = "crates/programs/wanderlust" }
 
 [profile.release]
 opt-level = 3

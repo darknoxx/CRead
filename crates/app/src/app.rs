@@ -72,6 +72,8 @@ const STAGE_ROWS: u32 = 25;
 /// Softhand paints a 23-row canvas and a one-row palette strip, so its stage is
 /// one row shorter and the legend can sit underneath.
 const SOFTHAND_ROWS: u32 = 24;
+/// The browser's framed page: 23 rows under the top bar, the prompt below.
+const WANDERLUST_ROWS: u32 = cread_wanderlust::STAGE_ROWS;
 
 /// How long the editor waits after the last keystroke before writing to disk.
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
@@ -140,6 +142,13 @@ pub fn run(opts: Options) -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| format!("event loop: {e}"))?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut app = App::new(opts);
+    // A program's worker rings this instead of the loop polling for it.
+    let proxy = std::sync::Mutex::new(event_loop.create_proxy());
+    app.waker = Some(Arc::new(move || {
+        if let Ok(proxy) = proxy.lock() {
+            let _ = proxy.send_event(());
+        }
+    }));
     event_loop
         .run_app(&mut app)
         .map_err(|e| format!("event loop: {e}"))
@@ -331,6 +340,11 @@ pub const PROGRAMS: &[ProgramInfo] = &[
         entry: "SCRIPTURE",
         tagline: "a quiet place for the Word.",
     },
+    ProgramInfo {
+        id: "wanderlust",
+        entry: "WANDERLUST",
+        tagline: "the whole wide world, on a quiet screen.",
+    },
 ];
 
 /// The home screen a program opens onto.
@@ -505,6 +519,9 @@ struct App {
     /// trait only says "some program": `open`, `save` and `new` mean different
     /// rooms for Softhand and Pocketboi.
     program_id: Option<&'static str>,
+    /// Wakes the event loop from a program's worker thread (the browser).
+    /// `None` in tests, where there is no loop to wake.
+    waker: Option<cread_core::Waker>,
     /// Pixel layer handed to programs.
     raster: Raster,
     /// File the current picture came from or was last saved to.
@@ -708,6 +725,7 @@ impl App {
             reminder_fired: HashSet::new(),
             program: None,
             program_id: None,
+            waker: None,
             raster: Raster::new(CANVAS_W, SOFTHAND_H),
             picture_path: None,
             program_prompt: false,
@@ -904,6 +922,11 @@ impl ApplicationHandler for App {
         }
 
         self.apply_show();
+    }
+
+    /// A program's worker has something new: pick it up and draw.
+    fn user_event(&mut self, _el: &ActiveEventLoop, _event: ()) {
+        self.poll_program();
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {

@@ -44,6 +44,13 @@ pub enum Command {
     Colour(Option<u8>),
     /// Silence the running program's sound.
     Mute,
+    /// Open Wanderlust, optionally at an address or with search words.
+    Web(Option<String>),
+    /// The browser's history: one page back or forward.
+    Back,
+    Forward,
+    /// Load the page again.
+    Reload,
     /// Toggle reader mode.
     View,
     /// Open the install screen.
@@ -341,6 +348,34 @@ pub const SPECS: &[Spec] = &[
         scopes: &[Scope::Program],
     },
     Spec {
+        name: "web",
+        aliases: &["www", "go"],
+        argument: "[address]",
+        summary: "the browser: an address, or words to search for",
+        scopes: &[Scope::Boot, Scope::Editor, Scope::Program],
+    },
+    Spec {
+        name: "back",
+        aliases: &[],
+        argument: "",
+        summary: "the previous page",
+        scopes: &[Scope::Program],
+    },
+    Spec {
+        name: "forward",
+        aliases: &["fwd"],
+        argument: "",
+        summary: "the next page again",
+        scopes: &[Scope::Program],
+    },
+    Spec {
+        name: "reload",
+        aliases: &["refresh"],
+        argument: "",
+        summary: "load the page again",
+        scopes: &[Scope::Program],
+    },
+    Spec {
         name: "software",
         aliases: &["install", "modules"],
         argument: "",
@@ -569,6 +604,10 @@ pub fn parse(input: &str) -> Result<Command, CommandError> {
             })?),
         }),
         "mute" => Command::Mute,
+        "web" => Command::Web(optional(rest)),
+        "back" => Command::Back,
+        "forward" => Command::Forward,
+        "reload" => Command::Reload,
         "colour" => Command::Colour(match optional(rest) {
             None => None,
             Some(text) => Some(text.parse().map_err(|_| CommandError::BadValue {
@@ -989,5 +1028,21 @@ mod tests {
     fn help_has_a_row_for_every_command() {
         assert!(SPECS.len() >= 15);
         assert!(SPECS.iter().all(|s| !s.summary.is_empty()));
+    }
+
+    #[test]
+    fn web_keeps_the_address_as_typed() {
+        assert_eq!(parse("web"), Ok(Command::Web(None)));
+        assert_eq!(
+            parse("web de.Wikipedia.org/wiki/IBM"),
+            Ok(Command::Web(Some("de.Wikipedia.org/wiki/IBM".into())))
+        );
+        assert_eq!(
+            parse("go IBM PS/2 Model 30"),
+            Ok(Command::Web(Some("IBM PS/2 Model 30".into())))
+        );
+        assert_eq!(parse("back"), Ok(Command::Back));
+        assert_eq!(parse("fwd"), Ok(Command::Forward));
+        assert_eq!(parse("refresh"), Ok(Command::Reload));
     }
 }

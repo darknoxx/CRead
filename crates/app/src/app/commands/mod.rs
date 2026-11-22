@@ -56,6 +56,8 @@ impl App {
             Command::BackToLinux => self.cmd_backtolinux(),
 
             Command::Riff(action) => self.cmd_riff(action),
+            Command::Web(typed) => self.cmd_web(typed),
+            Command::Back | Command::Forward | Command::Reload => self.cmd_browse(&command),
             Command::Tool(_) | Command::Size(_) | Command::Colour(_) | Command::Mute => {
                 self.cmd_program(&command)
             }

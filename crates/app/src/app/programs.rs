@@ -40,6 +40,12 @@ impl App {
                 let Some(key) = self.program_key(&event) else {
                     return;
                 };
+                // The clipboard is the shell's: a program that takes text gets
+                // it handed over, instead of a bare Ctrl+V it cannot use.
+                if key == KeyPress::Ctrl('v') && self.program_takes_paste() {
+                    self.poke();
+                    return;
+                }
                 let mut done = false;
                 if let Some(program) = self.program.as_mut() {
                     done = program.key(key) == Outcome::Exit;
@@ -91,6 +97,57 @@ impl App {
             },
             _ => return None,
         })
+    }
+
+    /// Give the clipboard's text to the program. True when it took it.
+    fn program_takes_paste(&mut self) -> bool {
+        let Ok(text) = self
+            .clipboard()
+            .and_then(|c| c.get_text().map_err(|e| e.to_string()))
+        else {
+            return false;
+        };
+        if text.is_empty() {
+            return false;
+        }
+        self.program
+            .as_mut()
+            .is_some_and(|program| program.paste(&text))
+    }
+
+    /// Collect what the program's worker delivered; draw when it changed.
+    pub(super) fn poll_program(&mut self) {
+        if self.program.as_mut().is_some_and(|program| program.poll()) {
+            self.poke();
+        }
+    }
+
+    /// Open the browser, at an address or on its home page.
+    pub(super) fn start_wanderlust(&mut self, typed: Option<&str>) {
+        if self.program_id != Some("wanderlust") {
+            self.close_program();
+            // Tests never start a real browser.
+            let mut web = if self.persist {
+                cread_wanderlust::Wanderlust::new()
+            } else {
+                let dirs = cread_wanderlust::Dirs::for_binary(None);
+                cread_wanderlust::Wanderlust::with(None, dirs)
+            };
+            if let Some(waker) = self.waker.clone() {
+                web.set_waker(waker);
+            }
+            self.program = Some(Box::new(web));
+            self.program_id = Some("wanderlust");
+        }
+        self.mode = Mode::Program;
+        self.program_prompt = false;
+        self.program_point = (-1, -1);
+        self.command.clear();
+        self.command_error.clear();
+        if let Some(program) = self.program.as_mut() {
+            let _ = program.command(&Command::Web(typed.map(str::to_string)));
+        }
+        self.dirty = true;
     }
 
     /// Pointer position in emulated raster pixels.
@@ -157,11 +214,7 @@ impl App {
     /// and wears the top bar, so its stage is centred below that bar.
     pub(super) fn program_stage(&self, cols: u32, rows: u32) -> (u32, u32) {
         let stage_rows = self.program_stage_height();
-        let top = if self.program_id == Some("softhand") {
-            1
-        } else {
-            0
-        };
+        let top = if self.program_wears_top_bar() { 1 } else { 0 };
         (
             cols.saturating_sub(STAGE_COLS) / 2,
             top + rows.saturating_sub(top + stage_rows) / 2,
@@ -170,11 +223,17 @@ impl App {
 
     /// Rows the current program's stage occupies, strip and legend included.
     pub(super) fn program_stage_height(&self) -> u32 {
-        if self.program_id == Some("softhand") {
-            SOFTHAND_ROWS
-        } else {
-            STAGE_ROWS
+        match self.program_id {
+            Some("softhand") => SOFTHAND_ROWS,
+            Some("wanderlust") => WANDERLUST_ROWS,
+            _ => STAGE_ROWS,
         }
+    }
+
+    /// Softhand and the browser sit under the top bar instead of on the whole
+    /// stage.
+    pub(super) fn program_wears_top_bar(&self) -> bool {
+        matches!(self.program_id, Some("softhand" | "wanderlust"))
     }
 
     /// Show the fake progress bar, then do `next`.
@@ -198,6 +257,10 @@ impl App {
             }
             Pending::Program(index) => {
                 let id = PROGRAMS.get(index).map(|p| p.id).unwrap_or_default();
+                if id == "wanderlust" {
+                    self.start_wanderlust(None);
+                    return;
+                }
                 if id == "pocketboi" {
                     self.program = Some(Box::new(cread_pocketboi::Pocketboi::new(&self.vault())));
                     self.program_id = Some("pocketboi");
