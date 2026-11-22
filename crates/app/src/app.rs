@@ -73,8 +73,6 @@ const STAGE_ROWS: u32 = 25;
 /// Softhand paints a 23-row canvas and a one-row palette strip, so its stage is
 /// one row shorter and the legend can sit underneath.
 const SOFTHAND_ROWS: u32 = 24;
-/// The browser's framed page: 23 rows under the top bar, the prompt below.
-const WANDERLUST_ROWS: u32 = cread_wanderlust::STAGE_ROWS;
 
 /// How long the editor waits after the last keystroke before writing to disk.
 const AUTOSAVE_DELAY: Duration = Duration::from_millis(1500);
@@ -342,11 +340,6 @@ pub const PROGRAMS: &[ProgramInfo] = &[
         id: "scripture",
         entry: "SCRIPTURE",
         tagline: "a quiet place for the Word.",
-    },
-    ProgramInfo {
-        id: "wanderlust",
-        entry: "WANDERLUST",
-        tagline: "the whole wide world, on a quiet screen.",
     },
 ];
 
@@ -940,7 +933,6 @@ impl ApplicationHandler for App {
 
     /// A program's worker has something new: pick it up and draw.
     fn user_event(&mut self, _el: &ActiveEventLoop, _event: ()) {
-        self.poll_program();
         self.poll_wifi();
     }
 

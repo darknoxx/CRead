@@ -41,8 +41,7 @@ command state. Dev views beyond the everyday ones: `webdav` (the sync form),
 `poker` (front door), `pokerplay` (the machine), `pokerhand` (a dealt hand),
 `pokerrisk` (the ladder) and `pokerover` (the lose screen), `calendar` (month),
 `calendaredit` (the event form) and `reminder` (the modal), `picture[:<png>]`,
-`wanderlust[:<address>]` (the browser; give it `--screenshot-delay 7000` so the
-page has loaded).
+`wlan`, `wlandemo` (a filled network list) and `wlanpassword`.
 
 ## Layout
 
@@ -54,7 +53,6 @@ page has loaded).
 | `crates/sound` | which output device the machine opens, for game and music alike | a policy both the shell and a program need, so it belongs to neither |
 | `crates/update` | GitHub release check, download, checksum + minisign, atomic replacement | unsigned or unverified bytes are never installed |
 | `crates/wifi` | NetworkManager through `nmcli`: scan, connect, forget, link state | worker thread only; passwords go to `nmcli` on stdin, never in argv |
-| `crates/web` | Wanderlust's engine: headless Chromium over `--remote-debugging-pipe`, frames, input, navigation | worker threads only; see *The browser is Chromium behind a pipe* |
 | `crates/app` | winit loop, input, mode machine, cell-grid composition; `app.rs` holds the state and the winit handler, each concern is an `impl App` block in `app/*.rs` (input, frame, persistence, screens, …), commands in `app/commands/*`, tests in `app/tests.rs` | glue; keep logic out of it when it can live in core |
 | `crates/programs/*` | one crate per module (Inspiro's editor lives in `app`, Softhand here) | a program owns its surface and gestures, never the prompt or the files |
 | `packaging/` | kiosk unit, polkit rule, bootstrap, install and headless-update scripts | the Pi recipe; nothing here is compiled into the binary |
@@ -87,8 +85,7 @@ the only scheduled redraw is the cursor blink. Two consequences:
   plays, which is what starts the next track), and the screensaver's
   one-second tick (the second hand steps, it does not sweep). A program may ask for frames of
   its own through `Program::wants_frames` — Pocketboi while a cartridge runs,
-  US Poker only while the risk ladder is live, Wanderlust for a second after
-  the page last sent a picture (a video, an animation). That is a program clock,
+  US Poker only while the risk ladder is live. That is a program clock,
   not a sixth shell effect, and it uses `PROGRAM_FRAME` only while it is true.
   A calendar reminder is a **one-shot deadline** (`next_reminder_instant`), not
   another clock: the loop sleeps until the appointment and then wakes once.
@@ -181,7 +178,7 @@ filesystems. **The restart uses the executable path captured at startup
 asking again would start the old version. `--update-once` is the
 non-interactive path for scripts and tests.
 
-**Sound belongs to the shell** (except a web page's, which Chromium plays). The music deck (`crates/app/src/audio.rs`) lives
+**Sound belongs to the shell.** The music deck (`crates/app/src/audio.rs`) lives
 in `App`, not in the Riff program, because playback has to outlive the screen and
 because `riff ...` must work from any prompt. Riff is a disk program
 (`installed: false`) whose UI is composed by the shell like the editor's. A
@@ -195,54 +192,15 @@ to stop printing to stdout, to survive an illegal opcode, and to keep a corrupt
 save state from panicking. Do not add a vendor copy without that README, and
 re-apply the patches instead of dropping them on upgrade.
 
-**Three layers, one image.** A program draws pixels into `Raster` (16 fixed
+**Two surfaces, one raster.** A program draws pixels into `Raster` (16 fixed
 colours, 640x368) and text into the `Screen` on top; cells can be transparent so
-menus sit over a picture. A program that shows pixels made elsewhere (a web
-page) hands a true-colour `Frame` through `Program::frame`; it goes under the
-raster at emulated resolution, never scaled. The framebuffer only ever sees one
-composited image, so the CRT pass stays the same for text, pictures and pages.
+menus sit over a picture. The framebuffer only ever sees one composited image,
+so the CRT pass stays the same for text and pictures.
 
-**A worker wakes the loop; it does not get a clock.** A program with a
-background thread (Wanderlust's engine) receives a `Waker` through
-`Program::set_waker` and rings it when something arrived; the shell then calls
-`Program::poll` and draws if it changed. `App::user_event` is that path. A still
-page therefore costs nothing.
-
-**The browser is Chromium behind a pipe.** Wanderlust is a real browser: a
-headless Chromium from the system (`apt install chromium`, never bundled, so the
-distribution keeps it patched) renders at exactly the page size the shell shows
-(624x336, inside a frame whose top edge is the address bar and whose right
-edge is the scrollbar) and streams pictures; CRead draws them, the top bar and the prompt.
-These hold, and `crates/web` has tests for the first two:
-
-- CDP runs over `--remote-debugging-pipe` (fds 3 and 4), **never** a
-  `--remote-debugging-port`: a port lets any process on the machine drive the
-  browser and read its cookies.
-- The sandbox stays on. There is no `--no-sandbox`, not even "to make it run".
-- The profile (`~/.local/share/cread/browser/`) and downloads (`~/Downloads`)
-  are outside the vault, so cookies, logins and downloads never sync.
-- The prompt only navigates to `http` and `https`; other schemes are searched.
-- The top bar's location (`https://host`) comes from the engine, not the page,
-  and the page never draws over row zero or the prompt: a page must not be
-  able to fake CRead asking for a password.
-- One page at a time: a new window becomes a navigation in the same page.
-- Chromium gets `--screen-info={WxH}` with the page size: its headless
-  screen is 800x600 otherwise, and a video's full screen would grow past the
-  page into a corner. Frames that still arrive larger are cut to the page.
-- A page script (`PAGE_SCRIPT`) runs before every page: it reports full screen
-  through a `Runtime` binding (Esc leaves it before opening the prompt) and,
-  when H.264 is playable, hides VP9 and AV1 from `MediaSource`, the h264ify
-  trick; the Pi decodes those in software.
-- The screencast sends every second frame (30 fps).
-- `packaging/cread-chromium-policy.json` is the managed policy the Pi gets
-  (`cread-browser-setup`): uBlock Origin Lite force-installed, password store
-  and autofill off, camera, microphone, location and notifications blocked.
-  A test parses it; Chromium silently ignores a broken policy.
-- Moving frames arrive as JPEG; once the page is still, one PNG replaces the
-  last of them. Taking that PNG makes the screencast send an echo frame, which
-  is ignored (`shooting`), or the two would ping-pong forever.
-- Chromium plays a page's sound itself. That is the one sound the shell does
-  not own; the music deck and the programs still go through the shell.
+**A worker wakes the loop; it does not get a clock.** The Wi-Fi worker
+(`cread-wifi`) receives the shell's `Waker` and rings it when it has news (a
+scan, a changed link); `App::user_event` then collects it and draws. Between
+those moments the loop sleeps.
 
 **The clipboard handle must outlive the copy.** On Wayland the data is served by
 the owning process; `arboard::Clipboard` is kept in `App` for exactly that

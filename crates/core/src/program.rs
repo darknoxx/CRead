@@ -78,34 +78,11 @@ impl PointerEvent {
     }
 }
 
-/// A true-colour picture a program shows under its cell grid.
-///
-/// The 16-colour [`Raster`] is for pictures a program paints itself. Some
-/// programs show pixels that were made elsewhere - a web page rendered by the
-/// browser engine - and quantising those would make text unreadable. The frame
-/// is still drawn at emulated resolution and goes through the same CRT pass.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Frame {
-    pub width: u32,
-    pub height: u32,
-    /// `width * height` RGBA pixels, row by row.
-    pub rgba: Vec<u8>,
-}
-
 /// Wakes the shell's event loop from another thread.
 ///
-/// A program with a worker (the browser engine) calls it when something new
-/// arrived, so a still page costs nothing: there is no polling clock.
+/// A worker (the Wi-Fi link) calls it when something new arrived, so the
+/// loop sleeps instead of polling for it.
 pub type Waker = std::sync::Arc<dyn Fn() + Send + Sync>;
-
-/// What a program wants in the shell's top bar. The shell draws the bar; the
-/// program only names the parts.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TopBar {
-    pub title: String,
-    pub state: String,
-    pub location: String,
-}
 
 /// A module that owns the screen while it runs.
 ///
@@ -133,34 +110,6 @@ pub trait Program {
     fn pointer(&mut self, event: PointerEvent) -> Outcome;
 
     fn draw(&mut self, screen: &mut Screen, raster: &mut Raster);
-
-    /// A true-colour layer under the raster, at `(x, y)` in stage pixels.
-    fn frame(&self) -> Option<(i32, i32, &Frame)> {
-        None
-    }
-
-    /// The shell hands over a way to wake it; see [`Waker`].
-    fn set_waker(&mut self, waker: Waker) {
-        let _ = waker;
-    }
-
-    /// Pick up whatever a worker delivered. True when the screen changed.
-    fn poll(&mut self) -> bool {
-        false
-    }
-
-    /// A program that wears the top bar names its parts here; `None` keeps
-    /// the plain program line at the bottom only.
-    fn top_bar(&self) -> Option<TopBar> {
-        None
-    }
-
-    /// Text from the shell's clipboard (`Ctrl+V`). False when the program has
-    /// nowhere to put it.
-    fn paste(&mut self, text: &str) -> bool {
-        let _ = text;
-        false
-    }
 
     /// A command the shell does not handle itself (`tool`, `size`, `colour`).
     /// Programs that have no vocabulary of their own reject everything.

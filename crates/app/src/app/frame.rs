@@ -97,11 +97,6 @@ impl App {
         {
             self.dirty = true;
         }
-        // Whatever a worker delivered since the last frame (the waker usually
-        // got here first; a screenshot run relies on this).
-        if self.program.as_mut().is_some_and(|program| program.poll()) {
-            self.dirty = true;
-        }
 
         if self.mode == Mode::Checking {
             // The bar moves while the worker is busy; nothing else redraws it.
@@ -144,16 +139,8 @@ impl App {
                 self.fb.draw_canvas(&self.screensaver_raster, [0, 0, 0]);
             } else if self.program.is_some() {
                 let (x, y) = self.program_origin();
-                let frame = self.program.as_ref().and_then(|program| program.frame());
-                self.fb.draw_program_at(
-                    &self.screen,
-                    frame,
-                    &self.raster,
-                    &self.theme,
-                    &self.font,
-                    x,
-                    y,
-                );
+                self.fb
+                    .draw_program_at(&self.screen, &self.raster, &self.theme, &self.font, x, y);
             } else {
                 self.fb.draw_screen(&self.screen, &self.theme, &self.font);
             }

@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **WLAN in SETTINGS.** A new row lists the Wi-Fi networks in range, strongest
+  first; `Enter` connects (asking for a password once), `R` scans again, `Del`
+  forgets a saved network. NetworkManager does the work through `nmcli` on a
+  worker thread; the password reaches it on stdin, never on a command line. A
+  polkit rule lets the kiosk user do exactly this without a password.
+- **The top bar shows when the machine is online**: a small Wi-Fi mark with
+  one to three arcs, or a plug on a cable. It is checked every 30 seconds in
+  the background and drawn only when it changes.
+- **Wanderlust is gone again.** The browser was choppy on a Raspberry Pi 4,
+  YouTube stops after about a minute for any remotely steered Chromium, and a
+  browser sits uneasily on a machine made for writing. The module, its `web`,
+  `back`, `forward` and `reload` commands, `cread-browser-setup` and the
+  Chromium policy are removed; the work is kept on the `wanderlust` branch. A
+  Pi that ran the setup keeps its Chromium and policy until they are removed by
+  hand.
+
 ## 0.35.0
 
 - **Wanderlust has an address bar** in the frame's top edge: `◄` back, `►`

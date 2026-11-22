@@ -5,7 +5,7 @@
 //! nothing but the CRT post-processing.
 
 use cread_core::raster::CLEAR;
-use cread_core::{Cell, Frame, Raster, Rgb, Screen, Theme, VGA};
+use cread_core::{Cell, Raster, Rgb, Screen, Theme, VGA};
 
 use crate::font::Font;
 
@@ -85,20 +85,17 @@ impl Framebuffer {
     /// Cells marked transparent are skipped, which is what lets a program put a
     /// menu over its own picture without punching a hole in it.
     pub fn draw_program(&mut self, screen: &Screen, raster: &Raster, theme: &Theme, font: &Font) {
-        self.draw_program_at(screen, None, raster, theme, font, 0, 0);
+        self.draw_program_at(screen, raster, theme, font, 0, 0);
     }
 
-    /// The same, with the pixel layers starting at `(x, y)`.
+    /// The same, with the pixel layer starting at `(x, y)`.
     ///
     /// Programs are written for the classic 640x400 screen; on a larger
     /// framebuffer the shell centres that stage instead of leaving it in the
-    /// top-left corner. A true-colour `frame` (a web page) goes under the
-    /// raster, at its own offset inside the stage.
-    #[allow(clippy::too_many_arguments)]
+    /// top-left corner.
     pub fn draw_program_at(
         &mut self,
         screen: &Screen,
-        frame: Option<(i32, i32, &Frame)>,
         raster: &Raster,
         theme: &Theme,
         font: &Font,
@@ -108,43 +105,8 @@ impl Framebuffer {
         // The page first: a program paints only what it means to paint, and
         // pixels it left clear show this colour.
         self.clear(theme.background());
-        if let Some((fx, fy, frame)) = frame {
-            self.blit_frame(frame, x + fx, y + fy);
-        }
         self.blit_at(raster, x, y);
         self.draw_cells(screen, theme, font, 0, 0);
-    }
-
-    /// Copy a true-colour picture in, clipped to the framebuffer. Alpha is
-    /// ignored: a page is opaque.
-    pub fn blit_frame(&mut self, frame: &Frame, ox: i32, oy: i32) {
-        let pixels = (frame.width * frame.height * 4) as usize;
-        if frame.rgba.len() < pixels {
-            return;
-        }
-        let start = ox.max(0);
-        let end = (ox + frame.width as i32).min(self.width as i32);
-        if end <= start {
-            return;
-        }
-        let count = (end - start) as usize;
-        let src_x = (start - ox) as usize;
-        for y in 0..frame.height as i32 {
-            let dest_y = oy + y;
-            if dest_y < 0 || dest_y >= self.height as i32 {
-                continue;
-            }
-            let src = ((y as usize * frame.width as usize) + src_x) * 4;
-            let dst = (dest_y as usize * self.width as usize + start as usize) * 4;
-            self.data[dst..dst + count * 4].copy_from_slice(&frame.rgba[src..src + count * 4]);
-            for alpha in self.data[dst..dst + count * 4]
-                .iter_mut()
-                .skip(3)
-                .step_by(4)
-            {
-                *alpha = 0xff;
-            }
-        }
     }
 
     /// A full-screen pixel layer with no cell grid and a fixed background.
@@ -374,7 +336,7 @@ mod tests {
         let mut screen = Screen::new(8, 4);
         screen.fill(Cell::TRANSPARENT);
 
-        fb.draw_program_at(&screen, None, &raster, &Theme::BLACK, &Font::new(), 4, 16);
+        fb.draw_program_at(&screen, &raster, &Theme::BLACK, &Font::new(), 4, 16);
         assert_eq!(fb.pixel(0, 16), Theme::BLACK.background(), "left of it");
         assert_eq!(fb.pixel(4, 15), Theme::BLACK.background(), "the bar's row");
         assert_eq!(fb.pixel(4, 16), VGA[15], "the canvas starts one row down");
@@ -409,36 +371,5 @@ mod tests {
                 .iter()
                 .all(|p| *p == [9, 9, 9, 255])
         );
-    }
-
-    #[test]
-    fn a_frame_sits_under_the_raster_and_is_clipped() {
-        let mut fb = Framebuffer::new(16, 16);
-        let frame = Frame {
-            width: 4,
-            height: 2,
-            rgba: [10u8, 20, 30, 0].repeat(8),
-        };
-        let screen = Screen::new(0, 0);
-        let mut raster = Raster::new(4, 2);
-        raster.fill_clear();
-        raster.set(2, 1, 4);
-        fb.draw_program_at(
-            &screen,
-            Some((1, 1, &frame)),
-            &raster,
-            &Theme::BLACK,
-            &Font::new(),
-            13,
-            2,
-        );
-        // The frame starts at (14, 3) and loses its last two columns.
-        assert_eq!(fb.pixel(14, 3), [10, 20, 30]);
-        assert_eq!(fb.pixel(15, 4), [10, 20, 30]);
-        // The raster's painted pixel wins over the frame under it.
-        assert_eq!(fb.pixel(15, 3), VGA[4]);
-        // Alpha is forced opaque.
-        let i = ((3 * 16 + 14) * 4 + 3) as usize;
-        assert_eq!(fb.data()[i], 0xff);
     }
 }

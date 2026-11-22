@@ -177,9 +177,7 @@ The script:
   let `shutdown` and the WLAN screen in SETTINGS work without a password;
 - turns the journal volatile and disables the swap unit for the next boot;
 - disables `getty@tty1`, installs `/usr/local/sbin/cread-update`, and
-  starts/restarts the kiosk;
-- sets up Wanderlust's browser with `cread-browser-setup` (below). Pass
-  `CREAD_BROWSER=0` to skip it on a Pi that should never browse.
+  starts/restarts the kiosk.
 
 If you leave out `CREAD_USER`, the script creates a separate `cread` user and
 uses `/home/cread` instead. For a single-user Pi, `CREAD_USER=$USER` is the
@@ -215,30 +213,6 @@ curl -fL https://raw.githubusercontent.com/darknoxx/CRead/main/packaging/50-crea
   | sed 's|@USER@|creaduser|g' \
   | sudo tee /etc/polkit-1/rules.d/50-cread-network.rules >/dev/null
 ```
-
-### The browser
-
-Wanderlust drives the Chromium that Raspberry Pi OS provides. One script sets
-it up, and it is safe to run again:
-
-```sh
-sudo cread-browser-setup
-```
-
-It installs `chromium` (or `chromium-browser` on older releases) and
-`unattended-upgrades`, writes CRead's Chromium policy to
-`/etc/chromium/policies/managed/cread.json`, and switches on automatic security
-updates for the Debian security archive and the Raspberry Pi archive (where
-Raspberry Pi OS gets its Chromium). A browser that is not patched is not safe
-to use, and CRead's own updater only replaces CRead.
-
-The policy installs **uBlock Origin Lite** for everyone, switches the password
-store, autofill, Google sync, translation and usage reports off, and blocks
-camera, microphone, location and notifications. Safe Browsing stays on.
-
-On a Pi that was installed before 0.35.0, fetch the script from the release
-(`packaging/cread-browser-setup.sh` and `packaging/cread-chromium-policy.json`
-in the tarball) and run it once with `sudo`.
 
 ## 6. WebDAV, storage and the kiosk commands
 

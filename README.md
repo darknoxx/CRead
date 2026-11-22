@@ -77,7 +77,6 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
                        D: POCKETBOI   get gaming, my friend!
                        E: US POKER    ten dollars and a dream.
                        F: SCRIPTURE   a quiet place for the Word.
-                       G: WANDERLUST  the whole wide world, on a quiet screen.
                        ─────────────────────────────────────────
                        SOFTWARE       install and remove modules
                        THE VAULT      documents, pictures, cartridges, calendar
@@ -88,8 +87,8 @@ Then you get the boot screen: the logo, a greeting and a short drive list.
 The letters are the modules, handed out in the order you installed them: install
 Riff before Softhand and Riff becomes `B`. Below the rule sit the shelf, the
 vault and the settings, which are not drives and so have none. A fresh install has only **Inspiro**, the writing terminal;
-**Softhand** (paint), **Riff** (music), **Pocketboi** (games), **US Poker**,
-**SCRIPTURE** (the English Bible) and **Wanderlust** (the web) sit in the shelf until you switch them on
+**Softhand** (paint), **Riff** (music), **Pocketboi** (games), **US Poker**
+and **SCRIPTURE** (the English Bible) sit in the shelf until you switch them on
 there. Every module
 opens with a fake loading bar before its own front door appears.
 
@@ -140,9 +139,6 @@ help screen the arrow keys walk it while the status line explains each row.
 | `exit` | `welcome`, `home` | back to the boot screen |
 | `software` | `install`, `modules` | install or remove modules |
 | `riff <command>` | `music` | the music player: play, stop, next, volume, … |
-| `web [address]` | `www`, `go` | Wanderlust: an address, or words to search for |
-| `back` / `forward` | `fwd` | the browser's history |
-| `reload` | `refresh` | load the page again |
 | `beep [on\|off]` | `bell` | the startup beep; bare `beep` toggles |
 | `font [classic\|thin]` | `weight` | typeface; bare `font` cycles |
 | `sync` | | push the vault to WebDAV now |
@@ -247,7 +243,6 @@ SOFTWARE                                  install and remove modules
   │   POCKETBOI get gaming, my friend!                install │
   │   US POKER   ten dollars and a dream.             install │
   │   SCRIPTURE  a quiet place for the Word.          install │
-  │   WANDERLUST the whole wide world, on a quiet screen. install │
   └──────────────────────────────────────────────────────────┘
 ```
 
@@ -540,42 +535,6 @@ theme and face selected in SETTINGS. Its text is the public-domain Webster's
 World Bible (1913); the German edition is not included. No Python or Qt code
 from EZScripture is used — only the English text.
 
-## Wanderlust
-
-Wanderlust is a real browser in CRead's clothes, meant for looking things up
-while writing — an encyclopaedia, documentation, an article — not for
-streaming. A headless **Chromium** renders
-the page, runs its scripts and plays its videos; CRead shows the result as a
-picture at emulated resolution, under the CRT pass, with its own top bar
-(page title, clock, `https://host`) and its own prompt. Chromium's window and
-controls are never on screen.
-
-The page sits in a thin frame. Its top edge is the address bar —
-`◄` back, `►` forward, `☼` reload and the address — and its right edge is the
-scrollbar. Click the address (or press `Ctrl+L` / `F6`) to type a new one;
-`Enter` goes, `Esc` puts it away. From the prompt, `web <address>` goes there
-(`https://` is added), `web <words>` searches with DuckDuckGo, and `back`,
-`forward` and `reload` walk the history. The mouse and the keyboard go to the
-page; `Ctrl+V` pastes CRead's clipboard. `Esc` leaves a full-screen video first
-(which fills the frame, not the monitor) and otherwise opens the command line.
-One page at a time: links that want a new window open in the same one. Only
-`http` and `https` are opened from the prompt.
-
-Video plays but is choppy on a Raspberry Pi 4, and YouTube stops after about a
-minute for any remotely steered Chromium (tested with and without headless
-mode); CRead does not try to evade that. Pictures stream at 30 frames a second. Video sites are steered to H.264 when
-the browser can play it, because VP9 and AV1 are decoded in software on a
-Raspberry Pi.
-
-Chromium is not bundled: on the Pi, `sudo cread-browser-setup` installs it
-from the system together with automatic security updates and a policy that adds
-uBlock Origin Lite and switches the password store, camera, microphone and
-location off (see `docs/raspberry-pi.md`). CRead talks to it over a private pipe
-(`--remote-debugging-pipe`), never a network port, and never switches its
-sandbox off. Cookies and logins live in `~/.local/share/cread/browser/`,
-downloads in `~/Downloads` — both outside the vault, so nothing of the browser
-is synced.
-
 ## How the picture is built
 
 The emulated resolution is never scaled fractionally. For a physical surface of
@@ -799,7 +758,6 @@ crates/core      buffer, cursor, soft wrap, undo, markdown spans, file IO
 crates/render    emulated framebuffer, bitmap font, wgpu CRT pass
 crates/sync      WebDAV client, conflict policy, background worker
 crates/sound     which output device the machine opens
-crates/web       headless Chromium over a pipe: frames, input, navigation
 crates/wifi      NetworkManager through nmcli: scan, connect, link state
 crates/app       window, input, frame loop, UI composition
 crates/programs/ modules: one crate per program, compiled in

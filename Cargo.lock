@@ -453,16 +453,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "command-fds"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b60b5124979fccd9addd89d8b97a1d6eebb4950694520c75ddd722535ea443f"
-dependencies = [
- "nix",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -615,7 +605,6 @@ dependencies = [
  "cread-sound",
  "cread-sync",
  "cread-update",
- "cread-wanderlust",
  "cread-wifi",
  "pollster",
  "rodio",
@@ -710,27 +699,6 @@ dependencies = [
  "sha2 0.10.9",
  "tar",
  "tokio",
-]
-
-[[package]]
-name = "cread-wanderlust"
-version = "0.35.0"
-dependencies = [
- "cread-core",
- "cread-web",
-]
-
-[[package]]
-name = "cread-web"
-version = "0.35.0"
-dependencies = [
- "base64",
- "command-fds",
- "cread-core",
- "png",
- "serde_json",
- "zune-core",
- "zune-jpeg",
 ]
 
 [[package]]

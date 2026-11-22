@@ -43,12 +43,11 @@ For beginners. No prior knowledge needed.
 7. Pocketboi — games
 8. US Poker — the machine
 9. SCRIPTURE — the Bible
-10. Wanderlust — the web
-11. Calendar — appointments
-12. The settings
-13. The screensaver
-14. Backing up with WebDAV
-15. Updates
+10. Calendar — appointments
+11. The settings
+12. The screensaver
+13. Backing up with WebDAV
+14. Updates
 
 **Appendices**
 
@@ -689,86 +688,7 @@ SCRIPTURE uses the theme you chose in SETTINGS; there is no separate light or
 dark switch in the module. Its English text is the public-domain Webster's
 World Bible (1913); the German edition is not included.
 
-## Chapter 10: Wanderlust — the web
-
-Wanderlust is a real web browser in CRead's clothes, made for looking things
-up while you write: an encyclopaedia, documentation, an article. Underneath
-runs **Chromium**: pages run their scripts, and you can log in and fill in
-forms. What you see is CRead: the page is drawn at the
-machine's resolution with the scanlines over it, the top bar shows the page
-title, the clock and where the page really comes from, and the command line
-is the usual one.
-
-Install it through **SOFTWARE**. Chromium itself is not part of CRead; on the
-Raspberry Pi it comes with the system (`sudo apt install chromium`). Without it,
-Wanderlust says so on its first screen.
-
-### Going somewhere
-
-Press **Esc** and type `web` with an address or with words to search for:
-
-```
-web de.wikipedia.org
-web ibm ps/2 model 30
-```
-
-An address gets `https://` by itself; anything else is searched for with
-DuckDuckGo. `web` alone opens the search page. Addresses other than `http` and
-`https` are never opened from the prompt.
-
-| Command | Effect |
-| --- | --- |
-| `web [address or words]` | Go there, or search. Works from any screen. |
-| `back` | The previous page. |
-| `forward` | The next page again. |
-| `reload` | Load the page again. |
-| `exit` | Close the browser and go back to the start screen. |
-
-### The address bar
-
-The top edge of the frame holds the controls:
-
-```
-┌─◄─►─☼─[ https://de.wikipedia.org/wiki/Personal_System/2      ]─┐
-```
-
-Click **◄** to go back, **►** to go forward and **☼** to reload. Click the
-address, or press **Ctrl+L** or **F6**, to type a new one: the old address is
-selected, so the first key replaces it, and the arrow keys move inside it
-instead. **Enter** goes there, **Esc** puts the field away. Words instead of an
-address are searched for, just as with `web`.
-
-### On the page
-
-The mouse clicks, drags and scrolls as usual. Typing goes to the page, so a
-search box or a login form works as you would expect; **Ctrl+V** pastes CRead's
-clipboard into the page. A video's full screen fills the frame. **Esc** leaves
-full screen first; otherwise it opens the command line instead of going to the
-page.
-
-A thin frame runs round the page; its right edge is the scrollbar. Moving pictures run at up to 30 frames a
-second; a still page costs nothing. On the Raspberry Pi, video sites are asked
-for H.264, which the Pi decodes with much less effort than the newer formats.
-uBlock Origin Lite blocks most advertising once the Pi's browser is set up
-(`sudo cread-browser-setup`).
-
-### What it is not
-
-Wanderlust is not a television. Video plays, but on a Raspberry Pi 4 it is
-choppy: the Pi draws the whole page without its graphics chip. **YouTube** in
-particular stops playing after about a minute with "an error occurred",
-because it refuses browsers that are steered by another program — which is
-what Wanderlust is. That happens on fast machines too, and CRead does not try
-to trick it.
-
-### Where things are kept
-
-The browser's cookies and logins live in `~/.local/share/cread/browser/`,
-outside the vault: they are never synced to your WebDAV server. Downloads go to
-`~/Downloads`, also outside the vault. Wanderlust only ever shows one page; a
-link that wants a new window opens in the same one.
-
-## Chapter 11: Calendar — appointments
+## Chapter 10: Calendar — appointments
 
 The calendar is a system screen: open it from **CALENDAR** on the start
 screen, or type `calendar` at any prompt. It uses the files in the
@@ -853,7 +773,7 @@ bringing a deleted appointment back from the server. Conflict copies
 
 ---
 
-## Chapter 12: The settings
+## Chapter 11: The settings
 
 You reach **SETTINGS** from the start screen. The rows are sorted into
 groups.
@@ -936,7 +856,7 @@ Contents.
 
 ---
 
-## Chapter 13: The screensaver
+## Chapter 12: The screensaver
 
 If you do nothing for a while, the screen turns black. A large clock with
 hour, minute and second hands appears in the middle.
@@ -961,7 +881,7 @@ minutes.
 
 ---
 
-## Chapter 14: Backing up with WebDAV
+## Chapter 13: Backing up with WebDAV
 
 CRead can back up your files to a server automatically. That is
 voluntary. Without settings, nothing happens.
@@ -1027,7 +947,7 @@ SYNC TO SERVER?
 
 ---
 
-## Chapter 15: Updates
+## Chapter 14: Updates
 
 CRead can update itself. That is voluntary and only happens when you
 start it.
@@ -1077,12 +997,10 @@ The most important commands. Upper and lower case do not matter.
 | `bloom [on\|off]` | | The glow around the letters. |
 | `colour [0-15]` | `color`, `ink` | Colour in Softhand. |
 | `delete` | `rm`, `del` | Deletes the document. |
-| `back` | | The previous page in Wanderlust. |
 | `exit` | `welcome`, `home` | Back to the start screen. |
 | `exit!` | `quit`, `q`, `x` | Save and quit. |
 | `find [text]` | `search` | Searches the document. |
 | `font [classic\|thin]` | `weight` | Switches the typeface. |
-| `forward` | `fwd` | The next page in Wanderlust. |
 | `fullscreen` | `fs` | The whole screen. |
 | `help [all]` | `?`, `h` | Shows the commands. |
 | `manual` | `handbook` | Shows this manual. |
@@ -1092,7 +1010,6 @@ The most important commands. Upper and lower case do not matter.
 | `new` | `n` | New document. |
 | `open [name]` | `o`, `e` | Shows the vault or opens a name. |
 | `redo` | | Redo. |
-| `reload` | `refresh` | Loads the page again in Wanderlust. |
 | `rename name` | `mv`, `rn` | Renames the document. |
 | `riff [command]` | `music` | The music player. |
 | `roll [on\|off]` | `drift` | The scanlines drift. |
@@ -1113,7 +1030,6 @@ The most important commands. Upper and lower case do not matter.
 | `undo` | `u` | Undo. |
 | `update` | `up` | Look for a new version. |
 | `view` | `read` | Reading mode. |
-| `web [address]` | `www`, `go` | Wanderlust: an address, or words to search for. |
 | `windowed` | `win` | Back to a window. |
 
 ---
@@ -1297,8 +1213,6 @@ cread --vault /path/to/folder
 | Music | `~/Musik` or `~/Music` |
 | Settings | `~/.config/cread/` |
 | WebDAV backup | `~/.config/cread/sync.json` |
-| Browser cookies and logins | `~/.local/share/cread/browser/` (never synced) |
-| Downloads | `~/Downloads` (never synced) |
 
 > **Note:** The files are ordinary files. You can open them with another
 > program too. Texts are Markdown. Pictures are PNG.

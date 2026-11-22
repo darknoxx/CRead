@@ -368,8 +368,6 @@ impl App {
                 // module: a game has no actions to save.
                 if matches!(self.program_id, Some("pocketboi" | "poker")) {
                     "mute   exit".to_string()
-                } else if self.program_id == Some("wanderlust") {
-                    "web <address or words>   back   forward   reload   exit".to_string()
                 } else {
                     "save   open   undo   exit".to_string()
                 }
@@ -478,33 +476,6 @@ impl App {
                     ui::draw_program_line(screen, &self.theme, "", "", None, prompt);
                 }
             } else {
-                // A program that names the bar's parts gets the same bar as
-                // the editor: the browser's page title, the clock, and where
-                // the page really comes from - always visible, never the
-                // page's to draw.
-                if let Some(bar) = self.program.as_ref().and_then(|p| p.top_bar()) {
-                    // A page title is the page's to choose and can be a whole
-                    // sentence; it gets shortened, the clock stays.
-                    let clock_x = cols.saturating_sub(clock.chars().count() as u32) / 2;
-                    let state = if bar.state.is_empty() {
-                        0
-                    } else {
-                        bar.state.chars().count() + 2
-                    };
-                    let room = (clock_x as usize).saturating_sub(4 + state);
-                    let title = shorten(&bar.title, room);
-                    ui::draw_top_bar(
-                        screen,
-                        &self.theme,
-                        &ui::TopBar {
-                            net: self.net_mark(),
-                            title: &title,
-                            state: &bar.state,
-                            clock: &clock,
-                            location: &bar.location,
-                        },
-                    );
-                }
                 let title = self
                     .program
                     .as_ref()
@@ -949,14 +920,4 @@ impl App {
             _ => {}
         }
     }
-}
-
-/// `text`, cut to `room` characters with an ellipsis when it is longer.
-fn shorten(text: &str, room: usize) -> String {
-    if text.chars().count() <= room {
-        return text.to_string();
-    }
-    let mut out: String = text.chars().take(room.saturating_sub(1)).collect();
-    out.push('…');
-    out
 }

@@ -155,17 +155,6 @@ impl App {
                 }
             }
             "riffinsert" => self.open_explorer(),
-            "wanderlust" => {
-                self.start_wanderlust(None);
-                if !self.opts.command.is_empty() {
-                    self.command = self.opts.command.clone();
-                    self.program_prompt = true;
-                }
-            }
-            other if other.starts_with("wanderlust:") => {
-                let typed = other["wanderlust:".len()..].to_string();
-                self.start_wanderlust(Some(&typed));
-            }
             "pocketboi" => {
                 self.program = Some(Box::new(cread_pocketboi::Pocketboi::new(&self.vault())));
                 self.program_id = Some("pocketboi");

@@ -120,7 +120,6 @@ const VIEWS: &[&str] = &[
     "scripture",
     "scriptureread",
     "scripturegrid",
-    "wanderlust",
     "calendar",
     "note",
     "calendaredit",
@@ -221,10 +220,9 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<ParseOutcome, Str
                 if !VIEWS.contains(&v.as_str())
                     && !v.starts_with("picture:")
                     && !v.starts_with("pocketboi:")
-                    && !v.starts_with("wanderlust:")
                 {
                     return Err(format!(
-                        "unknown view: {v}\nviews: {}, picture:<png>, pocketboi:<rom>, wanderlust:<address>",
+                        "unknown view: {v}\nviews: {}, picture:<png>, pocketboi:<rom>",
                         VIEWS.join(" ")
                     ));
                 }

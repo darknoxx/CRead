@@ -1499,8 +1499,8 @@ fn manual_contents_entries_become_jump_targets() {
     let jumps = manual_jumps();
     assert_eq!(
         jumps.len(),
-        28,
-        "8 quick-start steps, 15 chapters, 5 appendices"
+        27,
+        "8 quick-start steps, 14 chapters, 5 appendices"
     );
     assert_eq!(jumps[0].label, "1. Starting");
     assert!(jumps.iter().all(|jump| !jump.label.starts_with("Part")));
@@ -2225,62 +2225,6 @@ fn the_inspiro_logo_belongs_to_its_own_screen_only() {
 }
 
 #[test]
-fn wanderlust_is_on_the_shelf_and_web_needs_it_installed() {
-    let dir = vault("wanderlust-shelf");
-    let mut app = app_in(&dir);
-    let row = app
-        .software_rows()
-        .into_iter()
-        .find(|row| row.name == "WANDERLUST")
-        .expect("WANDERLUST on the shelf");
-    assert_eq!(row.value, "install");
-    let error = app.cmd_web(Some("example.com".into())).unwrap_err();
-    assert!(error.contains("not installed"), "{error}");
-    assert!(app.program.is_none());
-    let error = app.cmd_browse(&Command::Back).unwrap_err();
-    assert!(error.contains("web"), "{error}");
-}
-
-#[test]
-fn wanderlust_sits_under_the_top_bar_and_names_its_trouble() {
-    let dir = vault("wanderlust-open");
-    let mut app = app_in(&dir);
-    app.prefs.installed.push("wanderlust".into());
-    let index = PROGRAMS
-        .iter()
-        .position(|program| program.id == "wanderlust")
-        .expect("the wanderlust module");
-    app.pending = Some(Pending::Program(index));
-    app.finish_loading();
-    assert_eq!(app.mode, Mode::Program);
-    assert_eq!(app.program_id, Some("wanderlust"));
-    assert_eq!(
-        app.program_stage(80, 25),
-        (0, 1),
-        "the page starts under the bar"
-    );
-    assert_eq!(app.program_stage_height(), 23);
-
-    app.screen = Screen::new(80, 25);
-    app.compose();
-    let text = rows_as_text(&app.screen);
-    let rows: Vec<&str> = text.lines().collect();
-    assert!(rows[0].contains("WANDERLUST"), "top bar: {}", rows[0]);
-    assert!(
-        rows[24].contains("WANDERLUST"),
-        "program line: {}",
-        rows[24]
-    );
-    // No browser in a test: the door says how to get one.
-    assert!(text.contains("apt install chromium"), "{text}");
-
-    // `web` while the browser is in front keeps the same program.
-    app.cmd_web(Some("example.com".into())).unwrap();
-    assert_eq!(app.program_id, Some("wanderlust"));
-    assert!(app.cmd_browse(&Command::Reload).is_ok());
-}
-
-#[test]
 fn the_wifi_screen_lists_networks_and_asks_for_a_password() {
     let dir = vault("wifi-screen");
     let mut app = app_in(&dir);
@@ -2339,4 +2283,23 @@ fn the_top_bar_carries_the_network_mark() {
     let chars: Vec<char> = bar.chars().collect();
     assert_eq!(chars[78], cread_render::font::NET_WIFI[1]);
     assert!(bar.contains("~/Documents \u{e002}"), "{bar:?}");
+}
+
+#[test]
+fn a_removed_module_in_the_preferences_is_ignored() {
+    // Wanderlust was a module in 0.34 and 0.35; preferences written then
+    // still name it.
+    let dir = vault("removed-module");
+    let mut app = app_in(&dir);
+    app.prefs.installed = vec!["wanderlust".into(), "riff".into()];
+    let items = app.boot_items();
+    let riff = PROGRAMS.iter().position(|p| p.id == "riff").unwrap();
+    let modules: Vec<usize> = items
+        .iter()
+        .filter_map(|item| match item {
+            BootItem::Program(index) => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(modules, vec![riff]);
 }

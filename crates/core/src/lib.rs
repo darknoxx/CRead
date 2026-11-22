@@ -25,7 +25,7 @@ pub use markdown::{Kind, Span};
 pub use music::{Playlist, Track};
 pub use picture::write_png;
 pub use prefs::Prefs;
-pub use program::{Frame, KeyPress, Outcome, PointerEvent, PointerKind, Program, TopBar, Waker};
+pub use program::{KeyPress, Outcome, PointerEvent, PointerKind, Program, Waker};
 pub use raster::{PAPER, Raster, VGA};
 pub use resolution::{FONT_H, FONT_W, ScaleMode, Viewport};
 pub use screen::{Cell, Screen};
