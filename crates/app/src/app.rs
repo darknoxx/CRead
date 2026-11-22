@@ -2066,16 +2066,6 @@ impl App {
         }
     }
 
-    /// The binary to start after an update. Captured at startup on purpose:
-    /// `install` renames the running binary to `cread.old`, and from then on
-    /// `/proc/self/exe` follows the inode - `current_exe()` would return the
-    /// old file and the restart would run the previous version.
-    fn restart_target(&self) -> Option<PathBuf> {
-        self.self_exe
-            .clone()
-            .or_else(|| std::env::current_exe().ok())
-    }
-
     /// A key woke the clock. True when it did, so the key is swallowed instead
     /// of also typing or opening something.
     fn wake_screensaver(&mut self) -> bool {
