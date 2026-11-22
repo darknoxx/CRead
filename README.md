@@ -539,14 +539,25 @@ picture at emulated resolution, under the CRT pass, with its own top bar
 (page title, clock, `https://host`) and its own prompt. Chromium's window and
 controls are never on screen.
 
-`web <address>` goes there (`https://` is added), `web <words>` searches with
-DuckDuckGo, `back`, `forward` and `reload` walk the history. The mouse and the
-keyboard go to the page; `Esc` is always the command line, `Ctrl+V` pastes
-CRead's clipboard. One page at a time: links that want a new window open in the
-same one. Only `http` and `https` are opened from the prompt.
+The page sits in a thin frame. Its top edge is the address bar —
+`◄` back, `►` forward, `☼` reload and the address — and its right edge is the
+scrollbar. Click the address (or press `Ctrl+L` / `F6`) to type a new one;
+`Enter` goes, `Esc` puts it away. From the prompt, `web <address>` goes there
+(`https://` is added), `web <words>` searches with DuckDuckGo, and `back`,
+`forward` and `reload` walk the history. The mouse and the keyboard go to the
+page; `Ctrl+V` pastes CRead's clipboard. `Esc` leaves a full-screen video first
+(which fills the frame, not the monitor) and otherwise opens the command line.
+One page at a time: links that want a new window open in the same one. Only
+`http` and `https` are opened from the prompt.
 
-Chromium is not bundled: install it with the system (`sudo apt install
-chromium`), which also keeps it patched. CRead talks to it over a private pipe
+Pictures stream at 30 frames a second. Video sites are steered to H.264 when
+the browser can play it, because VP9 and AV1 are decoded in software on a
+Raspberry Pi.
+
+Chromium is not bundled: on the Pi, `sudo cread-browser-setup` installs it
+from the system together with automatic security updates and a policy that adds
+uBlock Origin Lite and switches the password store, camera, microphone and
+location off (see `docs/raspberry-pi.md`). CRead talks to it over a private pipe
 (`--remote-debugging-pipe`), never a network port, and never switches its
 sandbox off. Cookies and logins live in `~/.local/share/cread/browser/`,
 downloads in `~/Downloads` — both outside the vault, so nothing of the browser

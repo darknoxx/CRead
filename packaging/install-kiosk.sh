@@ -97,6 +97,18 @@ if ! install -d -m 0755 /usr/local/sbin; then
 elif ! install -m 0755 "$HERE/cread-update.sh" /usr/local/sbin/cread-update; then
     echo "warning: cannot install cread-update; in-app updates still work" >&2
 fi
+# Wanderlust's engine. The setup script and its policy stay installed so the
+# browser can be set up later, or again: `sudo cread-browser-setup`.
+if install -d -m 0755 /usr/local/share/cread \
+    && install -m 0644 "$HERE/cread-chromium-policy.json" /usr/local/share/cread/ \
+    && install -m 0755 "$HERE/cread-browser-setup.sh" /usr/local/sbin/cread-browser-setup; then
+    if [ "${CREAD_BROWSER:-1}" != "0" ]; then
+        /usr/local/sbin/cread-browser-setup \
+            || echo "warning: browser setup failed; run sudo cread-browser-setup later" >&2
+    fi
+else
+    echo "warning: cannot install cread-browser-setup" >&2
+fi
 systemctl restart systemd-journald >/dev/null 2>&1 || true
 
 # Start and verify. A failure here must be visible to the caller.

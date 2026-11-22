@@ -9,6 +9,8 @@
 //! the browser's profile and downloads live outside it, so cookies and logins
 //! never sync.
 
+mod field;
+
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -20,6 +22,7 @@ use cread_core::{
 };
 use cread_web::address;
 use cread_web::{Engine, Event, Mouse, Options, Request};
+use field::{Action, Field};
 
 /// The stage under the top bar: 80 columns by 23 rows. A frame runs round its
 /// edge; its right side doubles as the scrollbar.
@@ -33,6 +36,17 @@ pub const PAGE_H: u32 = PAGE_ROWS * 16;
 /// Where the page starts inside the stage: one cell in from the frame.
 const PAGE_X: i32 = 8;
 const PAGE_Y: i32 = 16;
+
+/// The frame's top edge carries the controls:
+/// `┌─◄─►─☼─[ address                                 ]─┐`
+const BACK_COL: u32 = 2;
+const FORWARD_COL: u32 = 4;
+const RELOAD_COL: u32 = 6;
+const FIELD_OPEN: u32 = 8;
+const FIELD_CLOSE: u32 = STAGE_COLS - 3;
+/// The text inside the brackets, a space of air on each side.
+const FIELD_FIRST: u32 = FIELD_OPEN + 2;
+const FIELD_WIDTH: u32 = FIELD_CLOSE - 1 - FIELD_FIRST;
 
 /// Page pixels per wheel line. The shell sends three lines a notch, so one
 /// notch scrolls about three lines of text.
@@ -93,6 +107,10 @@ pub struct Wanderlust {
     loading: bool,
     scroll: Scroll,
     notice: Option<(String, Instant)>,
+    /// The address field, while it is being typed into.
+    edit: Option<Field>,
+    /// Something on the page (a video) is full screen.
+    fullscreen: bool,
     /// Buttons held, as CDP's bit mask.
     buttons: u8,
     last_press: Option<(Instant, i32, i32, u8)>,
@@ -131,6 +149,8 @@ impl Wanderlust {
             loading: false,
             scroll: Scroll::default(),
             notice: None,
+            edit: None,
+            fullscreen: false,
             buttons: 0,
             last_press: None,
             clicks: 0,
@@ -143,6 +163,7 @@ impl Wanderlust {
 
     /// Go to what the writer typed: an address, or words to search for.
     pub fn go(&mut self, typed: &str) {
+        self.edit = None;
         let url = address::resolve(typed);
         self.send(Request::Navigate(url));
     }
@@ -210,6 +231,88 @@ impl Wanderlust {
         self.clicks
     }
 
+    /// Start typing an address.
+    fn open_field(&mut self) {
+        self.edit = Some(Field::open(&self.url));
+    }
+
+    /// A press on the frame's top edge: a button, or the address field.
+    fn press_controls(&mut self, col: u32) {
+        match col {
+            BACK_COL => self.send(Request::Back),
+            FORWARD_COL => self.send(Request::Forward),
+            RELOAD_COL => {
+                let _ = self.command(&Command::Reload);
+            }
+            FIELD_OPEN..=FIELD_CLOSE => self.open_field(),
+            _ => {}
+        }
+    }
+
+    /// The controls in the frame's top edge.
+    fn draw_controls(&self, screen: &mut Screen) {
+        let line = |ch| Cell::new(ch, self.ink, self.page);
+        screen.put(BACK_COL, 0, Cell::new('\u{25c4}', self.accent, self.page));
+        screen.put(
+            FORWARD_COL,
+            0,
+            Cell::new('\u{25ba}', self.accent, self.page),
+        );
+        screen.put(RELOAD_COL, 0, Cell::new('\u{263c}', self.accent, self.page));
+        screen.put(FIELD_OPEN, 0, line('['));
+        screen.put(FIELD_CLOSE, 0, line(']'));
+        let width = FIELD_WIDTH as usize;
+        match &self.edit {
+            Some(field) => {
+                // Typing: the field turns over, the caret is an accent block.
+                for x in FIELD_OPEN + 1..FIELD_CLOSE {
+                    screen.put(x, 0, Cell::new(' ', self.page, self.ink));
+                }
+                let (shown, caret) = field.view(width);
+                let (fg, bg) = if field.is_selected() {
+                    (self.ink, self.accent)
+                } else {
+                    (self.page, self.ink)
+                };
+                screen.put_str(FIELD_FIRST, 0, &shown, fg, bg);
+                let at = FIELD_FIRST + caret as u32;
+                let under = shown.chars().nth(caret).unwrap_or(' ');
+                screen.put(at, 0, Cell::new(under, self.page, self.accent));
+            }
+            None => {
+                for x in FIELD_OPEN + 1..FIELD_CLOSE {
+                    screen.put(x, 0, Cell::blank(self.ink, self.page));
+                }
+                let (text, fg) = if self.url.is_empty() || self.url == "about:blank" {
+                    ("type an address".to_string(), self.dim)
+                } else {
+                    (self.url.clone(), self.ink)
+                };
+                screen.put_str_ellipsis(FIELD_FIRST, 0, &text, FIELD_WIDTH, fg, self.page);
+            }
+        }
+    }
+
+    /// Keep a picture to the page's size, whatever arrived: a frame larger
+    /// than the page would spill over the frame.
+    fn fit(frame: Frame) -> Frame {
+        if frame.width == PAGE_W && frame.height == PAGE_H {
+            return frame;
+        }
+        let mut rgba = vec![0u8; (PAGE_W * PAGE_H * 4) as usize];
+        let width = frame.width.min(PAGE_W) as usize * 4;
+        for y in 0..frame.height.min(PAGE_H) as usize {
+            let src = y * frame.width as usize * 4;
+            let dst = y * PAGE_W as usize * 4;
+            rgba[dst..dst + width].copy_from_slice(&frame.rgba[src..src + width]);
+        }
+        Frame {
+            width: PAGE_W,
+            height: PAGE_H,
+            rgba,
+        }
+    }
+
     /// A thin line round the page, the way CRead frames its windows.
     fn draw_frame(&self, screen: &mut Screen) {
         let (right, bottom) = (STAGE_COLS - 1, STAGE_ROWS - 1);
@@ -261,14 +364,49 @@ impl Program for Wanderlust {
     }
 
     fn key(&mut self, key: KeyPress) -> Outcome {
-        if self.engine.is_some() {
-            self.send(Request::Key(key));
+        if let Some(field) = self.edit.as_mut() {
+            if let Action::Go(typed) = field.key(key) {
+                if typed.is_empty() {
+                    self.edit = None;
+                } else {
+                    self.go(&typed);
+                }
+            }
+            return Outcome::Continue;
+        }
+        match key {
+            // The browser's own key for the address bar, and the old one.
+            KeyPress::Ctrl('l') | KeyPress::Function(6) => self.open_field(),
+            _ if self.engine.is_some() => self.send(Request::Key(key)),
+            _ => {}
         }
         Outcome::Continue
     }
 
+    fn escape(&mut self) -> bool {
+        if self.edit.take().is_some() {
+            return true;
+        }
+        if self.fullscreen {
+            // Esc leaves the video's full screen first, as in any browser;
+            // the next one is CRead's prompt.
+            self.fullscreen = false;
+            self.send(Request::ExitFullscreen);
+            return true;
+        }
+        false
+    }
+
     fn pointer(&mut self, event: PointerEvent) -> Outcome {
         let PointerEvent { x, y, kind } = event;
+        if (0..PAGE_Y).contains(&y) && matches!(kind, PointerKind::Down(0)) {
+            self.press_controls((x.max(0) / 8) as u32);
+            return Outcome::Continue;
+        }
+        if matches!(kind, PointerKind::Down(_)) && self.edit.is_some() {
+            // A click on the page puts the field away, like in any browser.
+            self.edit = None;
+        }
         let (x, y) = (x - PAGE_X, y - PAGE_Y);
         let inside = (0..PAGE_W as i32).contains(&x) && (0..PAGE_H as i32).contains(&y);
         let (x, y) = (x.clamp(0, PAGE_W as i32 - 1), y.clamp(0, PAGE_H as i32 - 1));
@@ -328,6 +466,7 @@ impl Program for Wanderlust {
             self.draw_door(screen);
         }
         self.draw_frame(screen);
+        self.draw_controls(screen);
         // The right edge is the scrollbar: its track is the frame's own line,
         // so a page that fits shows a plain frame.
         scrollbar::draw_scrollbar(
@@ -366,7 +505,7 @@ impl Program for Wanderlust {
             changed = true;
             match event {
                 Event::Frame(frame) => {
-                    self.frame = Some(frame);
+                    self.frame = Some(Self::fit(frame));
                     self.frame_at = Some(Instant::now());
                 }
                 Event::Page { url, title } => {
@@ -376,6 +515,7 @@ impl Program for Wanderlust {
                 Event::Loading(on) => self.loading = on,
                 Event::Scroll(scroll) => self.scroll = scroll,
                 Event::Notice(text) => self.say(text),
+                Event::Fullscreen(on) => self.fullscreen = on,
                 Event::Exited(why) => {
                     self.engine = None;
                     self.loading = false;
@@ -424,6 +564,9 @@ impl Program for Wanderlust {
     }
 
     fn status(&self) -> String {
+        if self.edit.is_some() {
+            return "Enter go   Esc cancel".into();
+        }
         match &self.notice {
             Some((text, _)) => text.clone(),
             None if self.loading => "loading".into(),
@@ -455,6 +598,10 @@ impl Program for Wanderlust {
     }
 
     fn paste(&mut self, text: &str) -> bool {
+        if let Some(field) = self.edit.as_mut() {
+            field.insert(text);
+            return true;
+        }
         if self.engine.is_none() {
             return false;
         }
@@ -593,5 +740,76 @@ mod tests {
         assert!(wheel_delta(3) < 0, "up on the wheel is up on the page");
         assert!(wheel_delta(-3) > 0);
         assert_eq!(wheel_delta(-3), 60);
+    }
+
+    fn row(screen: &Screen, y: u32) -> String {
+        (0..screen.cols())
+            .filter_map(|x| screen.get(x, y).map(|c| c.ch))
+            .collect()
+    }
+
+    #[test]
+    fn the_top_edge_carries_the_controls_and_the_address() {
+        let mut web = browser();
+        web.url = "https://example.com/a".into();
+        let mut screen = Screen::new(80, 25);
+        let mut raster = Raster::new(640, 368);
+        web.draw(&mut screen, &mut raster);
+        let top = row(&screen, 0);
+        assert!(top.starts_with("\u{250c}\u{2500}\u{25c4}\u{2500}\u{25ba}\u{2500}\u{263c}\u{2500}[ https://example.com/a"), "{top}");
+        assert!(top.ends_with("]\u{2500}\u{2510}"), "{top}");
+    }
+
+    #[test]
+    fn a_click_on_the_field_starts_typing_and_esc_puts_it_away() {
+        let mut web = browser();
+        web.url = "https://example.com/".into();
+        web.pointer(PointerEvent {
+            x: 30 * 8,
+            y: 4,
+            kind: PointerKind::Down(0),
+        });
+        assert!(web.edit.is_some());
+        assert_eq!(web.status(), "Enter go   Esc cancel");
+        web.key(KeyPress::Char('x'));
+        assert_eq!(web.edit.as_ref().unwrap().text(), "x");
+        assert!(web.escape(), "Esc closes the field, not the program");
+        assert!(web.edit.is_none());
+        assert!(!web.escape(), "the next Esc is the shell's");
+    }
+
+    #[test]
+    fn ctrl_l_opens_the_field_and_enter_goes() {
+        let mut web = browser();
+        web.key(KeyPress::Ctrl('l'));
+        for ch in "example.com".chars() {
+            web.key(KeyPress::Char(ch));
+        }
+        web.key(KeyPress::Enter);
+        assert!(web.edit.is_none());
+        // No Chromium in a test: going there names the trouble instead.
+        assert!(web.trouble.is_some());
+    }
+
+    #[test]
+    fn esc_leaves_full_screen_first() {
+        let mut web = browser();
+        web.fullscreen = true;
+        assert!(web.escape());
+        assert!(!web.fullscreen);
+        assert!(!web.escape());
+    }
+
+    #[test]
+    fn an_oversized_frame_is_cut_to_the_page() {
+        let big = Frame {
+            width: 800,
+            height: 600,
+            rgba: vec![7; 800 * 600 * 4],
+        };
+        let fitted = Wanderlust::fit(big);
+        assert_eq!((fitted.width, fitted.height), (PAGE_W, PAGE_H));
+        assert_eq!(fitted.rgba.len(), (PAGE_W * PAGE_H * 4) as usize);
+        assert_eq!(fitted.rgba[0], 7);
     }
 }

@@ -723,15 +723,33 @@ DuckDuckGo. `web` alone opens the search page. Addresses other than `http` and
 | `reload` | Load the page again. |
 | `exit` | Close the browser and go back to the start screen. |
 
+### The address bar
+
+The top edge of the frame holds the controls:
+
+```
+┌─◄─►─☼─[ https://de.wikipedia.org/wiki/Personal_System/2      ]─┐
+```
+
+Click **◄** to go back, **►** to go forward and **☼** to reload. Click the
+address, or press **Ctrl+L** or **F6**, to type a new one: the old address is
+selected, so the first key replaces it, and the arrow keys move inside it
+instead. **Enter** goes there, **Esc** puts the field away. Words instead of an
+address are searched for, just as with `web`.
+
 ### On the page
 
 The mouse clicks, drags and scrolls as usual. Typing goes to the page, so a
 search box or a login form works as you would expect; **Ctrl+V** pastes CRead's
-clipboard into the page. **Esc** always opens the command line instead of going
-to the page.
+clipboard into the page. A video's full screen fills the frame. **Esc** leaves
+full screen first; otherwise it opens the command line instead of going to the
+page.
 
-A thin frame runs round the page; its right edge is the scrollbar. Moving pictures run at up to 60 frames a
-second; a still page costs nothing.
+A thin frame runs round the page; its right edge is the scrollbar. Moving pictures run at up to 30 frames a
+second; a still page costs nothing. On the Raspberry Pi, video sites are asked
+for H.264, which the Pi decodes with much less effort than the newer formats.
+uBlock Origin Lite blocks most advertising once the Pi's browser is set up
+(`sudo cread-browser-setup`).
 
 ### Where things are kept
 

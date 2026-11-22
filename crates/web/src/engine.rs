@@ -46,6 +46,8 @@ pub enum Request {
     /// Text inserted at the caret, as a paste does.
     Text(String),
     Mouse(Mouse),
+    /// Leave a video's (or any element's) full screen.
+    ExitFullscreen,
 }
 
 /// What the engine reports.
@@ -63,6 +65,8 @@ pub enum Event {
     Scroll(Scroll),
     /// One line for the status bar: a download, a dialog, an error.
     Notice(String),
+    /// Something on the page went full screen, or came back.
+    Fullscreen(bool),
     /// The browser is gone; the text says why.
     Exited(String),
 }
@@ -107,6 +111,9 @@ pub fn arguments(opts: &Options) -> Vec<String> {
         "--remote-debugging-pipe".into(),
         format!("--user-data-dir={}", opts.profile.display()),
         format!("--window-size={},{}", opts.width, opts.height),
+        // The headless screen is 800x600 unless told otherwise; a video that
+        // goes full screen would then grow past the page and sit in a corner.
+        format!("--screen-info={{{}x{}}}", opts.width, opts.height),
         "--force-device-scale-factor=1".into(),
         "--hide-scrollbars".into(),
         "--no-first-run".into(),
@@ -219,6 +226,39 @@ impl Drop for Engine {
         }
     }
 }
+
+/// Runs in every page before its own scripts.
+///
+/// It reports full screen to the engine (Esc has to leave it before it opens
+/// CRead's prompt), and it steers video sites to H.264 when the browser can
+/// play it: VP9 and AV1 are decoded in software on a Raspberry Pi and are what
+/// makes video stutter there. This is what the h264ify extension does.
+const PAGE_SCRIPT: &str = r#"(() => {
+  const report = window.creadFullscreen;
+  if (report) {
+    document.addEventListener('fullscreenchange',
+      () => report(String(!!document.fullscreenElement)), true);
+  }
+  const heavy = (type) => /av01|vp0?9|vp8/i.test(String(type));
+  const avc = 'video/mp4; codecs="avc1.42E01E"';
+  for (const name of ['MediaSource', 'ManagedMediaSource']) {
+    const source = window[name];
+    if (!source || !source.isTypeSupported) continue;
+    const original = source.isTypeSupported.bind(source);
+    if (!original(avc)) continue;
+    source.isTypeSupported = (type) => heavy(type) ? false : original(type);
+  }
+  const media = window.HTMLMediaElement && HTMLMediaElement.prototype;
+  if (media && media.canPlayType) {
+    const original = media.canPlayType;
+    if (original.call(document.createElement('video'), avc)) {
+      media.canPlayType = function (type) { return heavy(type) ? '' : original.call(this, type); };
+    }
+  }
+})();"#;
+
+/// The name the page script reports full screen under.
+const FULLSCREEN_BINDING: &str = "creadFullscreen";
 
 /// What a reply is for.
 enum Pending {
@@ -359,6 +399,11 @@ impl Worker {
             Request::Mouse(mouse) => {
                 self.page("Input.dispatchMouseEvent", mouse_event(mouse), None)
             }
+            Request::ExitFullscreen => self.page(
+                "Runtime.evaluate",
+                json!({ "expression": "document.fullscreenElement && document.exitFullscreen()" }),
+                None,
+            ),
         }
     }
 
@@ -422,6 +467,9 @@ impl Worker {
                     }
                     _ => {}
                 }
+            }
+            "Runtime.bindingCalled" if params["name"] == FULLSCREEN_BINDING => {
+                self.emit(Event::Fullscreen(params["payload"] == "true"));
             }
             "Inspector.targetCrashed" => self.emit(Event::Notice(
                 "the page crashed - reload to try again".into(),
@@ -525,7 +573,21 @@ impl Worker {
         self.page("Page.enable", json!({}), None);
         self.page(
             "Emulation.setDeviceMetricsOverride",
-            json!({ "width": width, "height": height, "deviceScaleFactor": 1, "mobile": false }),
+            json!({
+                "width": width, "height": height, "deviceScaleFactor": 1, "mobile": false,
+                "screenWidth": width, "screenHeight": height,
+            }),
+            None,
+        );
+        self.page("Runtime.enable", json!({}), None);
+        self.page(
+            "Runtime.addBinding",
+            json!({ "name": FULLSCREEN_BINDING }),
+            None,
+        );
+        self.page(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({ "source": PAGE_SCRIPT, "runImmediately": true }),
             None,
         );
         let _ = std::fs::create_dir_all(&self.opts.downloads);
@@ -540,7 +602,9 @@ impl Worker {
             "Page.startScreencast",
             json!({
                 "format": "jpeg", "quality": 85,
-                "maxWidth": width, "maxHeight": height, "everyNthFrame": 1,
+                // Every second frame: 30 a second is plenty for a 1987
+                // screen, and halves the work on both sides of the pipe.
+                "maxWidth": width, "maxHeight": height, "everyNthFrame": 2,
             }),
             None,
         );
@@ -705,7 +769,23 @@ mod tests {
                 .any(|a| a.starts_with("--remote-debugging-port"))
         );
         assert!(args.contains(&"--window-size=632,368".to_string()));
+        assert!(args.contains(&"--screen-info={632x368}".to_string()));
         assert!(args.contains(&"--user-data-dir=/p".to_string()));
+    }
+
+    /// The policy the Pi setup installs for Chromium. It is JSON Chromium
+    /// silently ignores when broken, so it is checked here.
+    #[test]
+    fn the_chromium_policy_is_valid_and_strict() {
+        let text = include_str!("../../../packaging/cread-chromium-policy.json");
+        let policy: Value = serde_json::from_str(text).expect("valid JSON");
+        let forced = policy["ExtensionInstallForcelist"][0].as_str().unwrap();
+        // uBlock Origin Lite, from the Chrome Web Store.
+        assert!(forced.starts_with("ddkjiahejlhfcafbddmgiahcphecmpfh;"));
+        assert_eq!(policy["PasswordManagerEnabled"], false);
+        assert_eq!(policy["VideoCaptureAllowed"], false);
+        assert_eq!(policy["AudioCaptureAllowed"], false);
+        assert_eq!(policy["DefaultGeolocationSetting"], 2);
     }
 
     #[test]
@@ -785,6 +865,55 @@ mod tests {
             }
         }
         assert_eq!(later, 0, "a still page keeps sending frames");
+
+        // Full screen stays the page's size and is reported both ways.
+        engine.send(Request::Navigate(
+            "data:text/html,<body style=margin:0><div onclick=this.requestFullscreen() \
+             style=width:100%;height:100%;background:red>x</div>"
+                .into(),
+        ));
+        std::thread::sleep(Duration::from_secs(2));
+        for press in [true, false] {
+            let (x, y, button, clicks, buttons) = (50, 50, 0, 1, u8::from(press));
+            engine.send(Request::Mouse(if press {
+                Mouse::Press {
+                    x,
+                    y,
+                    button,
+                    clicks,
+                    buttons,
+                }
+            } else {
+                Mouse::Release {
+                    x,
+                    y,
+                    button,
+                    clicks,
+                    buttons,
+                }
+            }));
+        }
+        let wait_for = |want: bool| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut size = None;
+            let mut seen = false;
+            while Instant::now() < deadline && !(seen && size.is_some()) {
+                let _ = wake_rx.recv_timeout(Duration::from_millis(200));
+                while let Some(event) = engine.try_recv() {
+                    match event {
+                        Event::Fullscreen(on) if on == want => seen = true,
+                        Event::Frame(f) if seen => size = Some((f.width, f.height)),
+                        _ => {}
+                    }
+                }
+            }
+            (seen, size)
+        };
+        let (seen, size) = wait_for(true);
+        assert!(seen, "full screen was not reported");
+        assert_eq!(size, Some((632, 368)), "full screen left the page size");
+        engine.send(Request::ExitFullscreen);
+        assert!(wait_for(false).0, "leaving full screen was not reported");
         let closing = Instant::now();
         drop(engine);
         eprintln!("closed in {:?}", closing.elapsed());

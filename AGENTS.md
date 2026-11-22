@@ -206,7 +206,8 @@ page therefore costs nothing.
 **The browser is Chromium behind a pipe.** Wanderlust is a real browser: a
 headless Chromium from the system (`apt install chromium`, never bundled, so the
 distribution keeps it patched) renders at exactly the page size the shell shows
-(624x336, inside a frame whose right edge is the scrollbar) and streams pictures; CRead draws them, the top bar and the prompt.
+(624x336, inside a frame whose top edge is the address bar and whose right
+edge is the scrollbar) and streams pictures; CRead draws them, the top bar and the prompt.
 These hold, and `crates/web` has tests for the first two:
 
 - CDP runs over `--remote-debugging-pipe` (fds 3 and 4), **never** a
@@ -220,6 +221,18 @@ These hold, and `crates/web` has tests for the first two:
   and the page never draws over row zero or the prompt: a page must not be
   able to fake CRead asking for a password.
 - One page at a time: a new window becomes a navigation in the same page.
+- Chromium gets `--screen-info={WxH}` with the page size: its headless
+  screen is 800x600 otherwise, and a video's full screen would grow past the
+  page into a corner. Frames that still arrive larger are cut to the page.
+- A page script (`PAGE_SCRIPT`) runs before every page: it reports full screen
+  through a `Runtime` binding (Esc leaves it before opening the prompt) and,
+  when H.264 is playable, hides VP9 and AV1 from `MediaSource`, the h264ify
+  trick; the Pi decodes those in software.
+- The screencast sends every second frame (30 fps).
+- `packaging/cread-chromium-policy.json` is the managed policy the Pi gets
+  (`cread-browser-setup`): uBlock Origin Lite force-installed, password store
+  and autofill off, camera, microphone, location and notifications blocked.
+  A test parses it; Chromium silently ignores a broken policy.
 - Moving frames arrive as JPEG; once the page is still, one PNG replaces the
   last of them. Taking that PNG makes the screencast send an echo frame, which
   is ignored (`shooting`), or the two would ping-pong forever.
